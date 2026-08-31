@@ -122,6 +122,14 @@ export const statusColor: Record<string, string> = {
   cancelled: semantic.muted,
   warning: semantic.warning,
   info: brand[500],
+  active: semantic.success,
+  available: semantic.success,
+  disabled: semantic.muted,
+  inactive: semantic.muted,
+  healthy: semantic.success,
+  unhealthy: semantic.danger,
+  paused: semantic.warning,
+  scheduled: brand[500],
 };
 
 /** 状态 → 中文文案（禁止仅用颜色表意，必须色点 + 文字） */
@@ -136,4 +144,12 @@ export const statusText: Record<string, string> = {
   cancelled: '已取消',
   warning: '警告',
   info: '提示',
+  active: '已启用',
+  available: '可用',
+  disabled: '已停用',
+  inactive: '未启用',
+  healthy: '健康',
+  unhealthy: '异常',
+  paused: '已暂停',
+  scheduled: '已调度',
 };

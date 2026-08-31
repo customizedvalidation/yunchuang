@@ -3,6 +3,8 @@ import { useLoginMutation } from '../store/api';
 import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, message, Alert } from 'antd';
 import { LockOutlined, UserOutlined, EyeOutlined } from '@ant-design/icons';
+import { useThemeMode } from '../theme/ThemeModeContext';
+import { getNeutral, brand } from '../theme/tokens';
 
 const Login: React.FC = () => {
   const [login, { isLoading, error }] = useLoginMutation();
@@ -12,6 +14,18 @@ const Login: React.FC = () => {
   const [isLocked, setIsLocked] = useState(false);
   const [lockTime, setLockTime] = useState(0);
   const [, setShowPassword] = useState(false);
+
+  const { mode } = useThemeMode();
+  const neutral = getNeutral(mode);
+  const isDark = mode === 'dark';
+  const pageBg = isDark
+    ? 'linear-gradient(135deg, #0a1120 0%, #111a2b 50%, #162135 100%)'
+    : 'linear-gradient(135deg, #eef4ff 0%, #f5f7fc 50%, #eaf0fa 100%)';
+  const cardBg = isDark ? 'rgba(17,26,43,0.85)' : 'rgba(255,255,255,0.85)';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(14,23,38,0.08)';
+  const inputBg = isDark ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.9)';
+  const inputBorder = isDark ? 'rgba(148,163,184,0.20)' : 'rgba(14,23,38,0.12)';
+  const brandGradient = `linear-gradient(135deg, ${brand[500]} 0%, ${brand[600]} 100%)`;
 
   useEffect(() => {
     if (isLocked) {
@@ -38,7 +52,7 @@ const Login: React.FC = () => {
     } catch (error: any) {
       const newAttempts = loginAttempts + 1;
       setLoginAttempts(newAttempts);
-      
+
       if (newAttempts >= 5) {
         setIsLocked(true);
         setLockTime(60000);
@@ -50,18 +64,18 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div 
-      style={{ 
+    <div
+      style={{
         minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%)',
+        background: pageBg,
         position: 'relative',
-        overflow: 'hidden'
+        overflow: 'hidden',
       }}
     >
-      <div 
+      <div
         className="float-animation"
         style={{
           position: 'absolute',
@@ -69,12 +83,12 @@ const Login: React.FC = () => {
           right: -200,
           width: 600,
           height: 600,
-          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.2) 0%, transparent 60%)',
+          background: 'radial-gradient(circle, rgba(47,107,255,0.20) 0%, transparent 60%)',
           borderRadius: '50%',
-          animation: 'float 15s ease-in-out infinite'
+          animation: 'float 15s ease-in-out infinite',
         }}
       />
-      <div 
+      <div
         className="float-animation"
         style={{
           position: 'absolute',
@@ -82,12 +96,12 @@ const Login: React.FC = () => {
           left: -150,
           width: 500,
           height: 500,
-          background: 'radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, transparent 60%)',
+          background: 'radial-gradient(circle, rgba(124,92,255,0.14) 0%, transparent 60%)',
           borderRadius: '50%',
-          animation: 'float 12s ease-in-out infinite reverse'
+          animation: 'float 12s ease-in-out infinite reverse',
         }}
       />
-      <div 
+      <div
         className="float-animation"
         style={{
           position: 'absolute',
@@ -95,57 +109,55 @@ const Login: React.FC = () => {
           left: '20%',
           width: 300,
           height: 300,
-          background: 'radial-gradient(circle, rgba(16, 185, 129, 0.1) 0%, transparent 50%)',
+          background: 'radial-gradient(circle, rgba(0,184,169,0.10) 0%, transparent 50%)',
           borderRadius: '50%',
-          animation: 'float 18s ease-in-out infinite'
+          animation: 'float 18s ease-in-out infinite',
         }}
       />
-      
-      <Card 
+
+      <Card
         className="login-card"
-        style={{ 
+        style={{
           width: 420,
-          background: 'rgba(30, 41, 59, 0.85)',
+          background: cardBg,
           backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
+          border: `1px solid ${cardBorder}`,
           borderRadius: '20px',
-          boxShadow: '0 25px 50px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05)',
+          boxShadow: '0 25px 50px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.04)',
           position: 'relative',
-          zIndex: 1
+          zIndex: 1,
         }}
         styles={{ body: { padding: '32px' } }}
       >
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <div 
-            style={{ 
-              width: '72px', 
+          <div
+            style={{
+              width: '72px',
               height: '72px',
               margin: '0 auto 16px',
-              background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+              background: brandGradient,
               borderRadius: '20px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 8px 30px rgba(59, 130, 246, 0.4)'
+              boxShadow: '0 8px 30px rgba(47, 107, 255, 0.4)',
             }}
           >
             <LockOutlined style={{ fontSize: '32px', color: '#fff' }} />
           </div>
-          <h1 
-            style={{ 
-              fontSize: '24px', 
-              fontWeight: 600, 
-              color: '#f1f5f9',
-              margin: '0 0 8px 0'
+          <h1
+            style={{
+              fontSize: '24px',
+              fontWeight: 600,
+              color: neutral.text1,
+              margin: '0 0 8px 0',
             }}
           >
-            <span style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            <span style={{ background: brandGradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               Metaclouds
             </span>
           </h1>
-          <p style={{ color: '#94a3b8', fontSize: '14px', margin: 0 }}>
-            算力调度平台
-          </p>
+          <p style={{ color: neutral.text3, fontSize: '14px', margin: 0 }}>算力调度平台</p>
         </div>
 
         {error && (
@@ -154,7 +166,7 @@ const Login: React.FC = () => {
             description={(error as any).data?.message || '请检查用户名和密码'}
             type="error"
             showIcon
-            style={{ marginBottom: '20px', background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+            style={{ marginBottom: '20px', background: 'var(--mc-danger-soft)', borderColor: 'var(--mc-danger-border)' }}
           />
         )}
         {isLocked && (
@@ -163,33 +175,29 @@ const Login: React.FC = () => {
             description="登录失败次数过多，请1分钟后再试"
             type="error"
             showIcon
-            style={{ marginBottom: '20px', background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+            style={{ marginBottom: '20px', background: 'var(--mc-danger-soft)', borderColor: 'var(--mc-danger-border)' }}
           />
         )}
 
-        <Form
-          form={form}
-          onFinish={onFinish}
-          layout="vertical"
-        >
+        <Form form={form} onFinish={onFinish} layout="vertical">
           <Form.Item
             name="username"
             label="用户名"
             rules={[
               { required: true, message: '请输入用户名' },
-              { min: 3, max: 20, message: '用户名长度应在3-20个字符之间' }
+              { min: 3, max: 20, message: '用户名长度应在3-20个字符之间' },
             ]}
           >
-            <Input 
-              placeholder="请输入用户名" 
+            <Input
+              placeholder="请输入用户名"
               disabled={isLoading || isLocked}
-              prefix={<UserOutlined style={{ color: '#64748b' }} />}
+              prefix={<UserOutlined style={{ color: neutral.text3 }} />}
               style={{
-                background: 'rgba(15, 23, 42, 0.6)',
-                border: '1px solid rgba(148, 163, 184, 0.2)',
+                background: inputBg,
+                border: `1px solid ${inputBorder}`,
                 borderRadius: '12px',
-                color: '#f1f5f9',
-                height: '44px'
+                color: neutral.text1,
+                height: '44px',
               }}
             />
           </Form.Item>
@@ -198,43 +206,43 @@ const Login: React.FC = () => {
             label="密码"
             rules={[
               { required: true, message: '请输入密码' },
-              { min: 6, message: '密码长度至少6个字符' }
+              { min: 6, message: '密码长度至少6个字符' },
             ]}
           >
-            <Input.Password 
-              placeholder="请输入密码" 
+            <Input.Password
+              placeholder="请输入密码"
               disabled={isLoading || isLocked}
-              prefix={<LockOutlined style={{ color: '#64748b' }} />}
+              prefix={<LockOutlined style={{ color: neutral.text3 }} />}
               iconRender={(visible) => (
-                <EyeOutlined 
-                  style={{ color: '#64748b', cursor: 'pointer' }} 
-                  onClick={() => setShowPassword(!visible)} 
+                <EyeOutlined
+                  style={{ color: neutral.text3, cursor: 'pointer' }}
+                  onClick={() => setShowPassword(!visible)}
                 />
               )}
               style={{
-                background: 'rgba(15, 23, 42, 0.6)',
-                border: '1px solid rgba(148, 163, 184, 0.2)',
+                background: inputBg,
+                border: `1px solid ${inputBorder}`,
                 borderRadius: '12px',
-                color: '#f1f5f9',
-                height: '44px'
+                color: neutral.text1,
+                height: '44px',
               }}
             />
           </Form.Item>
           <Form.Item>
-            <Button 
-              type="primary" 
-              htmlType="submit" 
-              loading={isLoading} 
-              block 
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={isLoading}
+              block
               disabled={isLoading || isLocked}
               style={{
                 height: '48px',
                 borderRadius: '12px',
                 fontSize: '15px',
                 fontWeight: 500,
-                background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+                background: brandGradient,
                 border: 'none',
-                boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)'
+                boxShadow: '0 4px 14px rgba(47, 107, 255, 0.4)',
               }}
             >
               {isLoading ? '登录中...' : '登 录'}
@@ -242,51 +250,33 @@ const Login: React.FC = () => {
           </Form.Item>
         </Form>
 
-        <div 
-          style={{ 
-            marginTop: '20px', 
+        <div
+          style={{
+            marginTop: '20px',
             paddingTop: '20px',
-            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-            textAlign: 'center'
+            borderTop: `1px solid ${cardBorder}`,
+            textAlign: 'center',
           }}
         >
-          <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>
-            默认账号：<span style={{ color: '#94a3b8' }}>admin</span>（初始密码由部署配置决定，请联系管理员获取）
+          <p style={{ color: neutral.text3, fontSize: '13px', margin: 0 }}>
+            默认账号：<span style={{ color: neutral.text2 }}>admin</span>（初始密码由部署配置决定，请联系管理员获取）
           </p>
         </div>
       </Card>
 
       <style>{`
         @keyframes float {
-          0%, 100% {
-            transform: translate(0, 0);
-          }
-          25% {
-            transform: translate(20px, -20px);
-          }
-          50% {
-            transform: translate(-20px, 20px);
-          }
-          75% {
-            transform: translate(10px, 10px);
-          }
+          0%, 100% { transform: translate(0, 0); }
+          25% { transform: translate(20px, -20px); }
+          50% { transform: translate(-20px, 20px); }
+          75% { transform: translate(10px, 10px); }
         }
-
         @media screen and (max-width: 768px) {
-          .login-card {
-            width: calc(100% - 32px) !important;
-            margin: 0 16px;
-          }
-          
-          .float-animation {
-            animation: none !important;
-          }
+          .login-card { width: calc(100% - 32px) !important; margin: 0 16px; }
+          .float-animation { animation: none !important; }
         }
-
         @media screen and (max-width: 480px) {
-          .login-card {
-            padding: 20px !important;
-          }
+          .login-card { padding: 20px !important; }
         }
       `}</style>
     </div>

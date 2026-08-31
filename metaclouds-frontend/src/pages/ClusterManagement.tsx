@@ -1,10 +1,12 @@
 import React from 'react';
-import { Card, Table, Button, Space, message, Modal, Form, Input } from 'antd';
+import { Card, Table, Button, Space, message, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
 import { useGetClustersQuery, useCreateClusterMutation, useDeleteClusterMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
+import { renderState, EmptyState } from '../components/States';
+import StatusCell from '../components/StatusCell';
 
 const ClusterManagement: React.FC = () => {
-  const { data: clusters, isLoading, refetch } = useGetClustersQuery(undefined);
+  const { data: clusters, isLoading, error, refetch } = useGetClustersQuery(undefined);
   const clustersData = extractArrayData(clusters);
   const [createCluster] = useCreateClusterMutation();
   const [deleteCluster] = useDeleteClusterMutation();
@@ -18,8 +20,8 @@ const ClusterManagement: React.FC = () => {
       setIsModalVisible(false);
       form.resetFields();
       refetch();
-    } catch (error) {
-      message.error('集群创建失败');
+    } catch {
+      message.error('集群创建失败，请检查必填项后重试');
     }
   };
 
@@ -28,70 +30,96 @@ const ClusterManagement: React.FC = () => {
       await deleteCluster(id).unwrap();
       message.success('集群删除成功');
       refetch();
-    } catch (error) {
-      message.error('集群删除失败');
+    } catch {
+      message.error('集群删除失败，请稍后重试');
     }
   };
 
   const columns = [
-    { title: 'ID', dataIndex: 'id', key: 'id' },
+    { title: 'ID', dataIndex: 'id', key: 'id', width: 90, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '描述', dataIndex: 'description', key: 'description' },
-    { title: '状态', dataIndex: 'status', key: 'status' },
-    { title: '节点数', dataIndex: 'nodes', key: 'nodes' },
-    { title: 'GPU数', dataIndex: 'gpus', key: 'gpus' },
+    { title: '状态', dataIndex: 'status', key: 'status', width: 110, render: (status: string) => <StatusCell status={status} /> },
+    { title: '节点数', dataIndex: 'nodes', key: 'nodes', width: 90, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
+    { title: 'GPU数', dataIndex: 'gpus', key: 'gpus', width: 90, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
     {
-      title: '操作',
-      key: 'action',
+      title: '操作', key: 'action', width: 100,
       render: (_: any, record: any) => (
         <Space>
-          <Button type="link" onClick={() => handleDelete(record.id)}>删除</Button>
+          <Popconfirm
+            title="删除该集群？"
+            description="集群下的节点与配额将一并移除，且不可恢复。"
+            okText="确认删除"
+            cancelText="返回"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => handleDelete(record.id)}
+          >
+            <Button type="link" danger size="small">删除</Button>
+          </Popconfirm>
         </Space>
       ),
     },
   ];
 
+  const state = renderState({
+    isLoading,
+    error,
+    isEmpty: clustersData.length === 0,
+    onRetry: refetch,
+    skeletonRows: 5,
+    skeletonColumns: 7,
+    empty: (
+      <EmptyState
+        title="还没有集群"
+        description="创建第一个集群来管理算力节点与 GPU 配额。"
+        action={<Button type="primary" onClick={() => setIsModalVisible(true)}>创建集群</Button>}
+      />
+    ),
+  });
+
   return (
-    <div className="p-6">
-      <Card
-        title="集群管理"
-        extra={
-          <Button type="primary" onClick={() => setIsModalVisible(true)}>
-            创建集群
-          </Button>
-        }
-      >
-        <Table
-          columns={columns}
-          dataSource={clustersData}
-          loading={isLoading}
-          rowKey="id"
-        />
+    <div className="mc-page">
+      <div className="mc-page-head">
+        <div className="mc-page-head-main">
+          <h1 className="mc-page-title">集群管理</h1>
+          <p className="mc-page-desc">共 {clustersData.length} 个集群 · 管理算力节点、GPU 配额与调度边界</p>
+        </div>
+        <div className="mc-page-head-extra">
+          <Button type="primary" onClick={() => setIsModalVisible(true)}>创建集群</Button>
+        </div>
+      </div>
+
+      <Card>
+        {state ?? (
+          <Table
+            columns={columns}
+            dataSource={clustersData}
+            rowKey="id"
+            pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+            scroll={{ x: 820 }}
+          />
+        )}
       </Card>
 
-      <Modal
-        title="创建集群"
-        open={isModalVisible}
-        onCancel={() => setIsModalVisible(false)}
-        footer={null}
-      >
+      <Modal title="创建集群" open={isModalVisible} onCancel={() => setIsModalVisible(false)} footer={null} destroyOnHidden>
         <Form form={form} onFinish={handleCreate} layout="vertical">
-          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
-            <Input />
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入集群名称' }]}>
+            <Input placeholder="例如：gpu-cluster-sh" />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea />
+            <Input.TextArea rows={3} placeholder="选填，便于后续追溯" />
           </Form.Item>
-          <Form.Item name="nodes" label="节点数" rules={[{ required: true }]}>
-            <Input type="number" />
+          <Form.Item name="nodes" label="节点数" rules={[{ required: true, message: '请输入节点数' }]}>
+            <InputNumber min={1} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="gpus" label="GPU数" rules={[{ required: true }]}>
-            <Input type="number" />
+          <Form.Item name="gpus" label="GPU数" rules={[{ required: true, message: '请输入 GPU 数' }]}>
+            <InputNumber min={0} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit">
-              创建
-            </Button>
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Space>
+              <Button type="primary" htmlType="submit">创建</Button>
+              <Button onClick={() => setIsModalVisible(false)}>取消</Button>
+            </Space>
           </Form.Item>
         </Form>
       </Modal>

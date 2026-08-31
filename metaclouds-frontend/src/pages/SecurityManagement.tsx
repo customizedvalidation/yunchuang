@@ -2,9 +2,11 @@ import React from 'react';
 import { Card, Table, Tag, Switch, message } from 'antd';
 import { useGetSecurityPoliciesQuery, useUpdateSecurityPolicyMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
+import { renderState, EmptyState } from '../components/States';
+import StatusCell from '../components/StatusCell';
 
 const SecurityManagement: React.FC = () => {
-  const { data: policies, isLoading, refetch } = useGetSecurityPoliciesQuery(undefined);
+  const { data: policies, isLoading, error, refetch } = useGetSecurityPoliciesQuery(undefined);
   const policiesData = extractArrayData(policies);
   const [updatePolicy] = useUpdateSecurityPolicyMutation();
 
@@ -13,48 +15,54 @@ const SecurityManagement: React.FC = () => {
       await updatePolicy({ id, enabled }).unwrap();
       message.success(`安全策略${enabled ? '启用' : '禁用'}成功`);
       refetch();
-    } catch (error) {
-      message.error('操作失败');
-    }
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'access': return 'blue';
-      case 'network': return 'green';
-      case 'data': return 'purple';
-      case 'system': return 'orange';
-      default: return 'default';
+    } catch {
+      message.error('操作失败，请稍后重试');
     }
   };
 
   const columns = [
-    { title: 'ID', dataIndex: 'id', key: 'id' },
+    { title: 'ID', dataIndex: 'id', key: 'id', width: 80, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
-    { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag color={getTypeColor(type)}>{type}</Tag> },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (status: string) => <Tag color={status === 'active' ? 'green' : 'red'}>{status}</Tag> },
+    { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
+    { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: (status: string) => <StatusCell status={status} /> },
     { title: '描述', dataIndex: 'description', key: 'description' },
     {
-      title: '启用',
-      key: 'enabled',
+      title: '启用', key: 'enabled', width: 90,
       render: (_: any, record: any) => (
-        <Switch
-          checked={record.enabled}
-          onChange={(checked) => handleToggle(record.id, checked)}
-        />
+        <Switch checked={record.enabled} onChange={(checked) => handleToggle(record.id, checked)} />
       ),
     },
   ];
 
+  const state = renderState({
+    isLoading,
+    error,
+    isEmpty: policiesData.length === 0,
+    onRetry: refetch,
+    skeletonRows: 5,
+    skeletonColumns: 6,
+    empty: <EmptyState title="暂无安全策略" description="还没有配置任何安全策略。" />,
+  });
+
   return (
-    <div className="p-6">
-      <Card title="安全管理">
-        <Table
-          columns={columns}
-          dataSource={policiesData}
-          loading={isLoading}
-          rowKey="id"
-        />
+    <div className="mc-page">
+      <div className="mc-page-head">
+        <div className="mc-page-head-main">
+          <h1 className="mc-page-title">安全管理</h1>
+          <p className="mc-page-desc">共 {policiesData.length} 条安全策略 · 访问控制、网络与数据防护</p>
+        </div>
+      </div>
+
+      <Card>
+        {state ?? (
+          <Table
+            columns={columns}
+            dataSource={policiesData}
+            rowKey="id"
+            pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+            scroll={{ x: 880 }}
+          />
+        )}
       </Card>
     </div>
   );
