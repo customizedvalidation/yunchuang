@@ -1,0 +1,240 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Metaclouds Design System (MDS) v2.0 —— CSS 变量
+   与 src/theme/tokens.ts 保持一致，改色时请同步修改
+   ============================================================ */
+:root {
+  /* 品牌 */
+  --mc-brand: #2f6bff;
+  --mc-brand-600: #1f52e0;
+  --mc-brand-400: #5b8bff;
+  --mc-brand-100: #dce8ff;
+  --mc-brand-50: #eef4ff;
+
+  /* 语义 */
+  --mc-success: #12b886;
+  --mc-success-soft: #e6faf4;
+  --mc-warning: #f59e0b;
+  --mc-warning-soft: #fef6e7;
+  --mc-danger: #f0445a;
+  --mc-danger-soft: #feedee;
+  --mc-danger-border: #f9c9ce;
+  --mc-info-soft: #eef4ff;
+
+  /* 中性 */
+  --mc-text-1: #0e1726;
+  --mc-text-2: #4a5b75;
+  --mc-text-3: #7c8da6;
+  --mc-line: #e4eaf3;
+  --mc-line-strong: #d2dceb;
+  --mc-surface: #ffffff;
+  --mc-surface-2: #fafcfe;
+  --mc-surface-3: #f4f7fc;
+  --mc-bg: #f5f7fc;
+
+  /* 圆角 */
+  --mc-radius-xs: 4px;
+  --mc-radius-sm: 6px;
+  --mc-radius-md: 8px;
+  --mc-radius-lg: 12px;
+  --mc-radius-xl: 16px;
+  --mc-radius-pill: 999px;
+
+  /* 阴影 */
+  --mc-shadow-1: 0 1px 2px rgba(14, 23, 38, 0.06);
+  --mc-shadow-2: 0 2px 6px rgba(14, 23, 38, 0.06);
+  --mc-shadow-3: 0 8px 24px rgba(14, 23, 38, 0.08);
+  --mc-shadow-4: 0 18px 48px rgba(14, 23, 38, 0.16);
+
+  /* 动效 */
+  --mc-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --mc-t-fast: 120ms;
+  --mc-t-base: 180ms;
+  --mc-t-slow: 280ms;
+
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
+  --mc-brand: #5b8bff;
+  --mc-brand-400: #5b8bff;
+  --mc-brand-100: #1e345f;
+  --mc-brand-50: #16233f;
+  --mc-info-soft: #16233f;
+
+  --mc-success: #2bd9a6;
+  --mc-success-soft: rgba(43, 217, 166, 0.12);
+  --mc-warning: #ffb224;
+  --mc-warning-soft: rgba(255, 178, 36, 0.12);
+  --mc-danger: #ff616e;
+  --mc-danger-soft: rgba(255, 97, 110, 0.12);
+  --mc-danger-border: rgba(255, 97, 110, 0.28);
+
+  --mc-text-1: #eaf0fa;
+  --mc-text-2: #a9b8d0;
+  --mc-text-3: #7c8da6;
+  --mc-line: #22304a;
+  --mc-line-strong: #2e3f5e;
+  --mc-surface: #111a2b;
+  --mc-surface-2: #162135;
+  --mc-surface-3: #0f1728;
+  --mc-bg: #0a1120;
+
+  --mc-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --mc-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.45);
+  --mc-shadow-3: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --mc-shadow-4: 0 18px 48px rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}
+
+/* ============================ 基础 ============================ */
+body {
+  margin: 0;
+  font-family: 'Inter', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei', -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', Roboto, 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans',
+    'Droid Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--mc-bg);
+  color: var(--mc-text-1);
+  transition: background var(--mc-t-base) var(--mc-ease), color var(--mc-t-base) var(--mc-ease);
+}
+
+code {
+  font-family: 'JetBrains Mono', source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+}
+
+/* 数字等宽：表格与指标禁止列宽跳动 */
+.mc-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* 长 ID / 代码 */
+.mc-mono {
+  font-family: 'JetBrains Mono', source-code-pro, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 统一焦点环（无障碍：键盘可达必须可见） */
+:focus-visible {
+  outline: 2px solid var(--mc-brand);
+  outline-offset: 2px;
+  border-radius: var(--mc-radius-xs);
+}
+
+/* 降低动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--mc-line-strong);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--mc-text-3);
+  background-clip: padding-box;
+}
+
+/* ============================ 页面模板 ============================ */
+.mc-page {
+  padding: 24px;
+  min-width: 0;
+}
+
+.mc-page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.mc-page-head-main {
+  flex: 1;
+  min-width: 220px;
+}
+
+.mc-page-title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 660;
+  letter-spacing: -0.3px;
+  color: var(--mc-text-1);
+}
+
+.mc-page-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--mc-text-3);
+}
+
+.mc-page-head-extra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 状态：色点 + 文字（禁止仅用颜色表意） */
+.mc-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.mc-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mc-status.running { color: var(--mc-brand); }
+.mc-status.running .mc-status-dot {
+  background: var(--mc-brand);
+  animation: mc-pulse 2s var(--mc-ease) infinite;
+}
+.mc-status.pending { color: var(--mc-warning); }
+.mc-status.pending .mc-status-dot { background: var(--mc-warning); }
+.mc-status.completed { color: var(--mc-success); }
+.mc-status.completed .mc-status-dot { background: var(--mc-success); }
+.mc-status.failed { color: var(--mc-danger); }
+.mc-status.failed .mc-status-dot { background: var(--mc-danger); }
+.mc-status.idle { color: var(--mc-text-3); }
+.mc-status.idle .mc-status-dot { background: var(--mc-text-3); }
+
+@keyframes mc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (max-width: 768px) {
+  .mc-page {
+    padding: 16px;
+  }
+}

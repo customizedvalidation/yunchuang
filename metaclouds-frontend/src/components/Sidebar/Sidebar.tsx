@@ -1,0 +1,275 @@
+import React, { useCallback, useState, useEffect } from 'react';
+import { Layout, Menu, Tooltip, Badge } from 'antd';
+import { 
+  DashboardOutlined, 
+  SaveOutlined, 
+  CloudOutlined, 
+  TagsOutlined, 
+  BellOutlined, 
+  UserOutlined, 
+  CiOutlined, 
+  IeOutlined, 
+  ContainerOutlined,
+  LeftOutlined,
+  LogoutOutlined
+} from '@ant-design/icons';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { SIDEBAR_WIDTH } from '../../theme/sidebar';
+import { useGetJobsQuery, useGetClustersQuery, useGetResourcesQuery, useGetTenantsQuery, useGetAlertsQuery } from '../../store/api';
+import { extractArrayData } from '../../utils/api';
+import './Sidebar.css';
+
+const { Sider } = Layout;
+
+// 菜单按“业务域”分组并合理排列：
+// 总览 → 调度 → 基础设施(集群/资源/K8S) → 平台(租户/加速) → 可观测与治理(监控/安全)
+export const menuItems = [
+  {
+    type: 'group',
+    label: '总览',
+    children: [
+      { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', description: '总览' },
+    ],
+  },
+  {
+    type: 'group',
+    label: '调度',
+    children: [
+      {
+        key: '/job', icon: <TagsOutlined />, label: '作业管理', description: '作业调度',
+        children: [
+          { key: '/job/list', label: '作业列表' },
+          { key: '/job/queue', label: '任务队列' },
+          { key: '/job/history', label: '历史记录' },
+        ],
+      },
+    ],
+  },
+  {
+    type: 'group',
+    label: '基础设施',
+    children: [
+      { key: '/cluster', icon: <SaveOutlined />, label: '集群管理', description: '集群配置' },
+      { key: '/resource', icon: <CloudOutlined />, label: '资源管理', description: '资源分配' },
+      {
+        key: '/k8s', icon: <ContainerOutlined />, label: 'K8S管理', description: '容器编排',
+        children: [
+          { key: '/k8s/nodes', label: '节点管理' },
+          { key: '/k8s/pods', label: 'Pod管理' },
+          { key: '/k8s/services', label: '服务管理' },
+        ],
+      },
+    ],
+  },
+  {
+    type: 'group',
+    label: '平台',
+    children: [
+      { key: '/tenant', icon: <UserOutlined />, label: '多租户管理', description: '租户配置' },
+      { key: '/acceleration', icon: <CiOutlined />, label: '加速套件', description: 'GPU加速' },
+    ],
+  },
+  {
+    type: 'group',
+    label: '可观测与治理',
+    children: [
+      { key: '/monitoring', icon: <BellOutlined />, label: '监控告警', description: '实时监控' },
+      { key: '/security', icon: <IeOutlined />, label: '安全管理', description: '安全策略' },
+    ],
+  },
+];
+
+export interface SidebarProps {
+  collapsed: boolean;
+  onCollapse: (collapsed: boolean) => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleMenuClick = useCallback((e: { key: string }) => {
+    navigate(e.key);
+  }, [navigate]);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  }, [navigate]);
+
+  // 递归查找当前路由所属的所有父级子菜单 key（需穿透 group 分组层）
+  const getParentKeysForPath = useCallback((pathname: string): string[] => {
+    const find = (items: any[], trail: string[]): string[] => {
+      let res: string[] = [];
+      for (const item of items) {
+        if (item.type === 'group') {
+          res = res.concat(find(item.children || [], trail));
+        } else if (item.children) {
+          const newTrail = [...trail, item.key];
+          if (pathname === item.key || pathname.startsWith(item.key + '/')) {
+            res = res.concat(newTrail);
+          }
+          res = res.concat(find(item.children, newTrail));
+        }
+      }
+      return res;
+    };
+    return find(menuItems, []);
+  }, []);
+
+  // 受控展开：默认展开当前路由所属父菜单，并允许用户手动展开/收起子菜单
+  const [openKeys, setOpenKeys] = useState<string[]>(() => getParentKeysForPath(location.pathname));
+  useEffect(() => {
+    setOpenKeys((prev) => Array.from(new Set([...prev, ...getParentKeysForPath(location.pathname)])));
+  }, [location.pathname, getParentKeysForPath]);
+
+  // 菜单项实时数量徽标：全部基于既有 API，无需新增后端端点
+  const { data: badgeJobs } = useGetJobsQuery(undefined);
+  const { data: badgeClusters } = useGetClustersQuery(undefined);
+  const { data: badgeResources } = useGetResourcesQuery(undefined);
+  const { data: badgeTenants } = useGetTenantsQuery(undefined);
+  const { data: badgeAlerts } = useGetAlertsQuery(undefined);
+  const badgeJobsData = extractArrayData(badgeJobs);
+  const badgeMap: Record<string, number> = {
+    '/job': badgeJobsData.length,
+    '/job/queue': badgeJobsData.filter((j: any) => j.status === 'pending').length,
+    '/job/history': badgeJobsData.filter((j: any) => ['completed', 'failed', 'cancelled'].includes(j.status)).length,
+    '/k8s/pods': badgeJobsData.filter((j: any) => j.status === 'running').length,
+    '/cluster': extractArrayData(badgeClusters).length,
+    '/resource': extractArrayData(badgeResources).length,
+    '/tenant': extractArrayData(badgeTenants).length,
+    '/monitoring': extractArrayData(badgeAlerts).length,
+  };
+
+  // 徽标颜色分级：按业务语义与数量给出不同警示色，避免一律红色
+  // - 监控告警：>0 橙色（warning），>=5 红色升级（danger）
+  // - 任务队列(pending)/运行 Pod：进行中蓝 / 绿色（正常态）
+  // - 总览类计数（作业/集群/资源/租户/历史）：中性蓝或灰
+  const getBadgeColor = (key: string, count: number): string | undefined => {
+    if (!count) return undefined;
+    switch (key) {
+      case '/monitoring':
+        return count >= 5 ? '#ff4d4f' : '#fa8c16';
+      case '/job/queue':
+        return '#1677ff';
+      case '/k8s/pods':
+        return '#52c41a';
+      case '/job/history':
+        return '#8c8c8c';
+      case '/job':
+      case '/cluster':
+      case '/resource':
+      case '/tenant':
+        return '#1677ff';
+      default:
+        return '#ff4d4f';
+    }
+  };
+
+  // 递归处理所有菜单项，包括分组、分隔线与子菜单
+  const processMenuItem = (item: any): any => {
+    // 分隔线：直接透传
+    if (item.type === 'divider') {
+      return { type: 'divider' };
+    }
+    // 分组标题：保留纯文本标签并递归处理子项（分组本身不加徽标）
+    if (item.type === 'group') {
+      return {
+        type: 'group',
+        label: item.label,
+        children: (item.children || []).map((child: any) => processMenuItem(child)),
+      };
+    }
+
+    const count = badgeMap[item.key];
+    const badge = count ? (
+      <Badge count={count} size="small" color={getBadgeColor(item.key, count)} style={{ marginLeft: 'auto' }} />
+    ) : null;
+    const labelNode = collapsed ? (
+      <div className="menu-item-content collapsed">
+        <div className="menu-label-row">
+          <span className="menu-label">{item.label}</span>
+          {badge}
+        </div>
+      </div>
+    ) : (
+      <div className="menu-item-content">
+        <div className="menu-label-row">
+          <span className="menu-label">{item.label}</span>
+          {badge}
+        </div>
+        {item.description && (
+          <span className="menu-description">{item.description}</span>
+        )}
+      </div>
+    );
+    const processedItem: any = {
+      ...item,
+      label: labelNode,
+    };
+
+    // 递归处理子菜单
+    if (item.children) {
+      processedItem.children = item.children.map((child: any) => processMenuItem(child));
+    }
+
+    return processedItem;
+  };
+  
+  const processedItems = menuItems.map(item => processMenuItem(item));
+
+  return (
+    <Sider 
+      className={`metaclouds-sidebar ${collapsed ? 'collapsed' : ''}`}
+      width={collapsed ? SIDEBAR_WIDTH.COLLAPSED : SIDEBAR_WIDTH.DEFAULT} 
+      collapsed={collapsed}
+      trigger={null}
+    >
+      <div className="logo">
+        {!collapsed && (
+          <>
+            <h1 className="logo-title">Metaclouds</h1>
+            <span className="logo-subtitle">算力调度平台</span>
+          </>
+        )}
+      </div>
+
+      <div 
+        className="collapse-btn" 
+        onClick={() => {
+          const isLandscape = typeof window !== 'undefined' && window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches;
+          if (!isLandscape) {
+            onCollapse(!collapsed);
+          }
+        }}
+      >
+        <LeftOutlined />
+      </div>
+
+      <div className="menu-container">
+        <Menu
+          mode="inline"
+          theme="dark"
+          items={processedItems}
+          selectedKeys={[location.pathname]}
+          openKeys={openKeys}
+          onOpenChange={(keys) => setOpenKeys(keys as string[])}
+          onClick={handleMenuClick}
+        />
+      </div>
+
+      <Tooltip 
+        title={collapsed ? '退出登录' : ''} 
+        placement="right"
+      >
+        <div className="logout-btn" onClick={logout}>
+          <LogoutOutlined />
+          {!collapsed && <span>退出登录</span>}
+        </div>
+      </Tooltip>
+    </Sider>
+  );
+};
+
+export default Sidebar;

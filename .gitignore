@@ -1,0 +1,57 @@
+# ===== Dependencies (Node) =====
+node_modules/
+**/node_modules/
+
+# ===== Build output =====
+dist/
+dist2/
+build/
+out/
+**/dist/
+**/build/
+.target/
+
+# ===== Logs =====
+*.log
+logs/
+**/logs/
+
+# ===== Secrets / credential backups — NEVER commit =====
+.credential-rotation-backup*/
+**/.credential-rotation-backup*/
+*.env
+.env
+.env.*
+!.env.example
+!.env.production.example
+secrets/
+**/secrets/
+
+# ===== Go vendor =====
+vendor/
+
+# ===== OS / editor =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# ===== Binaries =====
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+
+# ===== Temp / caches =====
+.tmp/
+tmp/
+.cache/
+**/.cache/
+vite.config.ts.timestamp-*.mjs
+*.timestamp-*.mjs
+
+# ===== Coverage =====
+coverage/
+*.coverage

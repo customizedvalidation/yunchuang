@@ -1,0 +1,1497 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Metaclouds 算力调度平台 · 全新界面设计方案（可交互原型）</title>
+<style>
+/* ============================================================
+   Metaclouds Design System (MDS) v2.0 — Design Tokens
+   ============================================================ */
+:root{
+  /* --- 品牌与语义色 --- */
+  --brand-700:#1B47C4; --brand-600:#1F52E0; --brand-500:#2F6BFF; --brand-400:#5B8BFF;
+  --brand-100:#DCE8FF; --brand-50:#EEF4FF;
+  --teal-600:#00A295; --teal-500:#00B8A9; --teal-50:#E6FAF8;
+  --violet-600:#6A46F2; --violet-500:#7C5CFF; --violet-50:#F1EDFF;
+  --amber-600:#D98207; --amber-500:#F59E0B; --amber-50:#FEF6E7;
+  --red-600:#D92D43; --red-500:#F0445A; --red-50:#FEEDEE;
+  --green-600:#0CA678; --green-500:#12B886; --green-50:#E6FAF4;
+
+  /* --- 中性色 --- */
+  --ink-900:#0E1726; --ink-700:#33415C; --ink-500:#5A6B85;
+  --ink-400:#7C8DA6; --ink-300:#A3B1C6; --ink-200:#CBD5E3;
+  --line:#E4EAF3; --line-strong:#D2DCEB;
+  --surface:#FFFFFF; --surface-2:#FAFCFE; --surface-3:#F4F7FC;
+  --bg:#F5F7FC;
+
+  /* --- 文字 --- */
+  --text-1:#0E1726; --text-2:#4A5B75; --text-3:#7C8DA6; --text-inv:#FFFFFF;
+
+  /* --- 圆角 --- */
+  --r-xs:4px; --r-sm:6px; --r-md:8px; --r-lg:12px; --r-xl:16px; --r-pill:999px;
+
+  /* --- 间距（4pt 栅格） --- */
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:20px; --s-6:24px; --s-8:32px; --s-10:40px; --s-12:48px;
+
+  /* --- 阴影 --- */
+  --sh-1:0 1px 2px rgba(14,23,38,.06);
+  --sh-2:0 2px 6px rgba(14,23,38,.06), 0 1px 2px rgba(14,23,38,.04);
+  --sh-3:0 8px 24px rgba(14,23,38,.08), 0 2px 6px rgba(14,23,38,.04);
+  --sh-4:0 18px 48px rgba(14,23,38,.16), 0 4px 12px rgba(14,23,38,.08);
+
+  /* --- 动效 --- */
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --t-fast:120ms; --t-base:180ms; --t-slow:280ms;
+
+  /* --- 侧边栏 --- */
+  --nav-bg-1:#0A1020; --nav-bg-2:#141E36;
+  --nav-text:#E9EEF8; --nav-text-2:#A9B8D0; --nav-text-3:#6F7F9B;
+  --nav-hover:rgba(255,255,255,.07); --nav-active:rgba(47,107,255,.18);
+  --nav-line:rgba(255,255,255,.08);
+
+  /* --- 尺寸 --- */
+  --nav-w:248px; --nav-w-collapsed:72px; --topbar-h:56px;
+}
+
+html[data-theme="dark"]{
+  --surface:#111A2B; --surface-2:#162135; --surface-3:#0F1728;
+  --bg:#0A1120;
+  --line:#22304A; --line-strong:#2E3F5E;
+  --text-1:#EAF0FA; --text-2:#A9B8D0; --text-3:#7C8DA6;
+  --brand-500:#5B8BFF; --brand-600:#4C7BFF; --brand-50:#16233F;
+  --brand-100:#1E345F;
+  --teal-500:#22D3C5; --teal-50:#0F2A2E;
+  --violet-500:#9B84FF; --violet-50:#1D1B34;
+  --amber-500:#FFB224; --amber-50:#2E240F;
+  --red-500:#FF616E; --red-50:#2E1519;
+  --green-500:#2BD9A6; --green-50:#0F2A24;
+  --sh-1:0 1px 2px rgba(0,0,0,.4);
+  --sh-2:0 2px 6px rgba(0,0,0,.45);
+  --sh-3:0 8px 24px rgba(0,0,0,.5);
+  --sh-4:0 18px 48px rgba(0,0,0,.6);
+  --nav-bg-1:#070C18; --nav-bg-2:#101A30;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{
+  font-family:'Inter','HarmonyOS Sans SC','PingFang SC','Microsoft YaHei',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--bg); color:var(--text-1);
+  font-size:14px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  transition:background var(--t-base) var(--ease), color var(--t-base) var(--ease);
+}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;}
+.mono{font-family:'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace;font-variant-numeric:tabular-nums;}
+button,input,select{font-family:inherit;font-size:inherit;color:inherit;}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:6px;border:3px solid transparent;background-clip:padding-box;}
+::-webkit-scrollbar-thumb:hover{background:var(--ink-300);background-clip:padding-box;}
+:focus-visible{outline:2px solid var(--brand-500);outline-offset:2px;border-radius:var(--r-xs);}
+
+/* ============================ 登录页 ============================ */
+#login{position:fixed;inset:0;z-index:200;display:flex;}
+#login.hidden{display:none;}
+.login-brand{
+  flex:1.15;position:relative;overflow:hidden;
+  background:linear-gradient(150deg,#070D1C 0%,#122244 55%,#1B2E63 100%);
+  display:flex;flex-direction:column;justify-content:space-between;
+  padding:var(--s-12) var(--s-12);color:#fff;
+}
+.login-brand::before{
+  content:'';position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);
+  background-size:44px 44px;mask-image:radial-gradient(ellipse at 30% 40%,#000 0%,transparent 78%);
+}
+.brand-glow{position:absolute;border-radius:50%;filter:blur(70px);}
+.brand-glow.a{width:420px;height:420px;background:rgba(47,107,255,.45);top:-120px;right:-100px;}
+.brand-glow.b{width:360px;height:360px;background:rgba(124,92,255,.32);bottom:-140px;left:-80px;}
+.login-brand>*{position:relative;z-index:1;}
+.logo{display:flex;align-items:center;gap:var(--s-3);}
+.logo-mark{
+  width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--brand-500),var(--violet-500));
+  box-shadow:0 8px 24px rgba(47,107,255,.45);
+}
+.logo-name{font-size:17px;font-weight:650;letter-spacing:.2px;}
+.logo-sub{font-size:11.5px;color:#8FA2C4;margin-top:1px;letter-spacing:.6px;}
+.brand-hero h1{font-size:38px;line-height:1.22;font-weight:680;margin:0 0 var(--s-4);letter-spacing:-.5px;}
+.brand-hero p{margin:0;color:#A9BCDC;font-size:15px;max-width:460px;line-height:1.75;}
+.brand-points{display:flex;gap:var(--s-8);margin-top:var(--s-10);flex-wrap:wrap;}
+.brand-point{display:flex;flex-direction:column;gap:6px;}
+.brand-point .v{font-size:26px;font-weight:680;letter-spacing:-.5px;}
+.brand-point .v span{font-size:14px;font-weight:500;color:#8FA2C4;margin-left:2px;}
+.brand-point .k{font-size:12.5px;color:#8FA2C4;}
+.brand-foot{font-size:12px;color:#65769A;}
+
+.login-panel{
+  width:520px;flex-shrink:0;background:var(--surface);display:flex;align-items:center;justify-content:center;padding:var(--s-10);
+  position:relative;
+}
+.login-card{width:100%;max-width:380px;}
+.login-card h2{margin:0 0 6px;font-size:26px;font-weight:660;letter-spacing:-.3px;}
+.login-card .desc{margin:0 0 var(--s-8);color:var(--text-3);font-size:13.5px;}
+.field{margin-bottom:var(--s-5);}
+.field label{display:block;font-size:13px;font-weight:560;margin-bottom:7px;color:var(--text-2);}
+.field .req{color:var(--red-500);margin-left:2px;}
+.inp{
+  width:100%;height:42px;padding:0 var(--s-4);border-radius:var(--r-md);
+  border:1px solid var(--line-strong);background:var(--surface);color:var(--text-1);
+  transition:border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease);
+}
+.inp::placeholder{color:var(--text-3);}
+.inp:hover{border-color:var(--brand-400);}
+.inp:focus{outline:none;border-color:var(--brand-500);box-shadow:0 0 0 3px var(--brand-50);}
+.inp.err{border-color:var(--red-500);}
+.inp.err:focus{box-shadow:0 0 0 3px var(--red-50);}
+.field-err{display:flex;align-items:center;gap:5px;color:var(--red-500);font-size:12px;margin-top:6px;}
+.inp-wrap{position:relative;}
+.inp-wrap .eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;color:var(--text-3);padding:4px;border-radius:var(--r-xs);}
+.inp-wrap .eye:hover{color:var(--text-2);background:var(--surface-3);}
+.login-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s-6);font-size:13px;}
+.check{display:flex;align-items:center;gap:8px;color:var(--text-2);cursor:pointer;user-select:none;}
+.check input{width:16px;height:16px;accent-color:var(--brand-500);cursor:pointer;}
+.link{color:var(--brand-500);text-decoration:none;font-weight:560;}
+.link:hover{text-decoration:underline;}
+.btn{
+  height:42px;padding:0 var(--s-5);border-radius:var(--r-md);border:1px solid transparent;
+  font-weight:580;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  transition:all var(--t-fast) var(--ease);white-space:nowrap;
+}
+.btn-primary{width:100%;background:var(--brand-500);color:#fff;box-shadow:0 2px 8px rgba(47,107,255,.28);}
+.btn-primary:hover{background:var(--brand-600);box-shadow:0 6px 18px rgba(47,107,255,.34);transform:translateY(-1px);}
+.btn-primary:active{transform:translateY(0);}
+.btn-ghost{background:var(--surface);border-color:var(--line-strong);color:var(--text-2);}
+.btn-ghost:hover{border-color:var(--brand-400);color:var(--brand-500);background:var(--brand-50);}
+.btn-sm{height:32px;padding:0 var(--s-3);font-size:13px;border-radius:var(--r-sm);}
+.btn-danger{background:var(--red-500);color:#fff;}
+.btn-danger:hover{background:var(--red-600);}
+.divider{display:flex;align-items:center;gap:var(--s-3);margin:var(--s-6) 0;color:var(--text-3);font-size:12px;}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--line);}
+.sso{display:flex;gap:var(--s-3);}
+.sso .btn{flex:1;}
+.login-note{
+  margin-top:var(--s-6);padding:var(--s-3) var(--s-4);border-radius:var(--r-md);
+  background:var(--brand-50);border:1px solid var(--brand-100);
+  font-size:12.5px;color:var(--text-2);line-height:1.6;
+}
+html[data-theme="dark"] .login-note{background:rgba(91,139,255,.10);border-color:rgba(91,139,255,.22);}
+
+/* ============================ 应用外壳 ============================ */
+#app{display:flex;min-height:100vh;}
+
+/* --- 侧边栏 --- */
+.nav{
+  width:var(--nav-w);flex-shrink:0;position:fixed;inset:0 auto 0 0;z-index:60;
+  background:linear-gradient(180deg,var(--nav-bg-1) 0%,var(--nav-bg-2) 100%);
+  color:var(--nav-text);display:flex;flex-direction:column;
+  transition:width var(--t-slow) var(--ease);overflow:hidden;
+}
+.nav::after{content:'';position:absolute;top:0;right:0;bottom:0;width:1px;background:var(--nav-line);}
+.nav-head{height:var(--topbar-h);display:flex;align-items:center;gap:var(--s-3);padding:0 var(--s-5);flex-shrink:0;}
+.nav-head .logo-name{color:var(--nav-text);}
+.nav-head .logo-sub{color:var(--nav-text-3);}
+.nav-scroll{flex:1;overflow-y:auto;padding:var(--s-2) var(--s-3) var(--s-4);}
+.nav-scroll::-webkit-scrollbar{width:6px;}
+.nav-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border:0;background-clip:padding-box;}
+.nav-group{margin-top:var(--s-5);}
+.nav-group:first-child{margin-top:var(--s-2);}
+.nav-group-title{
+  font-size:11px;font-weight:620;letter-spacing:.9px;color:var(--nav-text-3);
+  padding:0 var(--s-3) var(--s-2);text-transform:uppercase;
+}
+.nav-item{
+  display:flex;align-items:center;gap:var(--s-3);height:40px;padding:0 var(--s-3);
+  border-radius:var(--r-md);cursor:pointer;color:var(--nav-text-2);
+  font-size:14px;font-weight:500;margin-bottom:2px;position:relative;
+  transition:background var(--t-fast) var(--ease),color var(--t-fast) var(--ease);
+}
+.nav-item:hover{background:var(--nav-hover);color:var(--nav-text);}
+.nav-item.active{background:var(--nav-active);color:#fff;font-weight:580;}
+.nav-item.active::before{
+  content:'';position:absolute;left:-12px;top:50%;transform:translateY(-50%);
+  width:3px;height:20px;border-radius:0 3px 3px 0;background:var(--brand-500);
+  box-shadow:0 0 12px rgba(47,107,255,.8);
+}
+.nav-item .ico{width:18px;height:18px;flex-shrink:0;display:grid;place-items:center;}
+.nav-item .ico svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.nav-item .txt{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.nav-count{
+  min-width:20px;height:19px;padding:0 6px;border-radius:var(--r-pill);
+  background:rgba(255,255,255,.10);color:var(--nav-text-2);
+  font-size:11px;font-weight:600;display:grid;place-items:center;line-height:1;
+}
+.nav-item.active .nav-count{background:rgba(255,255,255,.20);color:#fff;}
+.nav-count.warn{background:rgba(245,158,11,.22);color:#FFC65C;}
+.nav-sub{margin-left:var(--s-2);padding-left:var(--s-3);border-left:1px solid var(--nav-line);display:none;}
+.nav-sub.open{display:block;}
+.nav-sub .nav-item{height:34px;font-size:13.5px;color:var(--nav-text-3);}
+.nav-sub .nav-item.active{background:transparent;color:var(--brand-400);}
+.nav-sub .nav-item.active::before{left:-25px;height:14px;}
+.nav-item .chev{margin-left:2px;transition:transform var(--t-base) var(--ease);opacity:.7;}
+.nav-item.expanded .chev{transform:rotate(90deg);}
+.nav-foot{padding:var(--s-3);border-top:1px solid var(--nav-line);flex-shrink:0;}
+.nav-user{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2);border-radius:var(--r-md);cursor:pointer;transition:background var(--t-fast) var(--ease);}
+.nav-user:hover{background:var(--nav-hover);}
+.avatar{
+  width:32px;height:32px;border-radius:var(--r-pill);flex-shrink:0;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--brand-500),var(--violet-500));color:#fff;font-size:12.5px;font-weight:620;
+}
+.nav-user .u-name{font-size:13px;font-weight:560;color:var(--nav-text);}
+.nav-user .u-role{font-size:11px;color:var(--nav-text-3);}
+
+/* --- 顶栏 --- */
+.main{flex:1;margin-left:var(--nav-w);min-width:0;display:flex;flex-direction:column;transition:margin-left var(--t-slow) var(--ease);}
+.topbar{
+  height:var(--topbar-h);flex-shrink:0;display:flex;align-items:center;gap:var(--s-4);
+  padding:0 var(--s-6);background:var(--surface);border-bottom:1px solid var(--line);
+  position:sticky;top:0;z-index:50;
+}
+.crumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-3);min-width:0;}
+.crumb b{color:var(--text-1);font-weight:580;}
+.crumb .sep{opacity:.5;}
+.search{
+  margin-left:auto;display:flex;align-items:center;gap:var(--s-2);
+  width:320px;height:36px;padding:0 var(--s-3);border-radius:var(--r-md);
+  background:var(--surface-3);border:1px solid transparent;color:var(--text-3);cursor:pointer;
+  transition:all var(--t-fast) var(--ease);
+}
+.search:hover{border-color:var(--line-strong);background:var(--surface);}
+.search svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;flex-shrink:0;}
+.search .ph{flex:1;font-size:13px;text-align:left;}
+.kbd{
+  display:inline-flex;align-items:center;gap:1px;padding:2px 6px;border-radius:var(--r-xs);
+  background:var(--surface);border:1px solid var(--line-strong);font-size:11px;color:var(--text-3);
+  font-family:inherit;font-weight:560;
+}
+.icon-btn{
+  width:34px;height:34px;border-radius:var(--r-md);border:1px solid transparent;background:transparent;
+  color:var(--text-2);cursor:pointer;display:grid;place-items:center;position:relative;
+  transition:all var(--t-fast) var(--ease);
+}
+.icon-btn:hover{background:var(--surface-3);color:var(--text-1);}
+.icon-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.icon-btn .dot{position:absolute;top:7px;right:8px;width:7px;height:7px;border-radius:50%;background:var(--amber-500);border:2px solid var(--surface);}
+.env-pill{
+  display:flex;align-items:center;gap:6px;height:32px;padding:0 var(--s-3);border-radius:var(--r-pill);
+  background:var(--green-50);color:var(--green-600);font-size:12.5px;font-weight:580;cursor:pointer;border:0;
+}
+html[data-theme="dark"] .env-pill{background:rgba(43,217,166,.12);color:var(--green-500);}
+.env-pill .pt{width:6px;height:6px;border-radius:50%;background:currentColor;}
+
+/* --- 内容区 --- */
+.content{flex:1;padding:var(--s-6);min-width:0;}
+.screen{display:none;animation:fadeUp var(--t-slow) var(--ease);}
+.screen.active{display:block;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+
+.page-head{display:flex;align-items:flex-start;gap:var(--s-4);margin-bottom:var(--s-5);flex-wrap:wrap;}
+.page-head .ph-l{flex:1;min-width:220px;}
+.page-title{font-size:22px;font-weight:660;letter-spacing:-.3px;margin:0 0 4px;}
+.page-desc{font-size:13px;color:var(--text-3);margin:0;}
+.page-head .ph-r{display:flex;align-items:center;gap:var(--s-2);flex-wrap:wrap;}
+
+.seg{display:inline-flex;padding:3px;border-radius:var(--r-md);background:var(--surface-3);border:1px solid var(--line);gap:2px;}
+.seg button{
+  height:28px;padding:0 var(--s-3);border:0;border-radius:var(--r-sm);background:transparent;
+  color:var(--text-2);font-size:13px;font-weight:540;cursor:pointer;transition:all var(--t-fast) var(--ease);
+}
+.seg button:hover{color:var(--text-1);}
+.seg button.on{background:var(--surface);color:var(--brand-500);font-weight:600;box-shadow:var(--sh-1);}
+html[data-theme="dark"] .seg button.on{background:var(--surface-2);}
+
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+  box-shadow:var(--sh-1);transition:box-shadow var(--t-base) var(--ease),border-color var(--t-base) var(--ease);
+}
+.card:hover{box-shadow:var(--sh-2);}
+.card-h{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-4) var(--s-5);border-bottom:1px solid var(--line);}
+.card-h h3{margin:0;font-size:14.5px;font-weight:620;}
+.card-h .sub{font-size:12px;color:var(--text-3);}
+.card-h .r{margin-left:auto;display:flex;align-items:center;gap:var(--s-2);}
+.card-b{padding:var(--s-5);}
+.grid{display:grid;gap:var(--s-4);}
+.g-4{grid-template-columns:repeat(4,1fr);}
+.g-3{grid-template-columns:repeat(3,1fr);}
+.g-2{grid-template-columns:repeat(2,1fr);}
+.g-21{grid-template-columns:2fr 1fr;}
+.g-12{grid-template-columns:1fr 2fr;}
+.mt{margin-top:var(--s-4);}
+
+/* --- KPI 卡 --- */
+.kpi{padding:var(--s-5);position:relative;overflow:hidden;}
+.kpi .k-top{display:flex;align-items:center;gap:var(--s-2);color:var(--text-3);font-size:13px;margin-bottom:var(--s-3);}
+.kpi .k-ico{width:28px;height:28px;border-radius:var(--r-md);display:grid;place-items:center;flex-shrink:0;}
+.kpi .k-ico svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+.kpi .k-val{font-size:30px;font-weight:680;letter-spacing:-1px;line-height:1.1;display:flex;align-items:baseline;gap:4px;}
+.kpi .k-unit{font-size:14px;font-weight:500;color:var(--text-3);letter-spacing:0;}
+.kpi .k-foot{display:flex;align-items:center;justify-content:space-between;gap:var(--s-2);margin-top:var(--s-3);}
+.delta{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:600;padding:2px 7px;border-radius:var(--r-pill);}
+.delta.up{background:var(--green-50);color:var(--green-600);}
+.delta.down{background:var(--red-50);color:var(--red-600);}
+.delta.flat{background:var(--surface-3);color:var(--text-3);}
+html[data-theme="dark"] .delta.up{background:rgba(43,217,166,.12);color:var(--green-500);}
+html[data-theme="dark"] .delta.down{background:rgba(255,97,110,.12);color:var(--red-500);}
+.kpi .k-note{font-size:11.5px;color:var(--text-3);}
+.spark{position:absolute;right:0;bottom:0;width:100%;height:44px;opacity:.85;}
+
+/* --- 图表 --- */
+.chart-wrap{width:100%;}
+.chart-legend{display:flex;gap:var(--s-5);flex-wrap:wrap;}
+.lg{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2);}
+.lg i{width:9px;height:9px;border-radius:3px;}
+.donut-legend{display:flex;flex-direction:column;gap:var(--s-3);}
+.dl-row{display:flex;align-items:center;gap:var(--s-3);font-size:13px;}
+.dl-row .sw{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+.dl-row .nm{color:var(--text-2);flex:1;}
+.dl-row .vl{font-weight:620;}
+
+/* --- 表格 --- */
+.tbl-wrap{overflow-x:auto;}
+table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px;}
+table.tbl th{
+  text-align:left;font-weight:600;font-size:12.5px;color:var(--text-3);
+  padding:var(--s-3) var(--s-4);background:var(--surface-2);
+  border-bottom:1px solid var(--line);white-space:nowrap;
+  position:sticky;top:0;z-index:2;
+}
+table.tbl td{padding:var(--s-3) var(--s-4);border-bottom:1px solid var(--line);vertical-align:middle;}
+table.tbl tbody tr{transition:background var(--t-fast) var(--ease);}
+table.tbl tbody tr:hover{background:var(--surface-3);}
+table.tbl tbody tr.sel{background:var(--brand-50);}
+html[data-theme="dark"] table.tbl tbody tr.sel{background:rgba(91,139,255,.10);}
+table.tbl tbody tr:last-child td{border-bottom:0;}
+.cell-main{font-weight:560;color:var(--text-1);}
+.cell-sub{font-size:11.5px;color:var(--text-3);}
+.chk{width:16px;height:16px;accent-color:var(--brand-500);cursor:pointer;}
+.id-tag{font-size:12px;color:var(--brand-500);background:var(--brand-50);padding:2px 6px;border-radius:var(--r-xs);}
+html[data-theme="dark"] .id-tag{background:rgba(91,139,255,.14);}
+.row-act{display:flex;gap:2px;opacity:.55;transition:opacity var(--t-fast) var(--ease);}
+tr:hover .row-act{opacity:1;}
+.tbl-foot{display:flex;align-items:center;justify-content:space-between;padding:var(--s-3) var(--s-5);border-top:1px solid var(--line);font-size:13px;color:var(--text-3);}
+.pager{display:flex;gap:4px;align-items:center;}
+.pager button{min-width:30px;height:30px;padding:0 6px;border:1px solid var(--line-strong);background:var(--surface);border-radius:var(--r-sm);color:var(--text-2);cursor:pointer;font-size:13px;}
+.pager button:hover:not(:disabled){border-color:var(--brand-400);color:var(--brand-500);}
+.pager button.on{background:var(--brand-500);border-color:var(--brand-500);color:#fff;font-weight:600;}
+.pager button:disabled{opacity:.45;cursor:not-allowed;}
+
+/* --- 状态 --- */
+.st{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:560;white-space:nowrap;}
+.st .pt{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.st.run{color:var(--brand-600);} .st.run .pt{background:var(--brand-500);box-shadow:0 0 0 3px var(--brand-50);}
+.st.pend{color:var(--amber-600);} .st.pend .pt{background:var(--amber-500);}
+.st.ok{color:var(--green-600);} .st.ok .pt{background:var(--green-500);}
+.st.fail{color:var(--red-600);} .st.fail .pt{background:var(--red-500);}
+.st.idle{color:var(--text-3);} .st.idle .pt{background:var(--ink-300);}
+html[data-theme="dark"] .st.run{color:var(--brand-400);} html[data-theme="dark"] .st.run .pt{box-shadow:0 0 0 3px rgba(91,139,255,.18);}
+html[data-theme="dark"] .st.pend{color:var(--amber-500);}
+html[data-theme="dark"] .st.ok{color:var(--green-500);}
+html[data-theme="dark"] .st.fail{color:var(--red-500);}
+.pulse{animation:pulse 2s var(--ease) infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+
+.tag{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:var(--r-sm);font-size:12px;font-weight:560;}
+.tag.blue{background:var(--brand-50);color:var(--brand-600);}
+.tag.violet{background:var(--violet-50);color:var(--violet-600);}
+.tag.teal{background:var(--teal-50);color:var(--teal-600);}
+.tag.amber{background:var(--amber-50);color:var(--amber-600);}
+.tag.gray{background:var(--surface-3);color:var(--text-3);}
+html[data-theme="dark"] .tag.blue{background:rgba(91,139,255,.14);color:var(--brand-400);}
+html[data-theme="dark"] .tag.violet{background:rgba(155,132,255,.14);color:var(--violet-500);}
+html[data-theme="dark"] .tag.teal{background:rgba(34,211,197,.14);color:var(--teal-500);}
+html[data-theme="dark"] .tag.amber{background:rgba(255,178,36,.14);color:var(--amber-500);}
+
+.bar{height:6px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden;min-width:80px;}
+html[data-theme="dark"] .bar{background:rgba(255,255,255,.08);}
+.bar i{display:block;height:100%;border-radius:var(--r-pill);background:var(--brand-500);transition:width var(--t-slow) var(--ease);}
+.bar.warn i{background:var(--amber-500);} .bar.danger i{background:var(--red-500);} .bar.ok i{background:var(--green-500);}
+.bar-cell{display:flex;align-items:center;gap:var(--s-3);}
+.bar-cell .pv{font-size:12px;color:var(--text-2);min-width:38px;text-align:right;}
+
+/* --- 筛选栏 --- */
+.filters{display:flex;gap:var(--s-3);align-items:center;flex-wrap:wrap;padding:var(--s-4) var(--s-5);border-bottom:1px solid var(--line);}
+.filters .grow{flex:1;}
+.f-inp,.f-sel{
+  height:34px;border-radius:var(--r-md);border:1px solid var(--line-strong);background:var(--surface);
+  padding:0 var(--s-3);color:var(--text-1);font-size:13px;transition:all var(--t-fast) var(--ease);
+}
+.f-inp{min-width:230px;display:flex;align-items:center;gap:var(--s-2);}
+.f-inp input{border:0;outline:none;background:transparent;flex:1;min-width:0;}
+.f-inp svg{width:15px;height:15px;stroke:var(--text-3);fill:none;stroke-width:1.8;flex-shrink:0;}
+.f-inp:focus-within,.f-sel:focus{border-color:var(--brand-500);box-shadow:0 0 0 3px var(--brand-50);outline:none;}
+.f-sel{cursor:pointer;}
+
+/* --- 批量操作条 --- */
+.bulkbar{
+  display:none;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-5);
+  background:var(--brand-50);border-bottom:1px solid var(--brand-100);font-size:13px;
+}
+.bulkbar.show{display:flex;animation:slideDown var(--t-base) var(--ease);}
+@keyframes slideDown{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:none;}}
+html[data-theme="dark"] .bulkbar{background:rgba(91,139,255,.12);border-color:rgba(91,139,255,.24);}
+.bulkbar b{color:var(--brand-600);}
+html[data-theme="dark"] .bulkbar b{color:var(--brand-400);}
+
+/* --- 列表项 --- */
+.list-item{display:flex;gap:var(--s-3);padding:var(--s-3) 0;border-bottom:1px solid var(--line);}
+.list-item:last-child{border-bottom:0;}
+.list-item .li-ico{width:30px;height:30px;border-radius:var(--r-md);display:grid;place-items:center;flex-shrink:0;}
+.list-item .li-ico svg{width:15px;height:15px;stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+.list-item .li-b{flex:1;min-width:0;}
+.list-item .li-t{font-size:13.5px;font-weight:560;display:flex;align-items:center;gap:var(--s-2);}
+.list-item .li-d{font-size:12px;color:var(--text-3);margin-top:2px;}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:var(--s-12) var(--s-4);text-align:center;}
+.empty svg{width:52px;height:52px;stroke:var(--ink-200);fill:none;stroke-width:1.4;margin-bottom:var(--s-4);}
+.empty .e-t{font-weight:600;margin-bottom:4px;}
+.empty .e-d{font-size:13px;color:var(--text-3);max-width:320px;}
+
+/* --- 命令面板 --- */
+.cmdk{position:fixed;inset:0;z-index:300;display:none;align-items:flex-start;justify-content:center;padding-top:12vh;background:rgba(10,16,32,.45);backdrop-filter:blur(3px);}
+.cmdk.show{display:flex;}
+.cmdk-box{width:min(620px,92vw);background:var(--surface);border-radius:var(--r-xl);box-shadow:var(--sh-4);overflow:hidden;animation:pop var(--t-base) var(--ease);}
+@keyframes pop{from{opacity:0;transform:scale(.97) translateY(-8px);}to{opacity:1;transform:none;}}
+.cmdk-in{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-4) var(--s-5);border-bottom:1px solid var(--line);}
+.cmdk-in input{flex:1;border:0;outline:none;background:transparent;font-size:15px;}
+.cmdk-in svg{width:18px;height:18px;stroke:var(--text-3);fill:none;stroke-width:1.8;}
+.cmdk-body{max-height:340px;overflow-y:auto;padding:var(--s-2);}
+.cmdk-g{font-size:11px;font-weight:620;letter-spacing:.8px;color:var(--text-3);padding:var(--s-3) var(--s-3) var(--s-2);}
+.cmdk-i{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3);border-radius:var(--r-md);cursor:pointer;}
+.cmdk-i:hover,.cmdk-i.sel{background:var(--brand-50);}
+html[data-theme="dark"] .cmdk-i:hover,html[data-theme="dark"] .cmdk-i.sel{background:rgba(91,139,255,.14);}
+.cmdk-i .ci-ico{width:26px;height:26px;border-radius:var(--r-sm);background:var(--surface-3);display:grid;place-items:center;color:var(--text-2);}
+.cmdk-i .ci-ico svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.cmdk-i .ci-t{flex:1;font-size:13.5px;}
+.cmdk-i .ci-h{font-size:11.5px;color:var(--text-3);}
+.cmdk-foot{display:flex;gap:var(--s-4);padding:var(--s-3) var(--s-5);border-top:1px solid var(--line);font-size:11.5px;color:var(--text-3);}
+
+/* --- 吐司 --- */
+.toasts{position:fixed;right:var(--s-6);bottom:var(--s-6);z-index:400;display:flex;flex-direction:column;gap:var(--s-2);}
+.toast{
+  display:flex;align-items:center;gap:var(--s-3);min-width:280px;padding:var(--s-3) var(--s-4);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-3);
+  font-size:13.5px;animation:slideIn var(--t-slow) var(--ease);
+}
+@keyframes slideIn{from{opacity:0;transform:translateX(20px);}to{opacity:1;transform:none;}}
+.toast .t-ico{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;color:#fff;}
+.toast .t-ico svg{width:12px;height:12px;stroke:#fff;fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;}
+
+/* --- 设计系统页 --- */
+.sw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:var(--s-3);}
+.sw{border-radius:var(--r-md);overflow:hidden;border:1px solid var(--line);}
+.sw .c{height:64px;display:flex;align-items:flex-end;padding:var(--s-2) var(--s-3);}
+.sw .m{padding:var(--s-2) var(--s-3);background:var(--surface);font-size:11.5px;}
+.sw .m b{display:block;font-size:12.5px;}
+.sw .m span{color:var(--text-3);}
+.type-row{display:flex;align-items:baseline;gap:var(--s-4);padding:var(--s-3) 0;border-bottom:1px dashed var(--line);}
+.type-row:last-child{border-bottom:0;}
+.type-row .tr-meta{width:190px;flex-shrink:0;font-size:11.5px;color:var(--text-3);}
+.token-row{display:flex;align-items:center;gap:var(--s-4);padding:var(--s-3) 0;border-bottom:1px dashed var(--line);flex-wrap:wrap;}
+.token-row:last-child{border-bottom:0;}
+.token-row .tn{width:150px;flex-shrink:0;font-size:12.5px;color:var(--text-2);}
+.token-row .tv{font-size:12px;color:var(--text-3);}
+.demo-box{display:flex;gap:var(--s-3);align-items:center;flex-wrap:wrap;}
+.sh-box{height:64px;border-radius:var(--r-md);background:var(--surface);display:grid;place-items:center;font-size:11px;color:var(--text-3);}
+.r-box{width:64px;height:44px;background:var(--brand-50);border:1px solid var(--brand-100);}
+.skel{background:linear-gradient(90deg,var(--surface-3) 25%,var(--line) 37%,var(--surface-3) 63%);background-size:400% 100%;animation:sk 1.4s ease infinite;border-radius:var(--r-sm);height:12px;}
+@keyframes sk{0%{background-position:100% 50%;}100%{background-position:0 50%;}}
+.do-dont{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-4);}
+.dd{border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;}
+.dd .h{padding:var(--s-3) var(--s-4);font-size:13px;font-weight:620;display:flex;align-items:center;gap:var(--s-2);}
+.dd.good .h{background:var(--green-50);color:var(--green-600);}
+.dd.bad .h{background:var(--red-50);color:var(--red-600);}
+html[data-theme="dark"] .dd.good .h{background:rgba(43,217,166,.12);color:var(--green-500);}
+html[data-theme="dark"] .dd.bad .h{background:rgba(255,97,110,.12);color:var(--red-500);}
+.dd .b{padding:var(--s-4);font-size:13px;color:var(--text-2);}
+.switch{width:40px;height:22px;border-radius:var(--r-pill);background:var(--line-strong);position:relative;cursor:pointer;transition:background var(--t-base) var(--ease);flex-shrink:0;}
+.switch.on{background:var(--brand-500);}
+.switch i{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform var(--t-base) var(--ease);box-shadow:var(--sh-1);}
+.switch.on i{transform:translateX(18px);}
+
+/* --- 响应式 --- */
+@media (max-width:1280px){ .g-4{grid-template-columns:repeat(2,1fr);} .g-21{grid-template-columns:1.6fr 1fr;} }
+@media (max-width:1024px){
+  :root{--nav-w:var(--nav-w-collapsed);}
+  .nav-group-title,.nav-item .txt,.nav-user .u-txt,.nav-item .chev,.nav-count{display:none;}
+  .nav-item{justify-content:center;}
+  .nav-head{justify-content:center;padding:0;}
+  .nav-sub{margin:0;padding:0;border:0;}
+  .search{width:200px;}
+  .g-21,.g-12,.g-3{grid-template-columns:1fr;}
+}
+@media (max-width:768px){
+  .content{padding:var(--s-4);}
+  .g-4,.g-2{grid-template-columns:1fr;}
+  .login-brand{display:none;}
+  .login-panel{width:100%;}
+  .search{display:none;}
+  .crumb{display:none;}
+  .do-dont{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================== 登录页 ============================== -->
+<div id="login">
+  <div class="login-brand">
+    <div class="brand-glow a"></div><div class="brand-glow b"></div>
+    <div class="logo">
+      <div class="logo-mark">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m3 7 9 5 9-5"/><path d="M12 12v10"/></svg>
+      </div>
+      <div>
+        <div class="logo-name">Metaclouds</div>
+        <div class="logo-sub">算力调度平台 · COMPUTE ORCHESTRATION</div>
+      </div>
+    </div>
+
+    <div class="brand-hero">
+      <h1>让每一张 GPU<br/>都被精确调度。</h1>
+      <p>面向多租户的异构算力调度与编排平台。统一纳管集群、作业、队列与配额，用可观测的方式把算力交到正确的人手上。</p>
+      <div class="brand-points">
+        <div class="brand-point"><div class="v num">12<span>个集群</span></div><div class="k">统一纳管</div></div>
+        <div class="brand-point"><div class="v num">99.2<span>%</span></div><div class="k">调度成功率</div></div>
+        <div class="brand-point"><div class="v num">3.4<span>秒</span></div><div class="k">平均排队时长</div></div>
+      </div>
+    </div>
+
+    <div class="brand-foot">© 2026 Metaclouds · 建议使用 Chrome / Edge 最新版，分辨率 ≥ 1440×900</div>
+  </div>
+
+  <div class="login-panel">
+    <div class="login-card">
+      <h2>欢迎回来</h2>
+      <p class="desc">请使用您的平台账号登录，未授权访问将被审计记录。</p>
+
+      <div class="field">
+        <label for="u">账号<span class="req">*</span></label>
+        <input id="u" class="inp" value="admin" placeholder="请输入用户名或邮箱" />
+      </div>
+
+      <div class="field">
+        <label for="p">密码<span class="req">*</span></label>
+        <div class="inp-wrap">
+          <input id="p" class="inp" type="password" value="••••••••••••" style="padding-right:38px" />
+          <button class="eye" id="eye" type="button" aria-label="显示密码">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <div class="field-err">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          示例错误态：密码长度至少 12 位
+        </div>
+      </div>
+
+      <div class="login-row">
+        <label class="check"><input type="checkbox" checked /> 记住我（30 天）</label>
+        <a class="link" href="javascript:void(0)">忘记密码？</a>
+      </div>
+
+      <button class="btn btn-primary" id="doLogin">
+        登录
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+
+      <div class="divider">或使用企业身份登录</div>
+      <div class="sso">
+        <button class="btn btn-ghost">企业微信</button>
+        <button class="btn btn-ghost">LDAP / SSO</button>
+      </div>
+
+      <div class="login-note">
+        <b>设计要点：</b>错误提示内联在字段下方（非弹窗），焦点自动回到首个错误字段；密码强度与「显示密码」不牺牲安全性；登录失败不提示「用户名不存在」，避免账号枚举。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================== 应用 ============================== -->
+<div id="app">
+
+  <!-- 侧边栏 -->
+  <aside class="nav" id="nav">
+    <div class="nav-head">
+      <div class="logo-mark">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m3 7 9 5 9-5"/><path d="M12 12v10"/></svg>
+      </div>
+      <div>
+        <div class="logo-name">Metaclouds</div>
+        <div class="logo-sub">算力调度平台</div>
+      </div>
+    </div>
+
+    <div class="nav-scroll">
+      <div class="nav-group">
+        <div class="nav-group-title">总览</div>
+        <div class="nav-item active" data-screen="dashboard">
+          <span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
+          <span class="txt">仪表盘</span>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">调度</div>
+        <div class="nav-item expanded" data-toggle="jobsub">
+          <span class="ico"><svg viewBox="0 0 24 24"><path d="M20.6 13.4 12 22l-9-9V3h10z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg></span>
+          <span class="txt">作业管理</span>
+          <span class="nav-count num">32</span>
+          <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+        </div>
+        <div class="nav-sub open" id="jobsub">
+          <div class="nav-item" data-screen="jobs"><span class="txt">作业列表</span><span class="nav-count num">32</span></div>
+          <div class="nav-item" data-screen="jobs"><span class="txt">任务队列</span><span class="nav-count num">6</span></div>
+          <div class="nav-item" data-screen="jobs"><span class="txt">历史记录</span><span class="nav-count num">24</span></div>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">基础设施</div>
+        <div class="nav-item" data-screen="dashboard"><span class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></svg></span><span class="txt">集群管理</span><span class="nav-count num">12</span></div>
+        <div class="nav-item" data-screen="dashboard"><span class="ico"><svg viewBox="0 0 24 24"><path d="M17.5 19a4.5 4.5 0 0 0 .5-8.98A6 6 0 0 0 6.3 9.4A3.8 3.8 0 0 0 7 19z"/></svg></span><span class="txt">资源管理</span><span class="nav-count num">40</span></div>
+        <div class="nav-item expanded" data-toggle="k8ssub">
+          <span class="ico"><svg viewBox="0 0 24 24"><path d="m12 2 8.66 5v10L12 22l-8.66-5V7z"/><circle cx="12" cy="12" r="3"/></svg></span>
+          <span class="txt">K8S 管理</span>
+          <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
+        </div>
+        <div class="nav-sub open" id="k8ssub">
+          <div class="nav-item" data-screen="k8s"><span class="txt">节点管理</span><span class="nav-count num">12</span></div>
+          <div class="nav-item" data-screen="k8s"><span class="txt">Pod 管理</span><span class="nav-count num">86</span></div>
+          <div class="nav-item" data-screen="k8s"><span class="txt">服务管理</span><span class="nav-count num">24</span></div>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">平台</div>
+        <div class="nav-item" data-screen="dashboard"><span class="ico"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg></span><span class="txt">多租户管理</span><span class="nav-count num">4</span></div>
+        <div class="nav-item" data-screen="dashboard"><span class="ico"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h8l-1 8 10-12h-8z"/></svg></span><span class="txt">加速套件</span><span class="nav-count num">8</span></div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">可观测与治理</div>
+        <div class="nav-item" data-screen="monitor"><span class="ico"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span><span class="txt">监控告警</span><span class="nav-count warn num">3</span></div>
+        <div class="nav-item" data-screen="dashboard"><span class="ico"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span><span class="txt">安全管理</span><span class="nav-count num">6</span></div>
+      </div>
+      <div class="nav-group">
+        <div class="nav-item" data-screen="system">
+          <span class="ico"><svg viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="14" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="15" r="2.5"/><path d="M12 22a10 10 0 1 1 0-20"/></svg></span>
+          <span class="txt">设计系统</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="nav-foot">
+      <div class="nav-user">
+        <div class="avatar">AD</div>
+        <div class="u-txt">
+          <div class="u-name">admin</div>
+          <div class="u-role">平台管理员</div>
+        </div>
+        <svg style="margin-left:auto" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <!-- 顶栏 -->
+    <header class="topbar">
+      <div class="crumb"><span>调度</span><span class="sep">/</span><b id="crumbNow">仪表盘</b></div>
+
+      <button class="search" id="openCmdk">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span class="ph">搜索作业、集群、命名空间…</span>
+        <span class="kbd">Ctrl K</span>
+      </button>
+
+      <button class="env-pill"><i class="pt"></i> 生产环境 · prod-cn-shanghai</button>
+
+      <button class="icon-btn" title="告警通知" onclick="toast('有 3 条未处理告警，点击查看','amber')">
+        <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        <i class="dot"></i>
+      </button>
+      <button class="icon-btn" title="帮助与文档">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+      </button>
+      <button class="icon-btn" id="themeBtn" title="切换深色 / 浅色模式">
+        <svg id="themeIcon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+      <button class="icon-btn" title="回到登录页" onclick="showLogin()">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+      </button>
+    </header>
+
+    <main class="content">
+
+      <!-- ==================== 仪表盘 ==================== -->
+      <section class="screen active" id="s-dashboard">
+        <div class="page-head">
+          <div class="ph-l">
+            <h1 class="page-title">算力总览</h1>
+            <p class="page-desc">实时掌握全平台算力水位、作业吞吐与风险告警 · 数据每 15 秒自动刷新</p>
+          </div>
+          <div class="ph-r">
+            <div class="seg">
+              <button>今日</button><button class="on">近 7 天</button><button>近 30 天</button>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="toast('已刷新最新数据','teal')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+              刷新
+            </button>
+            <button class="btn btn-ghost btn-sm">自定义卡片</button>
+            <button class="btn btn-primary btn-sm" style="width:auto">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              提交作业
+            </button>
+          </div>
+        </div>
+
+        <div class="grid g-4">
+          <div class="card kpi">
+            <div class="k-top">
+              <span class="k-ico" style="background:var(--brand-50);color:var(--brand-500)"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg></span>
+              GPU 利用率
+            </div>
+            <div class="k-val num">78.4<span class="k-unit">%</span></div>
+            <div class="k-foot">
+              <span class="delta up">↑ 3.2%</span>
+              <span class="k-note">较昨日</span>
+            </div>
+            <svg class="spark" viewBox="0 0 200 44" preserveAspectRatio="none"><path d="M0,34 L28,30 L56,32 L84,22 L112,25 L140,14 L168,18 L200,8 L200,44 L0,44 Z" fill="url(#gA)" opacity=".9"/><path d="M0,34 L28,30 L56,32 L84,22 L112,25 L140,14 L168,18 L200,8" fill="none" stroke="var(--brand-500)" stroke-width="2" stroke-linejoin="round"/><defs><linearGradient id="gA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--brand-500)" stop-opacity=".26"/><stop offset="1" stop-color="var(--brand-500)" stop-opacity="0"/></linearGradient></defs></svg>
+          </div>
+
+          <div class="card kpi">
+            <div class="k-top">
+              <span class="k-ico" style="background:var(--teal-50);color:var(--teal-500)"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h8l-1 8 10-12h-8z"/></svg></span>
+              运行中作业
+            </div>
+            <div class="k-val num">24<span class="k-unit">个</span></div>
+            <div class="k-foot">
+              <span class="delta up">↑ 6</span>
+              <span class="k-note">较 1 小时前</span>
+            </div>
+            <svg class="spark" viewBox="0 0 200 44" preserveAspectRatio="none"><path d="M0,30 L28,26 L56,28 L84,20 L112,16 L140,18 L168,10 L200,12 L200,44 L0,44 Z" fill="url(#gB)" opacity=".9"/><path d="M0,30 L28,26 L56,28 L84,20 L112,16 L140,18 L168,10 L200,12" fill="none" stroke="var(--teal-500)" stroke-width="2" stroke-linejoin="round"/><defs><linearGradient id="gB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--teal-500)" stop-opacity=".26"/><stop offset="1" stop-color="var(--teal-500)" stop-opacity="0"/></linearGradient></defs></svg>
+          </div>
+
+          <div class="card kpi">
+            <div class="k-top">
+              <span class="k-ico" style="background:var(--amber-50);color:var(--amber-500)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              排队中作业
+            </div>
+            <div class="k-val num">6<span class="k-unit">个</span></div>
+            <div class="k-foot">
+              <span class="delta flat">平均等待 3.4s</span>
+              <span class="k-note">SLA 10s</span>
+            </div>
+            <svg class="spark" viewBox="0 0 200 44" preserveAspectRatio="none"><path d="M0,28 L28,32 L56,24 L84,30 L112,22 L140,26 L168,20 L200,24 L200,44 L0,44 Z" fill="url(#gC)" opacity=".9"/><path d="M0,28 L28,32 L56,24 L84,30 L112,22 L140,26 L168,20 L200,24" fill="none" stroke="var(--amber-500)" stroke-width="2" stroke-linejoin="round"/><defs><linearGradient id="gC" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--amber-500)" stop-opacity=".26"/><stop offset="1" stop-color="var(--amber-500)" stop-opacity="0"/></linearGradient></defs></svg>
+          </div>
+
+          <div class="card kpi">
+            <div class="k-top">
+              <span class="k-ico" style="background:var(--red-50);color:var(--red-500)"><svg viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg></span>
+              活跃告警
+            </div>
+            <div class="k-val num">3<span class="k-unit">条</span></div>
+            <div class="k-foot">
+              <span class="delta down">↑ 1 新增</span>
+              <span class="k-note">含 1 条严重</span>
+            </div>
+            <svg class="spark" viewBox="0 0 200 44" preserveAspectRatio="none"><path d="M0,38 L28,38 L56,34 L84,36 L112,30 L140,32 L168,24 L200,26 L200,44 L0,44 Z" fill="url(#gD)" opacity=".9"/><path d="M0,38 L28,38 L56,34 L84,36 L112,30 L140,32 L168,24 L200,26" fill="none" stroke="var(--red-500)" stroke-width="2" stroke-linejoin="round"/><defs><linearGradient id="gD" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--red-500)" stop-opacity=".26"/><stop offset="1" stop-color="var(--red-500)" stop-opacity="0"/></linearGradient></defs></svg>
+          </div>
+        </div>
+
+        <div class="grid g-21 mt">
+          <div class="card">
+            <div class="card-h">
+              <h3>算力使用趋势</h3>
+              <span class="sub">GPU / CPU 近 7 天</span>
+              <div class="r chart-legend">
+                <span class="lg"><i style="background:var(--brand-500)"></i>GPU</span>
+                <span class="lg"><i style="background:var(--violet-500)"></i>CPU</span>
+                <span class="lg"><i style="background:var(--line-strong)"></i>容量上限</span>
+              </div>
+            </div>
+            <div class="card-b">
+              <svg class="chart-wrap" viewBox="0 0 680 240" style="height:240px">
+                <defs>
+                  <linearGradient id="arA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2F6BFF" stop-opacity=".28"/><stop offset="1" stop-color="#2F6BFF" stop-opacity="0"/></linearGradient>
+                  <linearGradient id="arB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7C5CFF" stop-opacity=".22"/><stop offset="1" stop-color="#7C5CFF" stop-opacity="0"/></linearGradient>
+                </defs>
+                <line x1="40" y1="40" x2="660" y2="40" stroke="var(--line)" stroke-dasharray="4 4"/>
+                <line x1="40" y1="90" x2="660" y2="90" stroke="var(--line)" stroke-dasharray="4 4"/>
+                <line x1="40" y1="140" x2="660" y2="140" stroke="var(--line)" stroke-dasharray="4 4"/>
+                <line x1="40" y1="190" x2="660" y2="190" stroke="var(--line-strong)"/>
+                <text x="30" y="44" font-size="11" fill="var(--text-3)" text-anchor="end">100%</text>
+                <text x="30" y="94" font-size="11" fill="var(--text-3)" text-anchor="end">75%</text>
+                <text x="30" y="144" font-size="11" fill="var(--text-3)" text-anchor="end">50%</text>
+                <text x="30" y="194" font-size="11" fill="var(--text-3)" text-anchor="end">25%</text>
+                <path d="M40,150 L92,132 L144,140 L196,110 L248,118 L300,92 L352,84 L404,96 L456,62 L508,58 L560,72 L612,48 L660,56 L660,190 L40,190 Z" fill="url(#arA)"/>
+                <path d="M40,150 L92,132 L144,140 L196,110 L248,118 L300,92 L352,84 L404,96 L456,62 L508,58 L560,72 L612,48 L660,56" fill="none" stroke="#2F6BFF" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+                <path d="M40,120 L92,118 L144,124 L196,108 L248,112 L300,96 L352,90 L404,88 L456,74 L508,70 L560,78 L612,66 L660,72 L660,190 L40,190 Z" fill="url(#arB)"/>
+                <path d="M40,120 L92,118 L144,124 L196,108 L248,112 L300,96 L352,90 L404,88 L456,74 L508,70 L560,78 L612,66 L660,72" fill="none" stroke="#7C5CFF" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+                <circle cx="612" cy="48" r="4.5" fill="#2F6BFF" stroke="#fff" stroke-width="2"/>
+                <g font-size="11" fill="var(--text-3)" text-anchor="middle">
+                  <text x="40" y="210">08-25</text><text x="144" y="210">08-27</text><text x="248" y="210">08-29</text>
+                  <text x="352" y="210">08-31</text><text x="456" y="210">09-02</text><text x="560" y="210">09-04</text><text x="660" y="210">今天</text>
+                </g>
+              </svg>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><h3>资源分布</h3></div>
+            <div class="card-b">
+              <svg viewBox="0 0 200 200" style="width:180px;height:180px;display:block;margin:0 auto">
+                <circle cx="100" cy="100" r="70" fill="none" stroke="var(--surface-3)" stroke-width="22"/>
+                <circle cx="100" cy="100" r="70" fill="none" stroke="#2F6BFF" stroke-width="22" stroke-linecap="round"
+                        stroke-dasharray="198 440" stroke-dashoffset="0" transform="rotate(-90 100 100)"/>
+                <circle cx="100" cy="100" r="70" fill="none" stroke="#F59E0B" stroke-width="22" stroke-linecap="round"
+                        stroke-dasharray="44 440" stroke-dashoffset="-198" transform="rotate(-90 100 100)"/>
+                <circle cx="100" cy="100" r="70" fill="none" stroke="#12B886" stroke-width="22" stroke-linecap="round"
+                        stroke-dasharray="88 440" stroke-dashoffset="-242" transform="rotate(-90 100 100)"/>
+                <text x="100" y="94" text-anchor="middle" font-size="30" font-weight="700" fill="var(--text-1)">78%</text>
+                <text x="100" y="116" text-anchor="middle" font-size="12" fill="var(--text-3)">GPU 已分配</text>
+              </svg>
+              <div class="donut-legend" style="margin-top:var(--s-5)">
+                <div class="dl-row"><i class="sw" style="background:#2F6BFF"></i><span class="nm">已使用</span><span class="vl num">313 卡</span></div>
+                <div class="dl-row"><i class="sw" style="background:#F59E0B"></i><span class="nm">预留中</span><span class="vl num">70 卡</span></div>
+                <div class="dl-row"><i class="sw" style="background:#12B886"></i><span class="nm">可分配</span><span class="vl num">140 卡</span></div>
+                <div class="dl-row"><i class="sw" style="background:var(--line-strong)"></i><span class="nm">维护中</span><span class="vl num">17 卡</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid g-12 mt">
+          <div class="card">
+            <div class="card-h">
+              <h3>待处理告警</h3>
+              <span class="sub">按严重程度排序</span>
+              <div class="r"><a class="link" href="javascript:void(0)" onclick="go('monitor')">查看全部</a></div>
+            </div>
+            <div class="card-b">
+              <div class="list-item">
+                <div class="li-ico" style="background:var(--red-50);color:var(--red-500)"><svg viewBox="0 0 24 24" stroke="currentColor"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg></div>
+                <div class="li-b">
+                  <div class="li-t">GPU 显存占用超阈值 <span class="tag amber">严重</span></div>
+                  <div class="li-d">node-gpu-07 · 持续 12 分钟 · 94%</div>
+                </div>
+                <button class="btn btn-ghost btn-sm">处理</button>
+              </div>
+              <div class="list-item">
+                <div class="li-ico" style="background:var(--amber-50);color:var(--amber-500)"><svg viewBox="0 0 24 24" stroke="currentColor"><path d="M12 8v5"/><circle cx="12" cy="12" r="9"/><path d="M12 16h.01"/></svg></div>
+                <div class="li-b">
+                  <div class="li-t">作业排队时长异常 <span class="tag amber">警告</span></div>
+                  <div class="li-d">queue-training · 平均 42s · 超 SLA</div>
+                </div>
+                <button class="btn btn-ghost btn-sm">处理</button>
+              </div>
+              <div class="list-item">
+                <div class="li-ico" style="background:var(--brand-50);color:var(--brand-500)"><svg viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg></div>
+                <div class="li-b">
+                  <div class="li-t">租户配额使用率达 85% <span class="tag blue">提示</span></div>
+                  <div class="li-d">tenant-research · GPU 34/40</div>
+                </div>
+                <button class="btn btn-ghost btn-sm">处理</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><h3>最近作业</h3><span class="sub">实时更新</span>
+              <div class="r"><a class="link" href="javascript:void(0)" onclick="go('jobs')">查看全部</a></div>
+            </div>
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead><tr><th>作业</th><th>类型</th><th>GPU</th><th>状态</th><th>进度</th><th>时长</th></tr></thead>
+                <tbody>
+                  <tr><td><div class="cell-main">llama3-70b-finetune</div><div class="cell-sub mono">job-8f2a91</div></td><td><span class="tag violet">训练</span></td><td class="num">8</td><td><span class="st run"><i class="pt pulse"></i>运行中</span></td><td><div class="bar-cell"><div class="bar"><i style="width:62%"></i></div><span class="pv num">62%</span></div></td><td class="num">2h 14m</td></tr>
+                  <tr><td><div class="cell-main">stable-diffusion-batch</div><div class="cell-sub mono">job-7c10d4</div></td><td><span class="tag teal">推理</span></td><td class="num">2</td><td><span class="st run"><i class="pt pulse"></i>运行中</span></td><td><div class="bar-cell"><div class="bar"><i style="width:34%"></i></div><span class="pv num">34%</span></div></td><td class="num">18m</td></tr>
+                  <tr><td><div class="cell-main">resnet50-pretrain</div><div class="cell-sub mono">job-6b88e2</div></td><td><span class="tag violet">训练</span></td><td class="num">4</td><td><span class="st pend"><i class="pt"></i>排队中</span></td><td><div class="bar-cell"><div class="bar"><i style="width:0%"></i></div><span class="pv num">0%</span></div></td><td class="num">—</td></tr>
+                  <tr><td><div class="cell-main">data-preprocess-v2</div><div class="cell-sub mono">job-5a77f1</div></td><td><span class="tag blue">数据处理</span></td><td class="num">1</td><td><span class="st ok"><i class="pt"></i>已完成</span></td><td><div class="bar-cell"><div class="bar ok"><i style="width:100%"></i></div><span class="pv num">100%</span></div></td><td class="num">41m</td></tr>
+                  <tr><td><div class="cell-main">bert-large-eval</div><div class="cell-sub mono">job-4d55c9</div></td><td><span class="tag teal">推理</span></td><td class="num">2</td><td><span class="st fail"><i class="pt"></i>失败</span></td><td><div class="bar-cell"><div class="bar danger"><i style="width:47%"></i></div><span class="pv num">47%</span></div></td><td class="num">7m</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 作业管理 ==================== -->
+      <section class="screen" id="s-jobs">
+        <div class="page-head">
+          <div class="ph-l">
+            <h1 class="page-title">作业管理</h1>
+            <p class="page-desc">共 32 个作业 · 6 个排队中 · 24 个运行中</p>
+          </div>
+          <div class="ph-r">
+            <button class="btn btn-ghost btn-sm">导出 CSV</button>
+            <button class="btn btn-ghost btn-sm">列设置</button>
+            <button class="btn btn-primary btn-sm" style="width:auto" onclick="toast('已打开新建作业抽屉','brand')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              新建作业
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="filters">
+            <div class="f-inp">
+              <svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input placeholder="搜索作业名称、ID 或提交人" />
+            </div>
+            <select class="f-sel"><option>全部状态</option><option>运行中</option><option>排队中</option><option>已完成</option><option>失败</option></select>
+            <select class="f-sel"><option>全部队列</option><option>queue-training</option><option>queue-inference</option></select>
+            <select class="f-sel"><option>全部租户</option><option>default</option><option>tenant-research</option></select>
+            <button class="btn btn-ghost btn-sm">更多筛选</button>
+            <div class="grow"></div>
+            <div class="seg"><button class="on">紧凑</button><button>标准</button><button>宽松</button></div>
+          </div>
+
+          <div class="seg" style="padding:var(--s-3) var(--s-5);border-bottom:1px solid var(--line);border-radius:0;background:transparent;border-left:0;border-right:0;border-top:0">
+            <button class="on">全部 32</button><button>排队中 6</button><button>运行中 2</button><button>已完成 18</button><button>失败 4</button><button>已取消 2</button>
+          </div>
+
+          <div class="bulkbar" id="bulkbar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-500)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg>
+            已选择 <b id="selCount" class="num">0</b> 项
+            <div style="margin-left:auto;display:flex;gap:var(--s-2)">
+              <button class="btn btn-ghost btn-sm">批量重启</button>
+              <button class="btn btn-ghost btn-sm">导出</button>
+              <button class="btn btn-danger btn-sm" onclick="toast('危险操作：需输入作业名二次确认','amber')">批量取消</button>
+              <button class="btn btn-ghost btn-sm" onclick="clearSel()">取消选择</button>
+            </div>
+          </div>
+
+          <div class="tbl-wrap">
+            <table class="tbl" id="jobTable">
+              <thead><tr>
+                <th style="width:44px"><input type="checkbox" class="chk" id="chkAll" /></th>
+                <th>作业 ID</th><th>名称</th><th>类型</th><th class="num">GPU</th><th>队列 / 租户</th><th>状态</th><th style="width:170px">进度</th><th>提交时间</th><th style="width:80px">操作</th>
+              </tr></thead>
+              <tbody>
+                <tr><td><input type="checkbox" class="chk row-chk" /></td><td><span class="id-tag mono">job-8f2a91</span></td><td class="cell-main">llama3-70b-finetune</td><td><span class="tag violet">训练</span></td><td class="num">8</td><td><div class="cell-sub">queue-training</div><div class="cell-sub">tenant-research</div></td><td><span class="st run"><i class="pt pulse"></i>运行中</span></td><td><div class="bar-cell"><div class="bar"><i style="width:62%"></i></div><span class="pv num">62%</span></div></td><td class="num cell-sub">08-31 09:42</td><td><div class="row-act"><button class="icon-btn" title="详情"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="icon-btn" title="更多"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button></div></td></tr>
+                <tr><td><input type="checkbox" class="chk row-chk" /></td><td><span class="id-tag mono">job-7c10d4</span></td><td class="cell-main">stable-diffusion-batch</td><td><span class="tag teal">推理</span></td><td class="num">2</td><td><div class="cell-sub">queue-inference</div><div class="cell-sub">default</div></td><td><span class="st run"><i class="pt pulse"></i>运行中</span></td><td><div class="bar-cell"><div class="bar"><i style="width:34%"></i></div><span class="pv num">34%</span></div></td><td class="num cell-sub">08-31 10:05</td><td><div class="row-act"><button class="icon-btn" title="详情"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="icon-btn" title="更多"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button></div></td></tr>
+                <tr><td><input type="checkbox" class="chk row-chk" /></td><td><span class="id-tag mono">job-6b88e2</span></td><td class="cell-main">resnet50-pretrain</td><td><span class="tag violet">训练</span></td><td class="num">4</td><td><div class="cell-sub">queue-training</div><div class="cell-sub">tenant-research</div></td><td><span class="st pend"><i class="pt"></i>排队中</span></td><td><div class="bar-cell"><div class="bar"><i style="width:0%"></i></div><span class="pv num">0%</span></div></td><td class="num cell-sub">08-31 10:18</td><td><div class="row-act"><button class="icon-btn" title="详情"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="icon-btn" title="更多"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button></div></td></tr>
+                <tr><td><input type="checkbox" class="chk row-chk" /></td><td><span class="id-tag mono">job-5a77f1</span></td><td class="cell-main">data-preprocess-v2</td><td><span class="tag blue">数据处理</span></td><td class="num">1</td><td><div class="cell-sub">queue-default</div><div class="cell-sub">default</div></td><td><span class="st ok"><i class="pt"></i>已完成</span></td><td><div class="bar-cell"><div class="bar ok"><i style="width:100%"></i></div><span class="pv num">100%</span></div></td><td class="num cell-sub">08-31 08:20</td><td><div class="row-act"><button class="icon-btn" title="详情"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="icon-btn" title="更多"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button></div></td></tr>
+                <tr><td><input type="checkbox" class="chk row-chk" /></td><td><span class="id-tag mono">job-4d55c9</span></td><td class="cell-main">bert-large-eval</td><td><span class="tag teal">推理</span></td><td class="num">2</td><td><div class="cell-sub">queue-inference</div><div class="cell-sub">tenant-vision</div></td><td><span class="st fail"><i class="pt"></i>失败</span></td><td><div class="bar-cell"><div class="bar danger"><i style="width:47%"></i></div><span class="pv num">47%</span></div></td><td class="num cell-sub">08-30 22:11</td><td><div class="row-act"><button class="icon-btn" title="详情"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="icon-btn" title="更多"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button></div></td></tr>
+                <tr><td><input type="checkbox" class="chk row-chk" /></td><td><span class="id-tag mono">job-3e44b8</span></td><td class="cell-main">whisper-asr-finetune</td><td><span class="tag violet">训练</span></td><td class="num">4</td><td><div class="cell-sub">queue-training</div><div class="cell-sub">tenant-audio</div></td><td><span class="st idle"><i class="pt"></i>已取消</span></td><td><div class="bar-cell"><div class="bar"><i style="width:12%"></i></div><span class="pv num">12%</span></div></td><td class="num cell-sub">08-30 19:03</td><td><div class="row-act"><button class="icon-btn" title="详情"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="icon-btn" title="更多"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="tbl-foot">
+            <span>共 32 条 · 每页 10 条</span>
+            <div class="pager">
+              <button disabled>上一页</button>
+              <button class="on">1</button><button>2</button><button>3</button><button>4</button>
+              <button>下一页</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid g-2 mt">
+          <div class="card"><div class="card-h"><h3>空状态示例</h3></div>
+            <div class="empty">
+              <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v13H3z"/><path d="M3 7l2-4h14l2 4"/><path d="M9 12h6"/></svg>
+              <div class="e-t">当前筛选条件下没有作业</div>
+              <div class="e-d">试着放宽筛选条件，或清空搜索关键词后重试。也可以直接提交一个新作业。</div>
+              <button class="btn btn-primary btn-sm mt" style="width:auto">新建作业</button>
+            </div>
+          </div>
+          <div class="card"><div class="card-h"><h3>加载骨架屏示例</h3></div>
+            <div class="card-b">
+              <div style="display:flex;flex-direction:column;gap:var(--s-4)">
+                <div style="display:flex;gap:var(--s-3);align-items:center"><div class="skel" style="width:32px;height:32px;border-radius:8px"></div><div style="flex:1"><div class="skel" style="width:60%"></div><div class="skel" style="width:35%;margin-top:8px"></div></div></div>
+                <div class="skel" style="width:100%"></div>
+                <div class="skel" style="width:88%"></div>
+                <div class="skel" style="width:94%"></div>
+                <div class="skel" style="width:72%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== K8S 管理 ==================== -->
+      <section class="screen" id="s-k8s">
+        <div class="page-head">
+          <div class="ph-l">
+            <h1 class="page-title">K8S 管理</h1>
+            <p class="page-desc">命名空间 = 租户边界；服务 = 命名空间内可调度的算力单元</p>
+          </div>
+          <div class="ph-r">
+            <div class="seg" id="nsSeg">
+              <button class="on">default</button><button>tenant-research</button><button>tenant-vision</button><button>tenant-audio</button>
+            </div>
+            <button class="btn btn-ghost btn-sm">YAML</button>
+            <button class="btn btn-primary btn-sm" style="width:auto">部署服务</button>
+          </div>
+        </div>
+
+        <div class="grid g-4">
+          <div class="card kpi"><div class="k-top"><span class="k-ico" style="background:var(--brand-50);color:var(--brand-500)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg></span>节点</div><div class="k-val num">12</div><div class="k-foot"><span class="delta up">全部 Ready</span></div></div>
+          <div class="card kpi"><div class="k-top"><span class="k-ico" style="background:var(--teal-50);color:var(--teal-500)"><svg viewBox="0 0 24 24"><path d="m12 2 8.66 5v10L12 22l-8.66-5V7z"/></svg></span>Pod</div><div class="k-val num">86</div><div class="k-foot"><span class="delta flat">3 个 Pending</span></div></div>
+          <div class="card kpi"><div class="k-top"><span class="k-ico" style="background:var(--violet-50);color:var(--violet-500)"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m3 7 9 5 9-5"/></svg></span>服务</div><div class="k-val num">24</div><div class="k-foot"><span class="delta up">健康 23</span></div></div>
+          <div class="card kpi"><div class="k-top"><span class="k-ico" style="background:var(--amber-50);color:var(--amber-500)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>镜像版本</div><div class="k-val num">41</div><div class="k-foot"><span class="delta flat">7 个待升级</span></div></div>
+        </div>
+
+        <div class="grid g-12 mt">
+          <div class="card">
+            <div class="card-h"><h3>命名空间配额</h3><span class="sub" id="nsName">default</span></div>
+            <div class="card-b">
+              <div style="margin-bottom:var(--s-5)">
+                <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:var(--text-2)">GPU</span><span class="num" style="color:var(--text-3)">34 / 40 卡</span></div>
+                <div class="bar warn"><i style="width:85%"></i></div>
+              </div>
+              <div style="margin-bottom:var(--s-5)">
+                <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:var(--text-2)">CPU</span><span class="num" style="color:var(--text-3)">520 / 800 核</span></div>
+                <div class="bar"><i style="width:65%"></i></div>
+              </div>
+              <div style="margin-bottom:var(--s-5)">
+                <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:var(--text-2)">内存</span><span class="num" style="color:var(--text-3)">1.9 / 3.2 TB</span></div>
+                <div class="bar"><i style="width:59%"></i></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:var(--text-2)">存储</span><span class="num" style="color:var(--text-3)">48 / 100 TB</span></div>
+                <div class="bar ok"><i style="width:48%"></i></div>
+              </div>
+              <div style="margin-top:var(--s-5);padding-top:var(--s-4);border-top:1px solid var(--line);font-size:12px;color:var(--text-3);line-height:1.7">
+                已用量取自当前命名空间内<b style="color:var(--text-2)">运行中作业的实际占用</b>；超过 80% 时进度条转为警示色，并触发配额告警。
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><h3>服务清单</h3><span class="sub">命名空间内的可调度服务</span>
+              <div class="r"><div class="f-inp" style="height:30px"><svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input placeholder="搜索服务" /></div></div>
+            </div>
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead><tr><th>服务</th><th>命名空间</th><th>类型</th><th class="num">容量</th><th class="num">已用</th><th style="width:160px">利用率</th><th>状态</th></tr></thead>
+                <tbody>
+                  <tr><td class="cell-main">gpu-node-pool-a100</td><td><span class="tag gray">default</span></td><td><span class="tag violet">GPU 池</span></td><td class="num">80</td><td class="num">68</td><td><div class="bar-cell"><div class="bar warn"><i style="width:85%"></i></div><span class="pv num">85%</span></div></td><td><span class="st ok"><i class="pt"></i>健康</span></td></tr>
+                  <tr><td class="cell-main">gpu-node-pool-v100</td><td><span class="tag gray">default</span></td><td><span class="tag violet">GPU 池</span></td><td class="num">64</td><td class="num">41</td><td><div class="bar-cell"><div class="bar"><i style="width:64%"></i></div><span class="pv num">64%</span></div></td><td><span class="st ok"><i class="pt"></i>健康</span></td></tr>
+                  <tr><td class="cell-main">inference-gateway</td><td><span class="tag gray">default</span></td><td><span class="tag blue">网关</span></td><td class="num">16</td><td class="num">5</td><td><div class="bar-cell"><div class="bar ok"><i style="width:31%"></i></div><span class="pv num">31%</span></div></td><td><span class="st ok"><i class="pt"></i>健康</span></td></tr>
+                  <tr><td class="cell-main">training-scheduler</td><td><span class="tag gray">default</span></td><td><span class="tag teal">调度器</span></td><td class="num">8</td><td class="num">7</td><td><div class="bar-cell"><div class="bar warn"><i style="width:88%"></i></div><span class="pv num">88%</span></div></td><td><span class="st pend"><i class="pt"></i>高负载</span></td></tr>
+                  <tr><td class="cell-main">model-registry</td><td><span class="tag gray">default</span></td><td><span class="tag blue">存储</span></td><td class="num">12</td><td class="num">2</td><td><div class="bar-cell"><div class="bar ok"><i style="width:17%"></i></div><span class="pv num">17%</span></div></td><td><span class="st ok"><i class="pt"></i>健康</span></td></tr>
+                  <tr><td class="cell-main">metrics-collector</td><td><span class="tag gray">default</span></td><td><span class="tag teal">采集</span></td><td class="num">4</td><td class="num">0</td><td><div class="bar-cell"><div class="bar"><i style="width:0%"></i></div><span class="pv num">0%</span></div></td><td><span class="st idle"><i class="pt"></i>维护中</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 监控告警 ==================== -->
+      <section class="screen" id="s-monitor">
+        <div class="page-head">
+          <div class="ph-l">
+            <h1 class="page-title">监控告警</h1>
+            <p class="page-desc">3 条未处理 · 1 条严重 · 平均响应时长 8 分钟</p>
+          </div>
+          <div class="ph-r">
+            <div class="seg"><button class="on">全部</button><button>严重</button><button>警告</button><button>提示</button></div>
+            <button class="btn btn-ghost btn-sm">告警规则</button>
+            <button class="btn btn-primary btn-sm" style="width:auto">新建规则</button>
+          </div>
+        </div>
+
+        <div class="grid g-4">
+          <div class="card kpi"><div class="k-top">严重</div><div class="k-val num" style="color:var(--red-500)">1</div><div class="k-foot"><span class="k-note">需 5 分钟内响应</span></div></div>
+          <div class="card kpi"><div class="k-top">警告</div><div class="k-val num" style="color:var(--amber-500)">1</div><div class="k-foot"><span class="k-note">需 30 分钟内响应</span></div></div>
+          <div class="card kpi"><div class="k-top">提示</div><div class="k-val num" style="color:var(--brand-500)">1</div><div class="k-foot"><span class="k-note">当日处理即可</span></div></div>
+          <div class="card kpi"><div class="k-top">今日已恢复</div><div class="k-val num" style="color:var(--green-500)">9</div><div class="k-foot"><span class="k-note">自动恢复 7 条</span></div></div>
+        </div>
+
+        <div class="card mt">
+          <div class="card-h"><h3>告警趋势</h3><span class="sub">近 14 天按等级堆叠</span></div>
+          <div class="card-b">
+            <svg viewBox="0 0 680 200" style="width:100%;height:200px">
+              <line x1="40" y1="30" x2="660" y2="30" stroke="var(--line)" stroke-dasharray="4 4"/>
+              <line x1="40" y1="80" x2="660" y2="80" stroke="var(--line)" stroke-dasharray="4 4"/>
+              <line x1="40" y1="130" x2="660" y2="130" stroke="var(--line)" stroke-dasharray="4 4"/>
+              <line x1="40" y1="170" x2="660" y2="170" stroke="var(--line-strong)"/>
+              <g>
+                <rect x="52" y="120" width="26" height="50" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="52" y="140" width="26" height="30" rx="3" fill="#F59E0B" opacity=".9"/>
+                <rect x="96" y="100" width="26" height="70" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="96" y="130" width="26" height="40" rx="3" fill="#F59E0B" opacity=".9"/>
+                <rect x="96" y="150" width="26" height="20" rx="3" fill="#F0445A" opacity=".9"/>
+                <rect x="140" y="140" width="26" height="30" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="184" y="90" width="26" height="80" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="184" y="130" width="26" height="40" rx="3" fill="#F59E0B" opacity=".9"/>
+                <rect x="228" y="150" width="26" height="20" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="272" y="70" width="26" height="100" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="272" y="110" width="26" height="60" rx="3" fill="#F59E0B" opacity=".9"/>
+                <rect x="272" y="140" width="26" height="30" rx="3" fill="#F0445A" opacity=".9"/>
+                <rect x="316" y="120" width="26" height="50" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="316" y="145" width="26" height="25" rx="3" fill="#F59E0B" opacity=".9"/>
+                <rect x="360" y="155" width="26" height="15" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="404" y="100" width="26" height="70" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="404" y="140" width="26" height="30" rx="3" fill="#F59E0B" opacity=".9"/>
+                <rect x="448" y="130" width="26" height="40" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="492" y="150" width="26" height="20" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="536" y="110" width="26" height="60" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="536" y="145" width="26" height="25" rx="3" fill="#F59E0B" opacity=".9"/>
+                <rect x="580" y="140" width="26" height="30" rx="3" fill="#2F6BFF" opacity=".85"/>
+                <rect x="624" y="160" width="26" height="10" rx="3" fill="#2F6BFF" opacity=".85"/>
+              </g>
+              <g font-size="11" fill="var(--text-3)" text-anchor="middle">
+                <text x="65" y="190">08/18</text><text x="153" y="190">08/20</text><text x="241" y="190">08/22</text>
+                <text x="329" y="190">08/24</text><text x="417" y="190">08/26</text><text x="505" y="190">08/28</text><text x="593" y="190">08/30</text>
+              </g>
+              <g font-size="11" fill="var(--text-3)" text-anchor="end">
+                <text x="30" y="34">12</text><text x="30" y="84">8</text><text x="30" y="134">4</text><text x="30" y="174">0</text>
+              </g>
+            </svg>
+            <div class="chart-legend" style="margin-top:var(--s-4);justify-content:center">
+              <span class="lg"><i style="background:var(--brand-500)"></i>提示</span>
+              <span class="lg"><i style="background:var(--amber-500)"></i>警告</span>
+              <span class="lg"><i style="background:var(--red-500)"></i>严重</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt">
+          <div class="card-h"><h3>告警列表</h3><span class="sub">未处理优先</span></div>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>级别</th><th>告警名称</th><th>影响对象</th><th class="num">当前值</th><th>触发时间</th><th>持续</th><th>状态</th><th style="width:100px">操作</th></tr></thead>
+              <tbody>
+                <tr><td><span class="tag amber">严重</span></td><td class="cell-main">GPU 显存占用超阈值</td><td><span class="id-tag mono">node-gpu-07</span></td><td class="num">94%</td><td class="num cell-sub">08-31 10:21</td><td class="num">12m</td><td><span class="st fail"><i class="pt"></i>未处理</span></td><td><button class="btn btn-ghost btn-sm">处理</button></td></tr>
+                <tr><td><span class="tag amber">警告</span></td><td class="cell-main">作业排队时长超 SLA</td><td><span class="id-tag mono">queue-training</span></td><td class="num">42s</td><td class="num cell-sub">08-31 09:58</td><td class="num">35m</td><td><span class="st pend"><i class="pt"></i>处理中</span></td><td><button class="btn btn-ghost btn-sm">详情</button></td></tr>
+                <tr><td><span class="tag blue">提示</span></td><td class="cell-main">租户配额使用率达 85%</td><td><span class="id-tag mono">tenant-research</span></td><td class="num">85%</td><td class="num cell-sub">08-31 08:40</td><td class="num">1h 53m</td><td><span class="st idle"><i class="pt"></i>已静默</span></td><td><button class="btn btn-ghost btn-sm">详情</button></td></tr>
+                <tr><td><span class="tag amber">严重</span></td><td class="cell-main">节点心跳丢失</td><td><span class="id-tag mono">node-gpu-12</span></td><td class="num">—</td><td class="num cell-sub">08-30 23:14</td><td class="num">11h</td><td><span class="st ok"><i class="pt"></i>已恢复</span></td><td><button class="btn btn-ghost btn-sm">详情</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 设计系统 ==================== -->
+      <section class="screen" id="s-system">
+        <div class="page-head">
+          <div class="ph-l">
+            <h1 class="page-title">设计系统 Metaclouds Design System</h1>
+            <p class="page-desc">统一令牌 · 组件规范 · 交互约定 · 面向 antd 5.x 的主题映射</p>
+          </div>
+          <div class="ph-r"><span class="tag blue">v2.0</span><span class="tag gray">2026-08-31</span></div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h3>色彩系统</h3><span class="sub">语义优先，避免直接使用色号</span></div>
+          <div class="card-b">
+            <div class="token-row"><span class="tn">品牌 / Brand</span><span class="tv" style="flex:1">主行动色，仅用于主按钮、选中态、关键链接；一屏不超过 1 个主按钮</span></div>
+            <div class="sw-grid mt">
+              <div class="sw"><div class="c" style="background:#1B47C4"></div><div class="m"><b>brand-700</b><span>#1B47C4 · 按下</span></div></div>
+              <div class="sw"><div class="c" style="background:#1F52E0"></div><div class="m"><b>brand-600</b><span>#1F52E0 · 悬停</span></div></div>
+              <div class="sw"><div class="c" style="background:#2F6BFF"></div><div class="m"><b>brand-500</b><span>#2F6BFF · 默认</span></div></div>
+              <div class="sw"><div class="c" style="background:#5B8BFF"></div><div class="m"><b>brand-400</b><span>#5B8BFF · 深色模式</span></div></div>
+              <div class="sw"><div class="c" style="background:#DCE8FF"></div><div class="m"><b>brand-100</b><span>#DCE8FF · 描边</span></div></div>
+              <div class="sw"><div class="c" style="background:#EEF4FF"></div><div class="m"><b>brand-50</b><span>#EEF4FF · 底色</span></div></div>
+            </div>
+            <div class="token-row" style="margin-top:var(--s-6)"><span class="tn">语义 / Semantic</span><span class="tv" style="flex:1">成功 / 警告 / 危险 / 加速 / 算力，与图标、状态点组合使用</span></div>
+            <div class="sw-grid mt">
+              <div class="sw"><div class="c" style="background:#12B886"></div><div class="m"><b>success</b><span>健康 · 完成 · 可分配</span></div></div>
+              <div class="sw"><div class="c" style="background:#F59E0B"></div><div class="m"><b>warning</b><span>排队 · 高负载 · 警告</span></div></div>
+              <div class="sw"><div class="c" style="background:#F0445A"></div><div class="m"><b>danger</b><span>失败 · 严重 · 破坏操作</span></div></div>
+              <div class="sw"><div class="c" style="background:#00B8A9"></div><div class="m"><b>teal</b><span>运行中 · 推理类</span></div></div>
+              <div class="sw"><div class="c" style="background:#7C5CFF"></div><div class="m"><b>violet</b><span>训练类 · 加速</span></div></div>
+              <div class="sw"><div class="c" style="background:#7C8DA6"></div><div class="m"><b>muted</b><span>停用 · 维护 · 未启用</span></div></div>
+            </div>
+            <div class="token-row" style="margin-top:var(--s-6)"><span class="tn">中性 / Neutral</span><span class="tv" style="flex:1">文字与分割线主导，正文对比度 ≥ 4.5:1，次要文字 ≥ 3:1</span></div>
+            <div class="sw-grid mt">
+              <div class="sw"><div class="c" style="background:#0E1726"></div><div class="m"><b>text-1</b><span>标题 / 正文 15.8:1</span></div></div>
+              <div class="sw"><div class="c" style="background:#4A5B75"></div><div class="m"><b>text-2</b><span>次级信息 7.4:1</span></div></div>
+              <div class="sw"><div class="c" style="background:#7C8DA6"></div><div class="m"><b>text-3</b><span>辅助 / 占位 3.6:1</span></div></div>
+              <div class="sw"><div class="c" style="background:#E4EAF3;border:1px solid #D2DCEB"></div><div class="m"><b>line</b><span>分割线 / 卡片描边</span></div></div>
+              <div class="sw"><div class="c" style="background:#FFFFFF;border:1px solid #D2DCEB"></div><div class="m"><b>surface</b><span>卡片 / 弹层</span></div></div>
+              <div class="sw"><div class="c" style="background:#F5F7FC"></div><div class="m"><b>bg</b><span>页面底色</span></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid g-2 mt">
+          <div class="card">
+            <div class="card-h"><h3>字体阶梯</h3><span class="sub">数字统一 tabular-nums</span></div>
+            <div class="card-b">
+              <div class="type-row"><span class="tr-meta">H1 / 30px / 680</span><span style="font-size:30px;font-weight:680;letter-spacing:-.8px">算力总览</span></div>
+              <div class="type-row"><span class="tr-meta">H2 / 22px / 660</span><span style="font-size:22px;font-weight:660;letter-spacing:-.3px">作业管理</span></div>
+              <div class="type-row"><span class="tr-meta">H3 / 15px / 620</span><span style="font-size:15px;font-weight:620">服务清单</span></div>
+              <div class="type-row"><span class="tr-meta">Body / 14px / 400</span><span style="font-size:14px">正文与表格内容，行高 1.5</span></div>
+              <div class="type-row"><span class="tr-meta">Caption / 12px</span><span style="font-size:12px;color:var(--text-3)">辅助说明、时间戳、单位</span></div>
+              <div class="type-row"><span class="tr-meta">Metric / 30px / mono</span><span class="mono" style="font-size:30px;font-weight:680;letter-spacing:-1px">78.4%</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h3>圆角 · 阴影 · 间距</h3></div>
+            <div class="card-b">
+              <div class="demo-box">
+                <div class="r-box" style="border-radius:4px"></div>
+                <div class="r-box" style="border-radius:8px"></div>
+                <div class="r-box" style="border-radius:12px"></div>
+                <div class="r-box" style="border-radius:16px"></div>
+                <div class="r-box" style="border-radius:999px"></div>
+              </div>
+              <div class="grid g-2 mt" style="gap:var(--s-3)">
+                <div class="sh-box" style="box-shadow:var(--sh-1)">sh-1 卡片静止</div>
+                <div class="sh-box" style="box-shadow:var(--sh-2)">sh-2 卡片悬停</div>
+                <div class="sh-box" style="box-shadow:var(--sh-3)">sh-3 浮层 / Toast</div>
+                <div class="sh-box" style="box-shadow:var(--sh-4)">sh-4 模态 / 抽屉</div>
+              </div>
+              <div style="margin-top:var(--s-5)">
+                <div class="demo-box" style="gap:2px;align-items:flex-end">
+                  <div style="width:4px;height:20px;background:var(--brand-500);border-radius:2px"></div>
+                  <div style="width:8px;height:20px;background:var(--brand-500);border-radius:2px"></div>
+                  <div style="width:12px;height:20px;background:var(--brand-500);border-radius:2px"></div>
+                  <div style="width:16px;height:20px;background:var(--brand-500);border-radius:2px"></div>
+                  <div style="width:24px;height:20px;background:var(--brand-500);border-radius:2px"></div>
+                  <div style="width:32px;height:20px;background:var(--brand-500);border-radius:2px"></div>
+                  <span style="font-size:12px;color:var(--text-3);margin-left:8px">4 / 8 / 12 / 16 / 24 / 32 —— 4pt 栅格</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt">
+          <div class="card-h"><h3>组件规范</h3><span class="sub">按钮 · 输入 · 标签 · 状态</span></div>
+          <div class="card-b">
+            <div class="token-row"><span class="tn">按钮</span>
+              <div class="demo-box" style="flex:1">
+                <button class="btn btn-primary btn-sm" style="width:auto">主按钮</button>
+                <button class="btn btn-ghost btn-sm">次按钮</button>
+                <button class="btn btn-danger btn-sm">危险操作</button>
+                <button class="btn btn-ghost btn-sm" disabled style="opacity:.5;cursor:not-allowed">禁用</button>
+                <span class="tv">一屏仅一个主按钮；危险操作需二次确认</span>
+              </div>
+            </div>
+            <div class="token-row"><span class="tn">输入</span>
+              <div class="demo-box" style="flex:1">
+                <input class="inp" style="width:200px;height:34px" placeholder="默认态" />
+                <input class="inp err" style="width:200px;height:34px" value="错误态" />
+                <span class="tv">高度 34（表格内）/ 42（表单）；错误内联在字段下方</span>
+              </div>
+            </div>
+            <div class="token-row"><span class="tn">状态</span>
+              <div class="demo-box" style="flex:1">
+                <span class="st run"><i class="pt pulse"></i>运行中</span>
+                <span class="st pend"><i class="pt"></i>排队中</span>
+                <span class="st ok"><i class="pt"></i>已完成</span>
+                <span class="st fail"><i class="pt"></i>失败</span>
+                <span class="st idle"><i class="pt"></i>已取消</span>
+                <span class="tv">状态点 + 文字，禁止仅用颜色表意</span>
+              </div>
+            </div>
+            <div class="token-row"><span class="tn">标签</span>
+              <div class="demo-box" style="flex:1">
+                <span class="tag violet">训练</span><span class="tag teal">推理</span><span class="tag blue">数据处理</span><span class="tag amber">警告</span><span class="tag gray">default</span>
+              </div>
+            </div>
+            <div class="token-row"><span class="tn">开关 · 进度</span>
+              <div class="demo-box" style="flex:1">
+                <div class="switch on"><i></i></div><div class="switch"><i></i></div>
+                <div class="bar" style="width:120px"><i style="width:62%"></i></div>
+                <div class="bar warn" style="width:120px"><i style="width:85%"></i></div>
+                <div class="bar danger" style="width:120px"><i style="width:47%"></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid g-2 mt">
+          <div class="card">
+            <div class="card-h"><h3>交互约定</h3></div>
+            <div class="card-b" style="display:flex;flex-direction:column;gap:var(--s-3);font-size:13px;color:var(--text-2);line-height:1.75">
+              <div>① <b>全局命令面板</b>：Ctrl/⌘ + K，支持跳转页面、搜索作业 ID、执行常用动作。</div>
+              <div>② <b>批量操作</b>：勾选后底部出现操作条，明确「已选择 N 项」，危险操作需输入名称二次确认。</div>
+              <div>③ <b>破坏性操作</b>：删除 / 取消一律红字 + 二次确认；不使用纯图标垃圾桶。</div>
+              <div>④ <b>加载与空态</b>：首屏用骨架屏（≥3 行），不用整页 spinner；空态必须给出下一步动作。</div>
+              <div>⑤ <b>反馈时效</b>：≤1s 无反馈需 loading；成功用 Toast（3s 自动消失），失败保留至手动关闭。</div>
+              <div>⑥ <b>表格</b>：粘性表头、列设置、密度切换、分页固定在左下，行内操作悬停显现。</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h3>响应式与无障碍</h3></div>
+            <div class="card-b" style="display:flex;flex-direction:column;gap:var(--s-3);font-size:13px;color:var(--text-2);line-height:1.75">
+              <div>① 断点：<b>1440 / 1280 / 1024 / 768</b>；≤1024 侧边栏收为图标态，≤768 转抽屉 + 底部标签栏。</div>
+              <div>② 触达目标 ≥ 40×40px；行高与点击区间分离，避免误触。</div>
+              <div>③ 所有交互元素可见焦点环（2px 品牌色，offset 2px）。</div>
+              <div>④ 颜色不是唯一信息载体：状态必须同时具备「色点 + 文字」。</div>
+              <div>⑤ 支持键盘全流程操作与 <span class="kbd">Esc</span> 关闭浮层；动效遵循 <i>prefers-reduced-motion</i>。</div>
+              <div>⑥ 表格支持横向滚动与列冻结，移动端转为卡片流。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mt">
+          <div class="card-h"><h3>改版前后对照</h3><span class="sub">关键体验差异</span></div>
+          <div class="card-b">
+            <div class="do-dont">
+              <div class="dd bad"><div class="h">✕ 现状问题</div><div class="b">
+                · 无顶栏：缺全局搜索、环境标识、通知与用户区<br/>
+                · 菜单子项点击后视图不切换，等同死链<br/>
+                · 卡片与表格沿用组件默认样式，层级靠阴影堆叠<br/>
+                · 空态 / 加载态缺失，出错时页面空白<br/>
+                · 破坏性操作无二次确认，批量操作无反馈<br/>
+                · 数字使用比例字体，表格列跳动
+              </div></div>
+              <div class="dd good"><div class="h">✓ 方案改进</div><div class="b">
+                · 顶栏承担「搜索 · 环境 · 通知 · 主题 · 用户」全局能力<br/>
+                · 侧边栏分组 + 路由联动，子项切换真实视图<br/>
+                · 统一令牌：一套色板、四级阴影、8pt 节奏贯穿全流程<br/>
+                · 骨架屏 / 空态 / 错误态成套，空态必给下一步动作<br/>
+                · 危险操作二次确认，批量操作条常驻可见<br/>
+                · 指标数字 tabular-nums 对齐，长 ID 用等宽字体
+              </div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- 命令面板 -->
+<div class="cmdk" id="cmdk">
+  <div class="cmdk-box">
+    <div class="cmdk-in">
+      <svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="cmdkInput" placeholder="搜索页面、作业 ID，或输入命令…" />
+      <span class="kbd">Esc</span>
+    </div>
+    <div class="cmdk-body">
+      <div class="cmdk-g">快捷操作</div>
+      <div class="cmdk-i" onclick="runCmd('新建作业')"><span class="ci-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></span><span class="ci-t">新建作业</span><span class="ci-h">N</span></div>
+      <div class="cmdk-i" onclick="runCmd('查看排队中的作业')"><span class="ci-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="ci-t">查看排队中的作业</span><span class="ci-h">6 个</span></div>
+      <div class="cmdk-i" onclick="runCmd('切换深色模式')"><span class="ci-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></span><span class="ci-t">切换深色 / 浅色模式</span><span class="ci-h">T</span></div>
+      <div class="cmdk-g">跳转到</div>
+      <div class="cmdk-i" onclick="runCmd('仪表盘')"><span class="ci-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/></svg></span><span class="ci-t">仪表盘</span><span class="ci-h">总览</span></div>
+      <div class="cmdk-i" onclick="runCmd('作业管理')"><span class="ci-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.6 13.4 12 22l-9-9V3h10z"/></svg></span><span class="ci-t">作业管理</span><span class="ci-h">调度</span></div>
+      <div class="cmdk-i" onclick="runCmd('K8S 管理')"><span class="ci-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 2 8.66 5v10L12 22l-8.66-5V7z"/></svg></span><span class="ci-t">K8S 管理</span><span class="ci-h">基础设施</span></div>
+      <div class="cmdk-i" onclick="runCmd('监控告警')"><span class="ci-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/></svg></span><span class="ci-t">监控告警</span><span class="ci-h">3 条未处理</span></div>
+      <div class="cmdk-g">作业</div>
+      <div class="cmdk-i" onclick="runCmd('job-8f2a91')"><span class="ci-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16M6 16l4-8 4 5 4-7"/></svg></span><span class="ci-t">job-8f2a91 · llama3-70b-finetune</span><span class="ci-h">运行中</span></div>
+      <div class="cmdk-i" onclick="runCmd('job-6b88e2')"><span class="ci-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16M6 16l4-8 4 5 4-7"/></svg></span><span class="ci-t">job-6b88e2 · resnet50-pretrain</span><span class="ci-h">排队中</span></div>
+    </div>
+    <div class="cmdk-foot"><span>↑↓ 选择</span><span>↵ 执行</span><span>Esc 关闭</span></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+/* ---------- 登录 → 应用 ---------- */
+function showLogin(){ document.getElementById('login').classList.remove('hidden'); }
+document.getElementById('doLogin').addEventListener('click',function(){
+  document.getElementById('login').classList.add('hidden');
+  setTimeout(function(){ toast('登录成功，欢迎回来 admin','teal'); },260);
+});
+document.getElementById('eye').addEventListener('click',function(){
+  var i=document.getElementById('p');
+  i.type = i.type==='password' ? 'text' : 'password';
+});
+
+/* ---------- 侧边栏与页面切换 ---------- */
+var NAMES={dashboard:'仪表盘',jobs:'作业管理',k8s:'K8S 管理',monitor:'监控告警',system:'设计系统'};
+var CRUMBS={dashboard:'总览 / 仪表盘',jobs:'调度 / 作业管理',k8s:'基础设施 / K8S 管理',monitor:'可观测与治理 / 监控告警',system:'系统 / 设计系统'};
+
+document.querySelectorAll('.nav-item[data-screen]').forEach(function(el){
+  el.addEventListener('click',function(){
+    document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+    el.classList.add('active');
+    go(el.dataset.screen);
+  });
+});
+document.querySelectorAll('.nav-item[data-toggle]').forEach(function(el){
+  el.addEventListener('click',function(e){
+    e.stopPropagation();
+    var sub=document.getElementById(el.dataset.toggle);
+    var open=sub.classList.toggle('open');
+    el.classList.toggle('expanded',open);
+  });
+});
+function go(name){
+  document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
+  var t=document.getElementById('s-'+name);
+  if(t) t.classList.add('active');
+  document.getElementById('crumbNow').textContent=NAMES[name]||'';
+  if(window.innerWidth<=768) document.getElementById('nav').style.transform='translateX(-100%)';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+/* ---------- 主题切换 ---------- */
+var root=document.documentElement;
+var SUN='<path d="M12 4V2M12 22v-2M4 12H2M22 12h-2M6.3 6.3 4.9 4.9M19.1 19.1l-1.4-1.4M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/><circle cx="12" cy="12" r="4"/>';
+var MOON='<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>';
+document.getElementById('themeBtn').addEventListener('click',function(){
+  var dark = root.getAttribute('data-theme')==='dark';
+  root.setAttribute('data-theme', dark?'light':'dark');
+  document.getElementById('themeIcon').innerHTML = dark?MOON:SUN;
+  toast(dark?'已切换到浅色模式':'已切换到深色模式','brand');
+});
+
+/* ---------- 命令面板 ---------- */
+var cmdk=document.getElementById('cmdk');
+function openCmdk(){ cmdk.classList.add('show'); setTimeout(function(){document.getElementById('cmdkInput').focus();},60); }
+function closeCmdk(){ cmdk.classList.remove('show'); }
+document.getElementById('openCmdk').addEventListener('click',openCmdk);
+cmdk.addEventListener('click',function(e){ if(e.target===cmdk) closeCmdk(); });
+function runCmd(name){
+  closeCmdk();
+  var m={'仪表盘':'dashboard','作业管理':'jobs','K8S 管理':'k8s','监控告警':'monitor','查看排队中的作业':'jobs','新建作业':'jobs'};
+  if(m[name]){ go(m[name]); toast('已跳转到：'+name,'brand'); }
+  else if(name==='切换深色模式'){ document.getElementById('themeBtn').click(); }
+  else toast('已打开：'+name,'brand');
+}
+document.addEventListener('keydown',function(e){
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); cmdk.classList.contains('show')?closeCmdk():openCmdk(); }
+  if(e.key==='Escape') closeCmdk();
+});
+
+/* ---------- 表格批量选择 ---------- */
+var rows=document.querySelectorAll('.row-chk');
+var all=document.getElementById('chkAll');
+var bar=document.getElementById('bulkbar');
+function syncSel(){
+  var n=document.querySelectorAll('.row-chk:checked').length;
+  document.getElementById('selCount').textContent=n;
+  bar.classList.toggle('show',n>0);
+  all.checked = n===rows.length && rows.length>0;
+  all.indeterminate = n>0 && n<rows.length;
+  rows.forEach(function(r){ r.closest('tr').classList.toggle('sel',r.checked); });
+}
+rows.forEach(function(r){ r.addEventListener('change',syncSel); });
+all.addEventListener('change',function(){ rows.forEach(function(r){ r.checked=all.checked; }); syncSel(); });
+function clearSel(){ rows.forEach(function(r){ r.checked=false; }); syncSel(); }
+
+/* ---------- Segmented / Tabs 通用 ---------- */
+document.querySelectorAll('.seg').forEach(function(seg){
+  seg.querySelectorAll('button').forEach(function(b){
+    b.addEventListener('click',function(){
+      seg.querySelectorAll('button').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+      var ns=document.getElementById('nsName');
+      if(seg.id==='nsSeg'&&ns) ns.textContent=b.textContent;
+    });
+  });
+});
+
+/* ---------- Toast ---------- */
+var COLORS={brand:'var(--brand-500)',teal:'var(--teal-500)',amber:'var(--amber-500)',red:'var(--red-500)'};
+function toast(msg,type){
+  var w=document.getElementById('toasts');
+  var el=document.createElement('div');
+  el.className='toast';
+  el.innerHTML='<span class="t-ico" style="background:'+(COLORS[type]||COLORS.brand)+'">'+
+    '<svg viewBox="0 0 24 24" fill="none"><path d="m5 13 4 4L19 7"/></svg></span><span>'+msg+'</span>';
+  w.appendChild(el);
+  setTimeout(function(){
+    el.style.transition='opacity 240ms, transform 240ms';
+    el.style.opacity='0'; el.style.transform='translateX(20px)';
+    setTimeout(function(){ el.remove(); },240);
+  },2800);
+}
+</script>
+</body>
+</html>

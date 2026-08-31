@@ -1,0 +1,104 @@
+:root {
+  --sidebar-width: 240px;
+  --sidebar-width-collapsed: 64px;
+  --sidebar-width-tablet: 200px;
+  --sidebar-width-mobile: 260px;
+  --sidebar-width-phone: 240px;
+  --sidebar-width-landscape: 64px;
+  
+  --sidebar-bg-start: #0f172a;
+  --sidebar-bg-end: #1e293b;
+  
+  --sidebar-border-color: rgba(255, 255, 255, 0.08);
+  --sidebar-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+  --sidebar-shadow-mobile: 8px 0 24px rgba(0, 0, 0, 0.4);
+  
+  --sidebar-transition-duration: 0.2s;
+  --sidebar-transition-easing: cubic-bezier(0.4, 0, 0.2, 1);
+  
+  --sidebar-primary-color: #3b82f6;
+  --sidebar-primary-light: #60a5fa;
+  --sidebar-primary-dark: #2563eb;
+  
+  --sidebar-secondary-color: #8b5cf6;
+  --sidebar-secondary-light: #a78bfa;
+  
+  --sidebar-accent-color: #ec4899;
+  
+  --sidebar-text-primary: #f8fafc;
+  --sidebar-text-secondary: #e2e8f0;
+  --sidebar-text-muted: #94a3b8;
+  --sidebar-text-disabled: #64748b;
+  
+  --sidebar-menu-bg: rgba(255, 255, 255, 0.06);
+  --sidebar-menu-bg-hover: rgba(59, 130, 246, 0.22);
+  --sidebar-menu-bg-active: rgba(59, 130, 246, 0.35);
+  
+  --sidebar-menu-border-radius: 8px;
+  --sidebar-menu-border-radius-sm: 6px;
+  
+  --sidebar-menu-border-color: rgba(59, 130, 246, 0.5);
+  
+  --sidebar-submenu-bg: rgba(15, 23, 42, 0.85);
+  --sidebar-submenu-border-color: rgba(59, 130, 246, 0.2);
+  
+  --sidebar-indicator-width: 4px;
+  --sidebar-indicator-height: 36px;
+  
+  --sidebar-logo-title-size: 20px;
+  --sidebar-logo-title-size-tablet: 17px;
+  --sidebar-logo-title-size-mobile: 18px;
+  --sidebar-logo-title-size-phone: 16px;
+  --sidebar-logo-title-size-landscape: 16px;
+  
+  --sidebar-logo-subtitle-size: 11px;
+  --sidebar-logo-subtitle-size-tablet: 10px;
+  --sidebar-logo-subtitle-size-mobile: 11px;
+  --sidebar-logo-subtitle-size-phone: 10px;
+  --sidebar-logo-subtitle-size-landscape: 10px;
+  
+  --sidebar-menu-label-size: 14px;
+  --sidebar-menu-label-size-tablet: 13px;
+  --sidebar-menu-label-size-mobile: 14px;
+  --sidebar-menu-label-size-phone: 13px;
+  --sidebar-menu-label-size-landscape: 13px;
+  
+  --sidebar-menu-description-size: 11px;
+  --sidebar-menu-description-size-tablet: 10px;
+  --sidebar-menu-description-size-mobile: 11px;
+  --sidebar-menu-description-size-phone: 10px;
+  --sidebar-menu-description-size-landscape: 10px;
+  
+  --sidebar-menu-icon-size: 18px;
+  --sidebar-menu-icon-size-tablet: 17px;
+  --sidebar-menu-icon-size-mobile: 18px;
+  --sidebar-menu-icon-size-phone: 16px;
+  --sidebar-menu-icon-size-landscape: 17px;
+  
+  --sidebar-logout-bg: rgba(239, 68, 68, 0.1);
+  --sidebar-logout-bg-hover: rgba(239, 68, 68, 0.2);
+  --sidebar-logout-border-color: rgba(239, 68, 68, 0.2);
+  --sidebar-logout-border-color-hover: rgba(239, 68, 68, 0.4);
+  --sidebar-logout-text-color: #94a3b8;
+  --sidebar-logout-text-color-hover: #ef4444;
+  
+  --sidebar-collapse-btn-size: 28px;
+  --sidebar-collapse-btn-bg-start: #3b82f6;
+  --sidebar-collapse-btn-bg-end: #8b5cf6;
+  
+  --sidebar-z-index: 1000;
+  
+  --sidebar-menu-container-height: calc(100vh - 144px);
+  --sidebar-menu-container-height-tablet: calc(100vh - 130px);
+  --sidebar-menu-container-height-mobile: calc(100vh - 120px);
+  --sidebar-menu-container-height-phone: calc(100vh - 110px);
+  --sidebar-menu-container-height-landscape: calc(100vh - 100px);
+  
+  --sidebar-menu-margin: 4px 8px;
+  --sidebar-menu-margin-phone: 3px 6px;
+  --sidebar-menu-margin-landscape: 3px 6px;
+  
+  --sidebar-menu-padding: 10px 14px;
+  --sidebar-menu-padding-phone: 8px 10px;
+  --sidebar-menu-padding-landscape: 8px 12px;
+}
