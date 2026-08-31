@@ -1,0 +1,414 @@
+---
+# PostgreSQL Backup CronJob for Kubernetes
+# Usage: kubectl apply -f backup-cronjob.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metaclouds-backup-config
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backup
+data:
+  backup.conf: |
+    # Backup Configuration
+    DATABASE_HOST: "postgresql.metaclouds.svc.cluster.local"
+    DATABASE_PORT: "5432"
+    DATABASE_NAME: "metaclouds"
+    DATABASE_USER: "metaclouds_user"
+    
+    # Retention Policy
+    RETENTION_DAYS: "30"
+    HOURLY_KEEP: "24"
+    DAILY_KEEP: "7"
+    WEEKLY_KEEP: "4"
+    MONTHLY_KEEP: "12"
+    
+    # S3 Configuration (optional)
+    # S3_BUCKET: "your-s3-bucket"
+    # S3_PREFIX: "metaclouds/backups"
+---
+# 备份作业不再定义独立 Secret，而是复用主 Secret（metaclouds-secrets）中的
+# database-password，避免把可猜测的占位值（YOUR_DATABASE_PASSWORD）提交进 Git。
+# 主 Secret 由 deploy/generate_k8s_secrets.sh 从已轮换的 .env.production 生成。
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: metaclouds-backup-pvc
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: metaclouds-backup-hourly
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backup
+spec:
+  schedule: "0 * * * *"  # Every hour
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: metaclouds
+            component: backup
+            type: hourly
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: backup
+            image: postgres:15-alpine
+            command:
+            - /bin/sh
+            - -c
+            - |
+              #!/bin/bash
+              set -euo pipefail
+              
+              TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+              BACKUP_DIR="/backups"
+              DATABASE_HOST=$(cat /config/backup.conf | grep DATABASE_HOST | cut -d'"' -f2)
+              DATABASE_NAME=$(cat /config/backup.conf | grep DATABASE_NAME | cut -d'"' -f2)
+              
+              mkdir -p ${BACKUP_DIR}
+              
+              echo "[$(date)] Starting hourly backup..."
+              
+              pg_dump -h ${DATABASE_HOST} \
+                -p 5432 \
+                -U ${DATABASE_USER} \
+                -d ${DATABASE_NAME} \
+                -Fc \
+                -Z 6 \
+                -f ${BACKUP_DIR}/${DATABASE_NAME}_hourly_${TIMESTAMP}.dump.gz
+              
+              echo "[$(date)] Backup completed: ${BACKUP_DIR}/${DATABASE_NAME}_hourly_${TIMESTAMP}.dump.gz"
+              
+              # Cleanup old hourly backups (keep 24 hours)
+              find ${BACKUP_DIR} -name "${DATABASE_NAME}_hourly_*.dump.gz" -type f -mmin +1440 -delete
+              
+              echo "[$(date)] Hourly backup job completed"
+            env:
+            - name: DATABASE_USER
+              value: "metaclouds_user"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: database-password
+            envFrom:
+            - configMapRef:
+                name: metaclouds-backup-config
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+            volumeMounts:
+            - name: backup-volume
+              mountPath: /backups
+            - name: config
+              mountPath: /config
+              readOnly: true
+          volumes:
+          - name: backup-volume
+            persistentVolumeClaim:
+              claimName: metaclouds-backup-pvc
+          - name: config
+            configMap:
+              name: metaclouds-backup-config
+          nodeSelector:
+            backup: "true"
+          tolerations:
+          - key: "backup"
+            operator: "Exists"
+            effect: "NoSchedule"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: metaclouds-backup-daily
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backup
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: metaclouds
+            component: backup
+            type: daily
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: backup
+            image: postgres:15-alpine
+            command:
+            - /bin/sh
+            - -c
+            - |
+              #!/bin/bash
+              set -euo pipefail
+              
+              TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+              BACKUP_DIR="/backups"
+              DATABASE_HOST=$(cat /config/backup.conf | grep DATABASE_HOST | cut -d'"' -f2)
+              DATABASE_NAME=$(cat /config/backup.conf | grep DATABASE_NAME | cut -d'"' -f2)
+              RETENTION_DAYS=$(cat /config/backup.conf | grep RETENTION_DAYS | cut -d'"' -f2)
+              
+              mkdir -p ${BACKUP_DIR}
+              
+              echo "[$(date)] Starting daily backup..."
+              
+              # Create backup with metadata
+              pg_dump -h ${DATABASE_HOST} \
+                -p 5432 \
+                -U ${DATABASE_USER} \
+                -d ${DATABASE_NAME} \
+                -Fc \
+                -Z 9 \
+                -f ${BACKUP_DIR}/${DATABASE_NAME}_daily_${TIMESTAMP}.dump.gz
+              
+              # Create checksum
+              sha256sum ${BACKUP_DIR}/${DATABASE_NAME}_daily_${TIMESTAMP}.dump.gz > \
+                ${BACKUP_DIR}/${DATABASE_NAME}_daily_${TIMESTAMP}.dump.gz.sha256
+              
+              echo "[$(date)] Backup completed: ${BACKUP_DIR}/${DATABASE_NAME}_daily_${TIMESTAMP}.dump.gz"
+              
+              # Cleanup old daily backups
+              find ${BACKUP_DIR} -name "${DATABASE_NAME}_daily_*.dump.gz" -type f -mtime +${RETENTION_DAYS} -delete
+              find ${BACKUP_DIR} -name "${DATABASE_NAME}_daily_*.sha256" -type f -mtime +${RETENTION_DAYS} -delete
+              
+              # Upload to S3 (if configured)
+              if [ -n "${S3_BUCKET}" ]; then
+                echo "[$(date)] Uploading to S3..."
+                aws s3 cp ${BACKUP_DIR}/${DATABASE_NAME}_daily_${TIMESTAMP}.dump.gz \
+                  s3://${S3_BUCKET}/${S3_PREFIX}/daily/
+                aws s3 cp ${BACKUP_DIR}/${DATABASE_NAME}_daily_${TIMESTAMP}.dump.gz.sha256 \
+                  s3://${S3_BUCKET}/${S3_PREFIX}/daily/
+                echo "[$(date)] S3 upload completed"
+              fi
+              
+              echo "[$(date)] Daily backup job completed"
+            env:
+            - name: DATABASE_USER
+              value: "metaclouds_user"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: database-password
+            - name: S3_BUCKET
+              value: "your-s3-bucket-name"
+            - name: S3_PREFIX
+              value: "metaclouds/backups"
+            envFrom:
+            - configMapRef:
+                name: metaclouds-backup-config
+            resources:
+              requests:
+                cpu: 200m
+                memory: 512Mi
+              limits:
+                cpu: 1000m
+                memory: 2Gi
+            volumeMounts:
+            - name: backup-volume
+              mountPath: /backups
+            - name: config
+              mountPath: /config
+              readOnly: true
+          volumes:
+          - name: backup-volume
+            persistentVolumeClaim:
+              claimName: metaclouds-backup-pvc
+          - name: config
+            configMap:
+              name: metaclouds-backup-config
+          nodeSelector:
+            backup: "true"
+          tolerations:
+          - key: "backup"
+            operator: "Exists"
+            effect: "NoSchedule"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: metaclouds-backup-weekly
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backup
+spec:
+  schedule: "0 3 * * 0"  # Weekly on Sunday at 3 AM
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app: metaclouds
+            component: backup
+            type: weekly
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: backup
+            image: postgres:15-alpine
+            command:
+            - /bin/sh
+            - -c
+            - |
+              #!/bin/bash
+              set -euo pipefail
+              
+              TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+              BACKUP_DIR="/backups"
+              DATABASE_HOST=$(cat /config/backup.conf | grep DATABASE_HOST | cut -d'"' -f2)
+              DATABASE_NAME=$(cat /config/backup.conf | grep DATABASE_NAME | cut -d'"' -f2)
+              
+              mkdir -p ${BACKUP_DIR}
+              
+              echo "[$(date)] Starting weekly full backup..."
+              
+              # Weekly backups are stored longer
+              pg_dump -h ${DATABASE_HOST} \
+                -p 5432 \
+                -U ${DATABASE_USER} \
+                -d ${DATABASE_NAME} \
+                -Fc \
+                -Z 9 \
+                -f ${BACKUP_DIR}/${DATABASE_NAME}_weekly_${TIMESTAMP}.dump.gz
+              
+              # Create checksum and metadata
+              sha256sum ${BACKUP_DIR}/${DATABASE_NAME}_weekly_${TIMESTAMP}.dump.gz > \
+                ${BACKUP_DIR}/${DATABASE_NAME}_weekly_${TIMESTAMP}.dump.gz.sha256
+              
+              # Create metadata file
+              cat > ${BACKUP_DIR}/${DATABASE_NAME}_weekly_${TIMESTAMP}.meta << EOF
+              {
+                "backup_type": "weekly",
+                "timestamp": "${TIMESTAMP}",
+                "database": "${DATABASE_NAME}",
+                "created_at": "$(date -Iseconds)",
+                "pg_version": "$(psql -h ${DATABASE_HOST} -U ${DATABASE_USER} -d ${DATABASE_NAME} -t -c 'SELECT version();' 2>/dev/null || echo 'unknown')"
+              }
+              EOF
+              
+              echo "[$(date)] Weekly backup completed: ${BACKUP_DIR}/${DATABASE_NAME}_weekly_${TIMESTAMP}.dump.gz"
+              
+              # Cleanup old weekly backups (keep 4 weeks)
+              find ${BACKUP_DIR} -name "${DATABASE_NAME}_weekly_*.dump.gz" -type f -mtime +28 -delete
+              find ${BACKUP_DIR} -name "${DATABASE_NAME}_weekly_*.sha256" -type f -mtime +28 -delete
+              find ${BACKUP_DIR} -name "${DATABASE_NAME}_weekly_*.meta" -type f -mtime +28 -delete
+              
+              # Always upload weekly backups to S3
+              if [ -n "${S3_BUCKET}" ]; then
+                echo "[$(date)] Uploading weekly backup to S3..."
+                aws s3 cp ${BACKUP_DIR}/${DATABASE_NAME}_weekly_${TIMESTAMP}.dump.gz \
+                  s3://${S3_BUCKET}/${S3_PREFIX}/weekly/
+                aws s3 cp ${BACKUP_DIR}/${DATABASE_NAME}_weekly_${TIMESTAMP}.dump.gz.sha256 \
+                  s3://${S3_BUCKET}/${S3_PREFIX}/weekly/
+                aws s3 cp ${BACKUP_DIR}/${DATABASE_NAME}_weekly_${TIMESTAMP}.meta \
+                  s3://${S3_BUCKET}/${S3_PREFIX}/weekly/
+                echo "[$(date)] S3 upload completed"
+              fi
+              
+              echo "[$(date)] Weekly backup job completed successfully"
+            env:
+            - name: DATABASE_USER
+              value: "metaclouds_user"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: database-password
+            - name: S3_BUCKET
+              value: "your-s3-bucket-name"
+            - name: S3_PREFIX
+              value: "metaclouds/backups"
+            envFrom:
+            - configMapRef:
+                name: metaclouds-backup-config
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                cpu: 2000m
+                memory: 4Gi
+            volumeMounts:
+            - name: backup-volume
+              mountPath: /backups
+            - name: config
+              mountPath: /config
+              readOnly: true
+          volumes:
+          - name: backup-volume
+            persistentVolumeClaim:
+              claimName: metaclouds-backup-pvc
+          - name: config
+            configMap:
+              name: metaclouds-backup-config
+          nodeSelector:
+            backup: "true"
+          tolerations:
+          - key: "backup"
+            operator: "Exists"
+            effect: "NoSchedule"
+---
+# Role and RoleBinding for backup jobs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: metaclouds-backup-role
+  namespace: metaclouds
+rules:
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: metaclouds-backup-rolebinding
+  namespace: metaclouds
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: metaclouds
+roleRef:
+  kind: Role
+  name: metaclouds-backup-role
+  apiGroup: rbac.authorization.k8s.io

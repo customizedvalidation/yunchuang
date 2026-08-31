@@ -1,0 +1,204 @@
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: metaclouds-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required, see .env.example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required, see .env.example}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - metaclouds-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: metaclouds-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required, see .env.example}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required, see .env.example}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      # 用容器内环境变量而非明文口令，避免凭据出现在 `docker inspect`
+      # 的 healthcheck 定义里。
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - metaclouds-network
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: metaclouds-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - metaclouds-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: metaclouds-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required, see .env.example}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required, see .env.example}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - metaclouds-network
+    restart: unless-stopped
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.9
+    container_name: metaclouds-etcd
+    environment:
+      - ETCD_NAME=metaclouds-etcd
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd:2380
+      - ETCD_INITIAL_CLUSTER=metaclouds-etcd=http://etcd:2380
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ETCD_INITIAL_CLUSTER_TOKEN=metaclouds-cluster
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    volumes:
+      - etcd_data:/etcd-data
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - metaclouds-network
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: metaclouds-jaeger
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    ports:
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+      - "14250:14250"
+      - "14268:14268"
+      - "14269:14269"
+      - "9411:9411"
+    networks:
+      - metaclouds-network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./metaclouds-backend
+      dockerfile: Dockerfile
+    container_name: metaclouds-backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      etcd:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    environment:
+      - SERVER_PORT=8000
+      - SERVER_ENV=development
+      - USE_SQLITE=false
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=${POSTGRES_USER:?POSTGRES_USER is required, see .env.example}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}
+      - DATABASE_NAME=${POSTGRES_DB:?POSTGRES_DB is required, see .env.example}
+      - DATABASE_SSL_MODE=disable
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required, see .env.example}
+      - REDIS_DB=0
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required, see .env.example}
+      - JWT_EXPIRATION_HOURS=24
+      # 引导账户口令：应用在数据库为空时用它创建默认 admin/user。
+      # 未提供时非生产环境会生成一次性随机口令并写入日志，
+      # 生产环境则直接拒绝启动。
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:?DEFAULT_ADMIN_PASSWORD is required, see .env.example}
+      - DEFAULT_USER_PASSWORD=${DEFAULT_USER_PASSWORD:?DEFAULT_USER_PASSWORD is required, see .env.example}
+      - PROMETHEUS_ENABLED=true
+      - PROMETHEUS_PORT=9090
+      - MONITORING_ENABLED=true
+      - ALERT_ENABLED=true
+      - K8S_ENABLED=true
+      - K8S_NAMESPACE=metaclouds
+      - K8S_CONFIG_PATH=~/.kube/config
+      - SCHEDULER_ENABLED=true
+      - SCHEDULER_INTERVAL_SECONDS=10
+      - TRACING_ENABLED=true
+      - TRACING_SERVICE_NAME=metaclouds-backend
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - CONFIG_CENTER_ENABLED=true
+      - CONFIG_CENTER_ENDPOINTS=etcd:2379
+      - CONFIG_CENTER_PREFIX=/metaclouds/config/
+    networks:
+      - metaclouds-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./metaclouds-frontend
+      dockerfile: Dockerfile
+    container_name: metaclouds-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - metaclouds-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  etcd_data:
+
+networks:
+  metaclouds-network:
+    driver: bridge
+

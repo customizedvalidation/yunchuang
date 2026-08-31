@@ -1,0 +1,998 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "优先级调度监控概览",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "displayMode": "gradient",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 200
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["last"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "expr": "sum(scheduler_tasks_total)",
+          "format": "time_series",
+          "instant": true,
+          "interval": "",
+          "legendFormat": "总任务数",
+          "refId": "A"
+        }
+      ],
+      "title": "总任务数",
+      "type": "stat"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "displayLabels": ["percent"],
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "pieType": "donut",
+        "reduceOptions": {
+          "calcs": ["last"],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "scheduler_tasks_total{priority=\"0\"}",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "低优先级 (P0)",
+          "refId": "A"
+        },
+        {
+          "expr": "scheduler_tasks_total{priority=\"1\"}",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "中优先级 (P1)",
+          "refId": "B"
+        },
+        {
+          "expr": "scheduler_tasks_total{priority=\"2\"}",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "高优先级 (P2)",
+          "refId": "C"
+        },
+        {
+          "expr": "scheduler_tasks_total{priority=\"3\"}",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "紧急 (P3)",
+          "refId": "D"
+        }
+      ],
+      "title": "优先级分布",
+      "type": "piechart"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "displayLabels": ["percent"],
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "pieType": "donut",
+        "reduceOptions": {
+          "calcs": ["last"],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "scheduler_tasks_total{status=\"pending\"}",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "待处理",
+          "refId": "A"
+        },
+        {
+          "expr": "scheduler_tasks_total{status=\"running\"}",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "运行中",
+          "refId": "B"
+        },
+        {
+          "expr": "scheduler_tasks_total{status=\"completed\"}",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "已完成",
+          "refId": "C"
+        },
+        {
+          "expr": "scheduler_tasks_total{status=\"failed\"}",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "失败",
+          "refId": "D"
+        }
+      ],
+      "title": "任务状态分布",
+      "type": "piechart"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "displayMode": "gradient",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["rate"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "expr": "rate(scheduler_priority_changes_total[5m])",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "优先级变更/分钟",
+          "refId": "A"
+        }
+      ],
+      "title": "优先级变更速率",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 6,
+      "panels": [],
+      "title": "优先级队列深度",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 7,
+      "options": {
+        "alignValue": "center",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "mode": "single"
+        },
+        "xAxis": {
+          "mode": "time",
+          "show": true
+        },
+        "yAxis": {
+          "mode": "value",
+          "show": true
+        }
+      },
+      "targets": [
+        {
+          "expr": "scheduler_queue_depth{priority=\"0\"}",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "P0 - 低优先级",
+          "refId": "A"
+        },
+        {
+          "expr": "scheduler_queue_depth{priority=\"1\"}",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "P1 - 中优先级",
+          "refId": "B"
+        },
+        {
+          "expr": "scheduler_queue_depth{priority=\"2\"}",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "P2 - 高优先级",
+          "refId": "C"
+        },
+        {
+          "expr": "scheduler_queue_depth{priority=\"3\"}",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "P3 - 紧急",
+          "refId": "D"
+        }
+      ],
+      "title": "优先级队列深度趋势",
+      "type": "bargauge"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 8,
+      "options": {
+        "displayLabels": ["value", "percent"],
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": ["last"],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(scheduler_queue_depth{priority=\"0\"})",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "P0 - 低优先级",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(scheduler_queue_depth{priority=\"1\"})",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "P1 - 中优先级",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(scheduler_queue_depth{priority=\"2\"})",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "P2 - 高优先级",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(scheduler_queue_depth{priority=\"3\"})",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "P3 - 紧急",
+          "refId": "D"
+        }
+      ],
+      "title": "队列深度分布",
+      "type": "piechart"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "id": 9,
+      "panels": [],
+      "title": "优先级变更趋势",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 2
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 16
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "xAxis": {
+          "mode": "time",
+          "show": true
+        },
+        "yAxis": {
+          "mode": "value",
+          "show": true
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(scheduler_priority_changes_total[1m])",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "总变更速率",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(scheduler_priority_changes_total{direction=\"up\"}[1m])",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "优先级提升",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(scheduler_priority_changes_total{direction=\"down\"}[1m])",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "优先级降低",
+          "refId": "C"
+        }
+      ],
+      "title": "优先级变更速率趋势",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "displayMode": "gradient",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["avg"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.3",
+      "targets": [
+        {
+          "expr": "avg(scheduler_task_latency_seconds)",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "平均调度延迟",
+          "refId": "A"
+        }
+      ],
+      "title": "平均调度延迟",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 12,
+      "panels": [],
+      "title": "实例状态",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "displayMode": "auto",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "bool"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 13,
+      "options": {
+        "alignValue": "center",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "mode": "single"
+        },
+        "xAxis": {
+          "mode": "series",
+          "show": true
+        },
+        "yAxis": {
+          "mode": "value",
+          "show": true
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(scheduler_tasks_total) by (instance)",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "title": "各实例任务数",
+      "type": "bargauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 14,
+      "panels": [],
+      "title": "系统资源",
+      "type": "row"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 2
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.95
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 31
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "xAxis": {
+          "mode": "time",
+          "show": true
+        },
+        "yAxis": {
+          "mode": "percent",
+          "show": true
+        }
+      },
+      "targets": [
+        {
+          "expr": "avg(rate(process_cpu_seconds_total[1m]))",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "CPU 使用率",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU 使用率",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 2
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 31
+      },
+      "id": 16,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single"
+        },
+        "xAxis": {
+          "mode": "time",
+          "show": true
+        },
+        "yAxis": {
+          "mode": "percent",
+          "show": true
+        }
+      },
+      "targets": [
+        {
+          "expr": "avg(process_resident_memory_bytes) / 1024 / 1024",
+          "format": "time_series",
+          "interval": "",
+          "legendFormat": "内存使用 (MB)",
+          "refId": "A"
+        }
+      ],
+      "title": "内存使用",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["priority", "scheduler", "tasks"],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Instance",
+        "multi": true,
+        "name": "instance",
+        "options": [],
+        "query": "label_values(instance)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Priority",
+        "multi": true,
+        "name": "priority",
+        "options": [],
+        "query": "label_values(priority)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {
+    "hidden": false,
+    "now": true,
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ],
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "24h",
+      "7d",
+      "30d"
+    ]
+  },
+  "timezone": "browser",
+  "title": "优先级调度监控仪表盘",
+  "uid": "priority-scheduler-dashboard",
+  "version": 1
+}

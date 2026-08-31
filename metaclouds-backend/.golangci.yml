@@ -1,0 +1,90 @@
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - integration
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - vet
+    - fmt
+    - gofmt
+    - goimports
+    - misspell
+    - prealloc
+    - unconvert
+    - whitespace
+    - bodyclose
+    - dogsled
+    - dupl
+    - durationcheck
+    - exportloopref
+    - forbidigo
+    - gochecknoglobals
+    - gochecknoinits
+    - gocritic
+    - gocyclo
+    - godot
+    - goerr113
+    - gomnd
+    - goprintffuncname
+    - gosec
+    - lll
+    - nestif
+    - nilerr
+    - noctx
+    - nolintlint
+    - rowserrcheck
+    - sqlclosecheck
+    - stylecheck
+    - thelper
+    - tparallel
+    - typecheck
+    - unparam
+    - wastedassign
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  gocyclo:
+    min-complexity: 15
+  gocritic:
+    enabled-tags:
+      - performance
+      - style
+      - experimental
+  gosec:
+    excludes:
+      - G404
+      - G307
+  lll:
+    line-length: 120
+  nestif:
+    min-complexity: 4
+  nolintlint:
+    allow-unused: false
+    allow-leading-space: false
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gochecknoglobals
+        - gocyclo
+        - lll
+    - path: pkg/logger/logger.go
+      linters:
+        - gochecknoglobals
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true

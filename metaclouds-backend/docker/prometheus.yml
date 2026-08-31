@@ -1,0 +1,44 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'metaclouds-local'
+    environment: 'development'
+
+scrape_configs:
+  - job_name: 'metaclouds-backend'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets:
+          - 'app-1:8000'
+          - 'app-2:8000'
+          - 'app-3:8000'
+        labels:
+          instance_type: 'backend'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '${1}'
+
+  - job_name: 'nginx'
+    static_configs:
+      - targets:
+          - 'nginx:80'
+        labels:
+          service: 'nginx'
+
+  - job_name: 'redis'
+    static_configs:
+      - targets:
+          - 'redis:6379'
+        labels:
+          service: 'redis'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - 'alerts.yml'

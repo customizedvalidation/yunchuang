@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Swagger Test</title>
+    <script>
+        console.log('Test page loaded');
+        window.addEventListener('load', function() {
+            console.log('Window loaded');
+            document.getElementById('status').textContent = 'Page loaded successfully';
+        });
+    </script>
+</head>
+<body>
+    <h1>Swagger UI Test</h1>
+    <div id="status">Loading...</div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.11.0/swagger-ui-bundle.js" onload="console.log('Swagger UI loaded')" onerror="console.error('Failed to load Swagger UI')"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+# ==============================================================================
+# Prometheus 配置文件
+# ==============================================================================
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Metaclouds Backend
+  - job_name: 'metaclouds-backend'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['backend:8000']
+    metrics_path: /metrics
+
+  # PostgreSQL Exporter (如果部署了)
+  # - job_name: 'postgresql'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+
+  # Redis Exporter (如果部署了)
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+
+  # Node Exporter (如果部署了)
+  # - job_name: 'node'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']

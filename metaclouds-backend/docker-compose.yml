@@ -1,0 +1,206 @@
+# ==============================================================================
+# Metaclouds Docker Compose Configuration
+# ==============================================================================
+# 使用说明：
+# 1. 确保已安装 Docker 和 Docker Compose
+# 2. 复制 .env.production.example 为 .env
+# 3. 运行: docker-compose up -d
+# 4. 访问: http://localhost:8000
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # ==============================================================================
+  # PostgreSQL 数据库
+  # ==============================================================================
+  postgresql:
+    image: postgres:15-alpine
+    container_name: metaclouds-postgresql
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-metaclouds}
+      POSTGRES_USER: ${DATABASE_USER:-metaclouds_user}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required, see .env.production.example}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+      - ./docker/postgresql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-metaclouds_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - metaclouds-network
+
+  # ==============================================================================
+  # Redis 缓存
+  # ==============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: metaclouds-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - metaclouds-network
+
+  # ==============================================================================
+  # Metaclouds 后端服务
+  # ==============================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - LOG_LEVEL=${LOG_LEVEL:-debug}
+    container_name: metaclouds-backend
+    environment:
+      # 服务器配置
+      SERVER_PORT: ${SERVER_PORT:-8000}
+      SERVER_HOST: "0.0.0.0"
+      SERVER_ENV: ${SERVER_ENV:-development}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8080}
+      
+      # JWT 配置
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (64+ random bytes), see .env.production.example}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+      
+      # 数据库配置
+      USE_SQLITE: ${USE_SQLITE:-false}
+      MEMORY_STORE_ENABLED: ${MEMORY_STORE_ENABLED:-false}
+      DATABASE_HOST: postgresql
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME:-metaclouds}
+      DATABASE_USER: ${DATABASE_USER:-metaclouds_user}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required, see .env.production.example}
+      DATABASE_SSL_MODE: ${DATABASE_SSL_MODE:-disable}
+      
+      # Redis 配置
+      REDIS_ENABLED: ${REDIS_ENABLED:-true}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      
+      # 日志配置
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      LOG_OUTPUT: ${LOG_OUTPUT:-console}
+      
+      # 限流配置
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-false}
+      
+      # 熔断器配置
+      CIRCUIT_BREAKER_ENABLED: ${CIRCUIT_BREAKER_ENABLED:-false}
+      
+      # 监控配置
+      PROMETHEUS_ENABLED: ${PROMETHEUS_ENABLED:-true}
+      
+      # 管理员密码
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?DEFAULT_ADMIN_PASSWORD is required, see .env.production.example}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/var/log/metaclouds
+      - ./backups:/var/backups/metaclouds
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - metaclouds-network
+
+  # ==============================================================================
+  # Prometheus 监控（可选）
+  # ==============================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: metaclouds-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - metaclouds-network
+
+  # ==============================================================================
+  # Grafana 可视化（可选）
+  # ==============================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: metaclouds-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required, see .env.production.example}
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - metaclouds-network
+
+  # ==============================================================================
+  # Nginx 反向代理（可选，生产环境推荐）
+  # ==============================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: metaclouds-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - metaclouds-network
+
+# ==============================================================================
+# 数据卷
+# ==============================================================================
+volumes:
+  postgresql_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# ==============================================================================
+# 网络配置
+# ==============================================================================
+networks:
+  metaclouds-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

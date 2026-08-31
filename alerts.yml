@@ -1,0 +1,57 @@
+groups:
+  - name: MetacloudsAlerts
+    interval: 30s
+    rules:
+      - alert: HighCPUUsage
+        expr: cpu_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU Usage detected"
+          description: "CPU usage is {{ $value }}% for more than 5 minutes"
+
+      - alert: HighMemoryUsage
+        expr: memory_usage_percent > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Memory Usage detected"
+          description: "Memory usage is {{ $value }}% for more than 5 minutes"
+
+      - alert: HighGPUUsage
+        expr: gpu_usage_percent > 90
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High GPU Usage detected"
+          description: "GPU usage is {{ $value }}% for more than 3 minutes"
+
+      - alert: JobFailed
+        expr: job_failed_count > 0
+        for: 1m
+        labels:
+          severity: error
+        annotations:
+          summary: "Job Failed detected"
+          description: "Number of failed jobs: {{ $value }}"
+
+      - alert: LowGPUMemory
+        expr: gpu_memory_available_bytes < 10737418240
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low GPU Memory detected"
+          description: "GPU memory available is {{ $value }} bytes (below 10GiB)"
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service Down"
+          description: "Service {{ $labels.instance }} has been down for more than 1 minute"

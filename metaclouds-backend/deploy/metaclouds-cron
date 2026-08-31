@@ -1,0 +1,52 @@
+# Metaclouds Linux Cron Configuration
+# Author: Metaclouds Team
+# Version: 1.0.0
+# 
+# Installation:
+#   1. Copy this file to /etc/cron.d/metaclouds-backup
+#   2. Set proper permissions: chmod 644 /etc/cron.d/metaclouds-backup
+#   3. Ensure backup script is executable: chmod +x /opt/metaclouds/scripts/backup_postgresql.sh
+#   4. Set up environment variables in /etc/metaclouds/backup.env
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=admin@yourcompany.com
+
+# ==================== 数据库备份 ====================
+
+# 每小时备份 (保留24小时)
+0 * * * * root /opt/metaclouds/scripts/backup_postgresql.sh hourly >> /var/log/metaclouds/backup_hourly.log 2>&1
+
+# 每日备份 (凌晨2点执行，保留30天)
+0 2 * * * root /opt/metaclouds/scripts/backup_postgresql.sh daily >> /var/log/metaclouds/backup_daily.log 2>&1
+
+# 每周备份 (周日凌晨3点执行，保留12周)
+0 3 * * 0 root /opt/metaclouds/scripts/backup_postgresql.sh weekly >> /var/log/metaclouds/backup_weekly.log 2>&1
+
+# ==================== 日志清理 ====================
+
+# 每日清理旧日志文件 (保留30天)
+0 4 * * * root find /var/log/metaclouds/ -name "*.log.*" -type f -mtime +30 -delete
+
+# 每周清理过大的日志文件 (>100MB)
+0 5 * * 0 root find /var/log/metaclouds/ -name "*.log" -type f -size +100M -exec gzip {} \;
+
+# ==================== 系统健康检查 ====================
+
+# 每5分钟检查服务状态
+*/5 * * * * root /opt/metaclouds/scripts/health_check.sh >> /var/log/metaclouds/health_check.log 2>&1
+
+# ==================== 监控指标收集 ====================
+
+# 每分钟收集Prometheus指标 (可选，需要配置)
+# * * * * * root /opt/metaclouds/scripts/collect_metrics.sh >> /var/log/metaclouds/metrics.log 2>&1
+
+# ==================== 备份验证 ====================
+
+# 每周验证最新备份的完整性 (可选)
+# 0 6 * * 0 root /opt/metaclouds/scripts/verify_backup.sh latest >> /var/log/metaclouds/backup_verify.log 2>&1
+
+# ==================== 磁盘空间监控 ====================
+
+# 每小时检查磁盘空间
+0 * * * * root /opt/metaclouds/scripts/check_disk_space.sh >> /var/log/metaclouds/disk_space.log 2>&1

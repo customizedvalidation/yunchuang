@@ -1,0 +1,68 @@
+# Logrotate configuration for Metaclouds Backend
+# Install: sudo cp metaclouds.logrotate /etc/logrotate.d/metaclouds
+
+/var/log/metaclouds/*.log {
+    daily
+    rotate 30
+    missingok
+    notifempty
+    compress
+    delaycompress
+    maxsize 100M
+    dateext
+    dateformat -%Y%m%d
+    create 0644 root adm
+    sharedscripts
+    postrotate
+        # 向服务发送 SIGHUP 信号以重新打开日志文件
+        # 检查多个可能的 PID 文件位置
+        for pidfile in /run/metaclouds/metaclouds.pid /var/run/metaclouds.pid /tmp/metaclouds.pid; do
+            if [ -f "$pidfile" ]; then
+                kill -HUP $(cat "$pidfile") 2>/dev/null || true
+                break
+            fi
+        done
+    endscript
+}
+
+/var/log/metaclouds/access.log {
+    daily
+    rotate 90
+    missingok
+    notifempty
+    compress
+    delaycompress
+    maxsize 200M
+    dateext
+    dateformat -%Y%m%d
+    create 0644 root adm
+    sharedscripts
+}
+
+/var/log/metaclouds/error.log {
+    daily
+    rotate 30
+    missingok
+    notifempty
+    compress
+    delaycompress
+    maxsize 50M
+    dateext
+    dateformat -%Y%m%d
+    create 0644 root adm
+    sharedscripts
+}
+
+/var/log/metaclouds/audit.log {
+    weekly
+    rotate 52
+    missingok
+    notifempty
+    compress
+    delaycompress
+    maxsize 100M
+    dateext
+    dateformat -%Y%m%d
+    create 0600 root root
+    sharedscripts
+}

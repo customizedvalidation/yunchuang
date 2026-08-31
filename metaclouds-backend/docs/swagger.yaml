@@ -1,0 +1,460 @@
+openapi: "3.0.0"
+info:
+  version: 1.0.0
+  title: Metaclouds Backend API
+  description: AI Computing Power Scheduling Platform API Documentation
+  contact:
+    name: Metaclouds Team
+    email: support@metaclouds.com
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Development server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: uint
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        tenant_id:
+          type: integer
+          format: uint
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+        expires_at:
+          type: integer
+          format: int64
+
+    Cluster:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: uint
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        node_count:
+          type: integer
+        gpu_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: uint
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        progress:
+          type: number
+          format: float
+        cluster_id:
+          type: integer
+          format: uint
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        code:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+
+paths:
+  /auth/login:
+    post:
+      summary: Login user
+      description: Authenticate user and return JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/register:
+    post:
+      summary: Register new user
+      description: Create a new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - email
+                - password
+              properties:
+                username:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      summary: Refresh JWT token
+      description: Get a new JWT token using the refresh token
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+
+  /clusters:
+    get:
+      summary: Get all clusters
+      description: Retrieve a list of all clusters
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of clusters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Cluster'
+
+    post:
+      summary: Create cluster
+      description: Create a new cluster
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Cluster created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+
+  /clusters/{id}:
+    get:
+      summary: Get cluster by ID
+      description: Retrieve a specific cluster by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: Cluster found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+        '404':
+          description: Cluster not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Update cluster
+      description: Update an existing cluster
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '200':
+          description: Cluster updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cluster'
+
+    delete:
+      summary: Delete cluster
+      description: Delete a cluster
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '204':
+          description: Cluster deleted
+        '404':
+          description: Cluster not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs:
+    get:
+      summary: Get all jobs
+      description: Retrieve a list of all jobs
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+
+    post:
+      summary: Create job
+      description: Create a new job
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                cluster_id:
+                  type: integer
+                  format: uint
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+
+  /jobs/{id}:
+    get:
+      summary: Get job by ID
+      description: Retrieve a specific job by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: Job found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+
+    put:
+      summary: Update job
+      description: Update an existing job
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                status:
+                  type: string
+      responses:
+        '200':
+          description: Job updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+
+    delete:
+      summary: Delete job
+      description: Delete a job
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '204':
+          description: Job deleted
+
+  /health:
+    get:
+      summary: Health check
+      description: Check service health status
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
+  /metrics:
+    get:
+      summary: Metrics endpoint
+      description: Prometheus metrics endpoint
+      responses:
+        '200':
+          description: Metrics data
+          content:
+            text/plain:
+              schema:
+                type: string

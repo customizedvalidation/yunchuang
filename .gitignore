@@ -55,3 +55,16 @@ vite.config.ts.timestamp-*.mjs
 # ===== Coverage =====
 coverage/
 *.coverage
+coverage.out
+coverage.html
+monitoring_coverage*
+*.out
+
+# ===== Backend build / deploy artifacts (not source) =====
+backups/
+metaclouds-backend/frontend/
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin

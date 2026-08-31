@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: metaclouds-db-migration
+  labels:
+    app: metaclouds
+    component: migration
+spec:
+  template:
+    spec:
+      containers:
+      - name: migration
+        image: postgres:15-alpine
+        command:
+        - psql
+        - -h
+        - $(DB_HOST)
+        - -p
+        - $(DB_PORT)
+        - -d
+        - $(DB_NAME)
+        - -U
+        - $(DB_USER)
+        - -f
+        - /migrations/20260528_add_indexes.sql
+        env:
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: metaclouds-db-secret
+              key: host
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: metaclouds-db-secret
+              key: port
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: metaclouds-db-secret
+              key: database
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: metaclouds-db-secret
+              key: username
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: metaclouds-db-secret
+              key: password
+        volumeMounts:
+        - name: migration-scripts
+          mountPath: /migrations
+      restartPolicy: OnFailure
+      volumes:
+      - name: migration-scripts
+        configMap:
+          name: metaclouds-migration-scripts
+  backoffLimit: 3
