@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Table, Button, Space, message, Modal, Progress, Tag, List, Typography, Tabs, Segmented, Statistic } from 'antd';
+import { Card, Table, Button, Space, App, Modal, Progress, Tag, List, Typography, Tabs, Segmented, Statistic } from 'antd';
 import {
   useGetJobsQuery,
   useSubmitJobToK8SMutation,
@@ -23,6 +23,7 @@ const K8S_TABS = [
 ];
 
 const K8SManagement: React.FC = () => {
+  const { message } = App.useApp();
   const location = useLocation();
   const navigate = useNavigate();
   const activeKey = location.pathname.startsWith('/k8s/') ? location.pathname : '/k8s';
@@ -167,7 +168,6 @@ const K8SManagement: React.FC = () => {
           <Table
             columns={jobColumns}
             dataSource={dataSource}
-            loading={loading}
             rowKey="id"
             pagination={{ pageSize: 10 }}
             scroll={{ x: 1100 }}

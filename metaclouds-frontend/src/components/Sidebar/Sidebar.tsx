@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { SIDEBAR_WIDTH } from '../../theme/sidebar';
+import { semantic, brand } from '../../theme/tokens';
 import { useGetJobsQuery, useGetClustersQuery, useGetResourcesQuery, useGetTenantsQuery, useGetAlertsQuery } from '../../store/api';
 import { extractArrayData } from '../../utils/api';
 import './Sidebar.css';
@@ -150,20 +151,20 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
     if (!count) return undefined;
     switch (key) {
       case '/monitoring':
-        return count >= 5 ? '#ff4d4f' : '#fa8c16';
+        return count >= 5 ? semantic.danger : semantic.warning;
       case '/job/queue':
-        return '#1677ff';
+        return brand[500];
       case '/k8s/pods':
-        return '#52c41a';
+        return semantic.success;
       case '/job/history':
-        return '#8c8c8c';
+        return semantic.muted;
       case '/job':
       case '/cluster':
       case '/resource':
       case '/tenant':
-        return '#1677ff';
+        return brand[500];
       default:
-        return '#ff4d4f';
+        return semantic.danger;
     }
   };
 

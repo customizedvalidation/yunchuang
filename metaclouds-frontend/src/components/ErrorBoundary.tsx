@@ -35,30 +35,29 @@ class ErrorBoundary extends Component<Props, State> {
   };
 
   render(): ReactNode {
-    if (this.state.hasError) {
-      return (
-        <div className="flex items-center justify-center min-h-screen bg-gray-100">
-          <div className="w-full max-w-md p-6 bg-white rounded-lg shadow">
-            <Alert
-              message="应用错误"
-              description={this.state.error?.message || '发生了未知错误'}
-              type="error"
-              showIcon
-              action={
-                <Button type="primary" size="small" onClick={this.handleRetry}>
-                  重试
-                </Button>
-              }
-              className="mb-4"
-            />
-            <p className="text-gray-600">
-              系统遇到了一个问题，我们已经记录了错误信息。
-              请尝试刷新页面或联系管理员。
-            </p>
+      if (this.state.hasError) {
+        return (
+          <div className="mc-error-boundary">
+            <div className="mc-error-card">
+              <Alert
+                message="应用错误"
+                description={this.state.error?.message || '发生了未知错误'}
+                type="error"
+                showIcon
+                action={
+                  <Button type="primary" size="small" onClick={this.handleRetry}>
+                    重试
+                  </Button>
+                }
+              />
+              <p className="mc-error-desc">
+                系统遇到了一个问题，我们已经记录了错误信息。
+                请尝试刷新页面或联系管理员。
+              </p>
+            </div>
           </div>
-        </div>
-      );
-    }
+        );
+      }
 
     return this.props.children;
   }

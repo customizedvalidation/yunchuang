@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { setupListeners } from '@reduxjs/toolkit/query';
-import { ConfigProvider, Spin } from 'antd';
+import { ConfigProvider, Spin, App as AntApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 
 // 导入ErrorBoundary组件（不使用懒加载）
@@ -51,9 +51,10 @@ const ThemedApp = () => {
 
   return (
     <ConfigProvider theme={themeConfig} locale={zhCN}>
-      <Router>
-        <CommandPaletteProvider>
-          <Suspense
+      <AntApp>
+        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <CommandPaletteProvider>
+            <Suspense
             fallback={
               <div
                 style={{
@@ -93,6 +94,7 @@ const ThemedApp = () => {
           </Suspense>
         </CommandPaletteProvider>
       </Router>
+      </AntApp>
     </ConfigProvider>
   );
 };

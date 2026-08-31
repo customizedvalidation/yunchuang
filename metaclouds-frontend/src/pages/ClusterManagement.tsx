@@ -1,11 +1,12 @@
 import React from 'react';
-import { Card, Table, Button, Space, message, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
+import { Card, Table, Button, Space, App, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
 import { useGetClustersQuery, useCreateClusterMutation, useDeleteClusterMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
 
 const ClusterManagement: React.FC = () => {
+  const { message } = App.useApp();
   const { data: clusters, isLoading, error, refetch } = useGetClustersQuery(undefined);
   const clustersData = extractArrayData(clusters);
   const [createCluster] = useCreateClusterMutation();

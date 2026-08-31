@@ -1,11 +1,12 @@
 import React from 'react';
-import { Card, Table, Tag, Switch, message } from 'antd';
+import { Card, Table, Tag, Switch, App } from 'antd';
 import { useGetAccelerationSuitesQuery, useUpdateAccelerationSuiteMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
 
 const AccelerationSuiteManagement: React.FC = () => {
+  const { message } = App.useApp();
   const { data: suites, isLoading, error, refetch } = useGetAccelerationSuitesQuery(undefined);
   const suitesData = extractArrayData(suites);
   const [updateSuite] = useUpdateAccelerationSuiteMutation();

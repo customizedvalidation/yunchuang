@@ -1,11 +1,12 @@
 import React from 'react';
-import { Card, Table, Button, Space, message, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
+import { Card, Table, Button, Space, App, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
 import { useGetTenantsQuery, useCreateTenantMutation, useDeleteTenantMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
 
 const MultiTenantManagement: React.FC = () => {
+  const { message } = App.useApp();
   const { data: tenants, isLoading, error, refetch } = useGetTenantsQuery(undefined);
   const tenantsData = extractArrayData(tenants);
   const [createTenant] = useCreateTenantMutation();

@@ -4,7 +4,7 @@ import {
   Table,
   Button,
   Space,
-  message,
+  App,
   Modal,
   Form,
   Input,
@@ -37,6 +37,7 @@ const StatusCell: React.FC<{ status: string }> = ({ status }) => {
 };
 
 const JobManagement: React.FC = () => {
+  const { message } = App.useApp();
   const location = useLocation();
   const navigate = useNavigate();
   // 子路由驱动当前激活的页签；父路由 /job 默认落到“作业列表”

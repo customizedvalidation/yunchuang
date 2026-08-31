@@ -1,11 +1,12 @@
 import React from 'react';
-import { Card, Table, Tag, Switch, message } from 'antd';
+import { Card, Table, Tag, Switch, App } from 'antd';
 import { useGetSecurityPoliciesQuery, useUpdateSecurityPolicyMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
 
 const SecurityManagement: React.FC = () => {
+  const { message } = App.useApp();
   const { data: policies, isLoading, error, refetch } = useGetSecurityPoliciesQuery(undefined);
   const policiesData = extractArrayData(policies);
   const [updatePolicy] = useUpdateSecurityPolicyMutation();

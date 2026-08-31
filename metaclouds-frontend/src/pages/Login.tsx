@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useLoginMutation } from '../store/api';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, message, Alert } from 'antd';
+import { Form, Input, Button, Card, App, Alert } from 'antd';
 import { LockOutlined, UserOutlined, EyeOutlined } from '@ant-design/icons';
 import { useThemeMode } from '../theme/ThemeModeContext';
 import { getNeutral, brand } from '../theme/tokens';
 
 const Login: React.FC = () => {
+  const { message } = App.useApp();
   const [login, { isLoading, error }] = useLoginMutation();
   const navigate = useNavigate();
   const [form] = Form.useForm();
