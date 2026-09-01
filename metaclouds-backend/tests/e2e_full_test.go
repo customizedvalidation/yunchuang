@@ -20,8 +20,9 @@ import (
 
 func setupFullTestServer(t *testing.T) (router *gin.Engine, token string) {
 	cfg := &config.Config{
-		JWTSecret:          "test-secret-key-for-testing-only-123456",
-		JWTExpirationHours: 24,
+		JWTSecret:             "test-secret-key-for-testing-only-123456",
+		JWTExpirationHours:    24,
+		AllowPublicRegistration: true, // 测试需覆盖注册开放分支（含重复注册 409）
 	}
 
 	setTestBootstrapPasswords()

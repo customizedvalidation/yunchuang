@@ -18,7 +18,6 @@ import (
 	"metaclouds-backend/middlewares"
 	"metaclouds-backend/models"
 	"metaclouds-backend/pkg/logger"
-	"metaclouds-backend/pkg/middleware"
 	"metaclouds-backend/services"
 )
 
@@ -185,32 +184,8 @@ func run() error {
 		return fmt.Errorf("failed to configure trusted proxies: %w", err)
 	}
 
-	// 请求体大小限制必须排在任何会读取 body 的中间件之前。
-	// 原先它注册在 SecurityFilter 之后，而 SecurityFilter 会完整读取 body，
-	// 导致该限制实际上从未生效，超大请求体可直接打满内存。
-	r.Use(func(c *gin.Context) {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, cfg.MaxRequestBodySize)
-		c.Next()
-	})
-
-	r.Use(middlewares.PanicRecovery())
-	r.Use(middlewares.RequestID())
-	r.Use(middlewares.SecurityHeaders())
-	r.Use(middlewares.SecurityFilter())
-	r.Use(middlewares.RequestLogger())
-	r.Use(middlewares.ErrorHandler())
-	r.Use(middlewares.DefaultTimingMiddleware)
-	r.Use(logger.GinMiddleware(logger.Global))
-
-	if cfg.RateLimitEnabled {
-		rateLimiter := middleware.NewSlidingWindowLimiter(cfg.RateLimitRequests, time.Duration(cfg.RateLimitDurationSeconds)*time.Second)
-		r.Use(rateLimiter.Middleware())
-	}
-
-	if cfg.CircuitBreakerEnabled {
-		circuitBreaker := middleware.NewCircuitBreaker(cfg.CircuitBreakerThreshold, 5, time.Duration(cfg.CircuitBreakerTimeoutSeconds)*time.Second)
-		r.Use(circuitBreaker.Middleware())
-	}
+	// 生产环境与测试环境共用同一套核心中间件，保证测试覆盖反映生产行为。
+	middlewares.ApplyCoreStack(r, cfg)
 
 	corsConfig := cors.Config{
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},

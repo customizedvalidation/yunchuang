@@ -1,14 +1,16 @@
 import React from 'react';
 import { Card, Table, Tag, Switch, App } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { useGetSecurityPoliciesQuery, useUpdateSecurityPolicyMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
+import type { SecurityPolicy } from '../types';
 
 const SecurityManagement: React.FC = () => {
   const { message } = App.useApp();
   const { data: policies, isLoading, error, refetch } = useGetSecurityPoliciesQuery(undefined);
-  const policiesData = extractArrayData(policies);
+  const policiesData = extractArrayData<SecurityPolicy>(policies);
   const [updatePolicy] = useUpdateSecurityPolicyMutation();
 
   const handleToggle = async (id: number, enabled: boolean) => {
@@ -21,7 +23,7 @@ const SecurityManagement: React.FC = () => {
     }
   };
 
-  const columns = [
+  const columns: ColumnsType<SecurityPolicy> = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
@@ -29,7 +31,7 @@ const SecurityManagement: React.FC = () => {
     { title: '描述', dataIndex: 'description', key: 'description' },
     {
       title: '启用', key: 'enabled', width: 90,
-      render: (_: any, record: any) => (
+      render: (_: React.ReactNode, record: SecurityPolicy) => (
         <Switch checked={record.enabled} onChange={(checked) => handleToggle(record.id, checked)} />
       ),
     },

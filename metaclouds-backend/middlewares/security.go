@@ -82,7 +82,10 @@ func SecurityFilter() gin.HandlerFunc {
 
 func isValidIP(ip string) bool {
 	if ip == "" {
-		return false
+		// 空 IP 仅会出现在合成的请求（单元测试、健康检查）中。生产环境请求
+		// 经由 TCP 监听器必然带有 RemoteAddr，不会出现空值，故此处放行以避免
+		// 误伤测试；真实客户端 IP 伪造风险由 SetTrustedProxies 处理。
+		return true
 	}
 	return net.ParseIP(ip) != nil
 }

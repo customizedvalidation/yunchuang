@@ -1,23 +1,21 @@
 import React from 'react';
-import {
-  Card,
-  Table,
-  Button,
-  Space,
-  App,
-  Modal,
-  Form,
-  Input,
-  Select,
-  InputNumber,
-  Tabs,
-  Popconfirm,
-} from 'antd';
+import { Table, Card } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { Button, Space, App, Modal, Form, Input, Select, InputNumber, Tabs, Popconfirm } from 'antd';
 import { useGetJobsQuery, useCreateJobMutation, useCancelJobMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { renderState, EmptyState } from '../components/States';
 import { statusColor, statusText } from '../theme/tokens';
+import type { Job, JobType } from '../types';
+
+/** 新建作业表单值 */
+interface JobFormValues {
+  name: string;
+  type: JobType;
+  gpus: number;
+  description?: string;
+}
 
 const JOB_TABS = [
   { key: '/job/list', label: '作业列表' },
@@ -44,13 +42,13 @@ const JobManagement: React.FC = () => {
   const activeKey = location.pathname.startsWith('/job/') ? location.pathname : '/job/list';
 
   const { data: jobs, isLoading, error: jobsError, refetch } = useGetJobsQuery(undefined);
-  const jobsData = extractArrayData(jobs);
+  const jobsData = extractArrayData<Job>(jobs);
   const [createJob] = useCreateJobMutation();
   const [cancelJob] = useCancelJobMutation();
   const [isModalVisible, setIsModalVisible] = React.useState(false);
   const [form] = Form.useForm();
 
-  const handleCreate = async (values: any) => {
+  const handleCreate = async (values: JobFormValues) => {
     try {
       await createJob(values).unwrap();
       message.success('作业创建成功');
@@ -72,7 +70,7 @@ const JobManagement: React.FC = () => {
     }
   };
 
-  const baseColumns: any[] = [
+  const baseColumns: ColumnsType<Job> = [
     {
       title: 'ID',
       dataIndex: 'id',
@@ -108,7 +106,7 @@ const JobManagement: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 90,
-      render: (_: any, record: any) => (
+      render: (_: unknown, record: Job) => (
         <Space>
           {record.status === 'running' || record.status === 'pending' ? (
             // 破坏性操作：二次确认，避免误触
@@ -147,9 +145,9 @@ const JobManagement: React.FC = () => {
   // 按子路由过滤数据，使每个子菜单项对应真实数据集
   const currentData =
     activeKey === '/job/queue'
-      ? jobsData.filter((j: any) => j.status === 'pending')
+      ? jobsData.filter((j) => j.status === 'pending')
       : activeKey === '/job/history'
-      ? jobsData.filter((j: any) => ['completed', 'failed', 'cancelled'].includes(j.status))
+      ? jobsData.filter((j) => ['completed', 'failed', 'cancelled'].includes(j.status))
       : jobsData;
 
   const emptyText: Record<string, { title: string; desc: string }> = {
@@ -199,8 +197,8 @@ const JobManagement: React.FC = () => {
           <h1 className="mc-page-title">作业管理</h1>
           <p className="mc-page-desc">
             共 {jobsData.length} 个作业 · 排队{' '}
-            {jobsData.filter((j: any) => j.status === 'pending').length} 个 · 运行中{' '}
-            {jobsData.filter((j: any) => j.status === 'running').length} 个
+            {jobsData.filter((j) => j.status === 'pending').length} 个 · 运行中{' '}
+            {jobsData.filter((j) => j.status === 'running').length} 个
           </p>
         </div>
         <div className="mc-page-head-extra">

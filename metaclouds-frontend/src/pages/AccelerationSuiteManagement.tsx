@@ -1,14 +1,17 @@
 import React from 'react';
-import { Card, Table, Tag, Switch, App } from 'antd';
+import { Card, Table } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { Tag, Switch, App } from 'antd';
 import { useGetAccelerationSuitesQuery, useUpdateAccelerationSuiteMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
+import type { AccelerationSuite } from '../types';
 
 const AccelerationSuiteManagement: React.FC = () => {
   const { message } = App.useApp();
   const { data: suites, isLoading, error, refetch } = useGetAccelerationSuitesQuery(undefined);
-  const suitesData = extractArrayData(suites);
+  const suitesData = extractArrayData<AccelerationSuite>(suites);
   const [updateSuite] = useUpdateAccelerationSuiteMutation();
 
   const handleToggle = async (id: number, enabled: boolean) => {
@@ -21,7 +24,7 @@ const AccelerationSuiteManagement: React.FC = () => {
     }
   };
 
-  const columns = [
+  const columns: ColumnsType<AccelerationSuite> = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
@@ -30,7 +33,7 @@ const AccelerationSuiteManagement: React.FC = () => {
     { title: '描述', dataIndex: 'description', key: 'description' },
     {
       title: '启用', key: 'enabled', width: 90,
-      render: (_: any, record: any) => (
+      render: (_: unknown, record: AccelerationSuite) => (
         <Switch checked={record.enabled} onChange={(checked) => handleToggle(record.id, checked)} />
       ),
     },

@@ -175,6 +175,12 @@ func GinMiddleware(logger *Logger) gin.HandlerFunc {
 
 		c.Next()
 
+		// logger 为 nil（未调用 InitGlobalLogger 的场景，如测试）时安全跳过，
+		// 避免在请求后处理阶段空指针 panic。
+		if logger == nil {
+			return
+		}
+
 		duration := time.Since(start)
 		statusCode := c.Writer.Status()
 

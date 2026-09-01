@@ -1,4 +1,10 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import {
+  createApi,
+  fetchBaseQuery,
+  type BaseQueryFn,
+  type FetchArgs,
+  type FetchBaseQueryError,
+} from '@reduxjs/toolkit/query/react';
 
 const baseQuery = fetchBaseQuery({ 
   baseUrl: '/api/v1',
@@ -14,15 +20,34 @@ const baseQuery = fetchBaseQuery({
   },
 });
 
-const baseQueryWithReauth = async (args: any, api: any, extraOptions: any) => {
+/**
+ * 认证类端点返回 401 表示「凭证校验未通过」（如密码错误），是正常的业务结果；
+ * 只有业务端点的 401 才代表会话失效。若不加区分，登录时输错密码会触发登出跳转，
+ * 并因整页刷新而吞掉「用户名或密码错误」的提示。
+ */
+const AUTH_ENDPOINT_PATTERN = /^\/auth\//;
+
+function isAuthEndpoint(args: string | FetchArgs): boolean {
+  const url = typeof args === 'string' ? args : args.url;
+  return AUTH_ENDPOINT_PATTERN.test(url);
+}
+
+const baseQueryWithReauth: BaseQueryFn<
+  string | FetchArgs,
+  unknown,
+  FetchBaseQueryError
+> = async (args, api, extraOptions) => {
   const result = await baseQuery(args, api, extraOptions);
-  
-  if (result.error && result.error.status === 401) {
+
+  if (result.error && result.error.status === 401 && !isAuthEndpoint(args)) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    window.location.href = '/login';
+    // 已在登录页时不再跳转，避免并发 401 触发重复导航。
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
   }
-  
+
   return result;
 };
 
@@ -30,7 +55,9 @@ export const apiSlice = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithReauth,
   keepUnusedDataFor: 60,
-  refetchOnMountOrArgChange: true,
+  // 改为 false：避免每次路由切换都重拉全部 query（含常驻 Sidebar 的 5 个）。
+  // 数据新鲜度由 60s 缓存 + 网络重连 refetch 保证；页面内仍有手动「刷新」按钮。
+  refetchOnMountOrArgChange: false,
   refetchOnFocus: false,
   refetchOnReconnect: true,
   endpoints: (builder) => ({

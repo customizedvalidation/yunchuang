@@ -13,6 +13,8 @@ import (
 	"metaclouds-backend/config"
 	"metaclouds-backend/controllers"
 	"metaclouds-backend/middlewares"
+	"metaclouds-backend/pkg/authz"
+	mcerrors "metaclouds-backend/pkg/errors"
 	"metaclouds-backend/pkg/response"
 	"metaclouds-backend/services"
 )
@@ -400,17 +402,13 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 	}
 
 	r := gin.New()
-	r.Use(gin.Recovery())
-	r.Use(middlewares.RequestID())
-	r.Use(middlewares.SecurityHeaders())
-	r.Use(middlewares.ErrorHandler())
-	r.Use(middlewares.DefaultTimingMiddleware)
+	middlewares.ApplyCoreStack(r, cfg)
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:8080", "http://localhost:8000"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "X-Trace-ID"},
-		ExposeHeaders:    []string{"Content-Length", "X-Request-ID", "X-Trace-ID"},
+		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:8080", "http://localhost:8000", "http://127.0.0.1:3000", "http://127.0.0.1:8080"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "X-Trace-ID", "Accept"},
+		ExposeHeaders:    []string{"Content-Length", "X-Request-ID", "X-Trace-ID", "Authorization"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
@@ -464,9 +462,18 @@ func RegisterRoutes(r *gin.Engine,
 	auth := v1.Group("/auth")
 	{
 		auth.POST("/login", authController.Login)
-		auth.POST("/register", authController.Register)
 		auth.POST("/refresh", middlewares.NewJWTAuth(cfg), authController.Refresh)
 		auth.GET("/profile", middlewares.NewJWTAuth(cfg), authController.GetProfile)
+
+		// 自助注册默认关闭（ALLOW_PUBLIC_REGISTRATION）。关闭时返回 404 而非 403，
+		// 避免向探测者确认该端点存在。
+		if cfg.AllowPublicRegistration {
+			auth.POST("/register", authController.Register)
+		} else {
+			auth.POST("/register", func(c *gin.Context) {
+				response.Error(c, mcerrors.New(mcerrors.ErrNotFound, "resource not found"))
+			})
+		}
 	}
 
 	// 调试端点仅在非生产环境注册。
@@ -501,10 +508,10 @@ func RegisterRoutes(r *gin.Engine,
 		clusters := authorized.Group("/clusters")
 		{
 			clusters.GET("", clusterController.GetClusters)
-			clusters.POST("", clusterController.CreateCluster)
+			clusters.POST("", authz.RequirePermission(authz.PermissionClusterWrite), clusterController.CreateCluster)
 			clusters.GET("/:id", clusterController.GetCluster)
-			clusters.PUT("/:id", clusterController.UpdateCluster)
-			clusters.DELETE("/:id", clusterController.DeleteCluster)
+			clusters.PUT("/:id", authz.RequirePermission(authz.PermissionClusterWrite), clusterController.UpdateCluster)
+			clusters.DELETE("/:id", authz.RequirePermission(authz.PermissionClusterWrite), clusterController.DeleteCluster)
 			clusters.GET("/:id/status", k8sController.GetClusterStatus)
 		}
 
@@ -512,19 +519,19 @@ func RegisterRoutes(r *gin.Engine,
 		{
 			resources.GET("", resourceController.GetResources)
 			resources.GET("/:id", resourceController.GetResource)
-			resources.PUT("/:id", resourceController.UpdateResource)
+			resources.PUT("/:id", authz.RequirePermission(authz.PermissionResourceWrite), resourceController.UpdateResource)
 			resources.GET("/gpu", k8sController.GetGPUResources)
 		}
 
 		jobs := authorized.Group("/jobs")
 		{
 			jobs.GET("", jobController.GetJobs)
-			jobs.POST("", jobController.CreateJob)
+			jobs.POST("", authz.RequirePermission(authz.PermissionJobWrite), jobController.CreateJob)
 			jobs.GET("/:id", jobController.GetJob)
-			jobs.PUT("/:id", jobController.UpdateJob)
-			jobs.DELETE("/:id", jobController.DeleteJob)
-			jobs.POST("/:id/cancel", jobController.CancelJob)
-			jobs.POST("/:id/submit", k8sController.SubmitJob)
+			jobs.PUT("/:id", authz.RequirePermission(authz.PermissionJobWrite), jobController.UpdateJob)
+			jobs.DELETE("/:id", authz.RequirePermission(authz.PermissionJobWrite), jobController.DeleteJob)
+			jobs.POST("/:id/cancel", authz.RequirePermission(authz.PermissionJobWrite), jobController.CancelJob)
+			jobs.POST("/:id/submit", authz.RequirePermission(authz.PermissionJobSubmit), k8sController.SubmitJob)
 			jobs.GET("/:id/status", k8sController.GetJobStatus)
 		}
 
@@ -532,34 +539,35 @@ func RegisterRoutes(r *gin.Engine,
 		{
 			monitoring.GET("/metrics", monitoringController.GetMetrics)
 			monitoring.GET("/alerts", monitoringController.GetAlerts)
-			monitoring.PUT("/alerts/:id/resolve", monitoringController.ResolveAlert)
+			monitoring.PUT("/alerts/:id/resolve", authz.RequirePermission(authz.PermissionMonitoringWrite), monitoringController.ResolveAlert)
 		}
 
+		// 租户是隔离边界，读写均属平台治理动作，仅管理员可操作。
 		tenants := authorized.Group("/tenants")
 		{
-			tenants.GET("", tenantController.GetTenants)
-			tenants.POST("", tenantController.CreateTenant)
-			tenants.GET("/:id", tenantController.GetTenant)
-			tenants.PUT("/:id", tenantController.UpdateTenant)
-			tenants.DELETE("/:id", tenantController.DeleteTenant)
+			tenants.GET("", authz.RequirePermission(authz.PermissionTenantRead), tenantController.GetTenants)
+			tenants.POST("", authz.RequirePermission(authz.PermissionTenantWrite), tenantController.CreateTenant)
+			tenants.GET("/:id", authz.RequirePermission(authz.PermissionTenantRead), tenantController.GetTenant)
+			tenants.PUT("/:id", authz.RequirePermission(authz.PermissionTenantWrite), tenantController.UpdateTenant)
+			tenants.DELETE("/:id", authz.RequirePermission(authz.PermissionTenantWrite), tenantController.DeleteTenant)
 		}
 
 		acceleration := authorized.Group("/acceleration")
 		{
 			acceleration.GET("", accelerationController.GetAccelerationSuites)
-			acceleration.POST("", accelerationController.CreateAccelerationSuite)
+			acceleration.POST("", authz.RequirePermission(authz.PermissionAccelWrite), accelerationController.CreateAccelerationSuite)
 			acceleration.GET("/:id", accelerationController.GetAccelerationSuite)
-			acceleration.PUT("/:id", accelerationController.UpdateAccelerationSuite)
-			acceleration.DELETE("/:id", accelerationController.DeleteAccelerationSuite)
+			acceleration.PUT("/:id", authz.RequirePermission(authz.PermissionAccelWrite), accelerationController.UpdateAccelerationSuite)
+			acceleration.DELETE("/:id", authz.RequirePermission(authz.PermissionAccelWrite), accelerationController.DeleteAccelerationSuite)
 		}
 
 		security := authorized.Group("/security")
 		{
 			security.GET("/policies", securityController.GetSecurityPolicies)
-			security.POST("/policies", securityController.CreateSecurityPolicy)
+			security.POST("/policies", authz.RequirePermission(authz.PermissionSecurityWrite), securityController.CreateSecurityPolicy)
 			security.GET("/policies/:id", securityController.GetSecurityPolicy)
-			security.PUT("/policies/:id", securityController.UpdateSecurityPolicy)
-			security.DELETE("/policies/:id", securityController.DeleteSecurityPolicy)
+			security.PUT("/policies/:id", authz.RequirePermission(authz.PermissionSecurityWrite), securityController.UpdateSecurityPolicy)
+			security.DELETE("/policies/:id", authz.RequirePermission(authz.PermissionSecurityWrite), securityController.DeleteSecurityPolicy)
 		}
 	}
 

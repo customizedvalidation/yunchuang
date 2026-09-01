@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Card, Table, Button, Space, App, Modal, Progress, Tag, List, Typography, Tabs, Segmented, Statistic } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import {
   useGetJobsQuery,
   useSubmitJobToK8SMutation,
@@ -12,6 +13,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
+import type { Job, Tenant, GPUResource, Resource } from '../types';
 
 const { Text } = Typography;
 
@@ -35,17 +37,17 @@ const K8SManagement: React.FC = () => {
   const { data: tenants } = useGetTenantsQuery(undefined);
   const { data: resources, isLoading: resourcesLoading, error: resourcesError } = useGetResourcesQuery(undefined);
 
-  const jobsData = extractArrayData(jobs);
-  const gpuResourcesData = extractArrayData(gpuResources);
-  const tenantsData = extractArrayData(tenants);
+  const jobsData = extractArrayData<Job>(jobs);
+  const gpuResourcesData = extractArrayData<GPUResource>(gpuResources);
+  const tenantsData = extractArrayData<Tenant>(tenants);
   const resourcesData = extractArrayData(resources);
-  const namespaces = tenantsData.length
+  const namespaces: Tenant[] = tenantsData.length
     ? tenantsData
     : [{ id: 0, name: 'default', description: '默认命名空间', status: 'active', gpu_quota: 0, cpu_quota: 0, memory_quota: 0, storage_quota: 0 }];
   const [selectedNs, setSelectedNs] = useState<string>(namespaces[0]?.name || 'default');
-  const podsData = jobsData.filter((j: any) => j.status === 'running');
+  const podsData = jobsData.filter((j) => j.status === 'running');
 
-  const [selectedJob, setSelectedJob] = useState<any>(null);
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isGpuRefreshing, setIsGpuRefreshing] = useState(false);
 
@@ -63,7 +65,7 @@ const K8SManagement: React.FC = () => {
     }
   };
 
-  const handleSubmitToK8S = async (job: any) => {
+  const handleSubmitToK8S = async (job: Job) => {
     try {
       await submitJobToK8S(job.id).unwrap();
       message.success('作业已提交到K8S');
@@ -73,7 +75,7 @@ const K8SManagement: React.FC = () => {
     }
   };
 
-  const handleCancelK8SJob = async (job: any) => {
+  const handleCancelK8SJob = async (job: Job) => {
     try {
       await cancelK8SJob(job.id).unwrap();
       message.success('作业已取消');
@@ -83,12 +85,12 @@ const K8SManagement: React.FC = () => {
     }
   };
 
-  const handleViewStatus = (job: any) => {
+  const handleViewStatus = (job: Job) => {
     setSelectedJob(job);
     setIsModalVisible(true);
   };
 
-  const jobColumns: any[] = [
+  const jobColumns: ColumnsType<Job> = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
@@ -99,7 +101,7 @@ const K8SManagement: React.FC = () => {
     { title: '进度', dataIndex: 'progress', key: 'progress', width: 120, render: (progress: number) => <Progress percent={progress} size="small" /> },
     {
       title: '操作', key: 'action', width: 220,
-      render: (_: any, record: any) => (
+      render: (_: React.ReactNode, record: Job) => (
         <Space>
           <Button type="link" onClick={() => handleSubmitToK8S(record)}>提交到K8S</Button>
           <Button type="link" onClick={() => handleViewStatus(record)}>查看状态</Button>
@@ -109,7 +111,7 @@ const K8SManagement: React.FC = () => {
     },
   ];
 
-  const gpuColumns: any[] = [
+  const gpuColumns: ColumnsType<GPUResource> = [
     { title: '名称', dataIndex: 'gpuName', key: 'gpuName' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
     { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: (status: string) => <StatusCell status={status} /> },
@@ -140,7 +142,7 @@ const K8SManagement: React.FC = () => {
             columns={gpuColumns}
             dataSource={gpuResourcesData}
             loading={gpuLoading}
-            rowKey={(record: any) => record.id}
+            rowKey={(record: GPUResource) => record.gpuName}
             pagination={false}
             scroll={{ x: 900 }}
           />
@@ -149,7 +151,7 @@ const K8SManagement: React.FC = () => {
     );
   };
 
-  const renderJobsCard = (dataSource: any[], loading: boolean, err: any) => {
+  const renderJobsCard = (dataSource: Job[], loading: boolean, err: unknown) => {
     const state = renderState({
       isLoading: loading,
       error: err,
@@ -178,18 +180,18 @@ const K8SManagement: React.FC = () => {
   };
 
   const renderServicesCard = () => {
-    const ns = namespaces.find((n: any) => n.name === selectedNs) || namespaces[0];
-    const runningJobs = jobsData.filter((j: any) => j.status === 'running');
-    const usedGpu = runningJobs.reduce((s: number, j: any) => s + (Number(j.gpus) || 0), 0);
-    const usedCpu = runningJobs.reduce((s: number, j: any) => s + (Number(j.cpus) || 0), 0);
-    const usedMem = runningJobs.reduce((s: number, j: any) => s + (Number(j.memory) || 0), 0);
+    const ns = namespaces.find((n) => n.name === selectedNs) || namespaces[0];
+    const runningJobs = jobsData.filter((j) => j.status === 'running');
+    const usedGpu = runningJobs.reduce((s, j) => s + (Number(j.gpus) || 0), 0);
+    const usedCpu = runningJobs.reduce((s, j) => s + (Number(j.cpus) || 0), 0);
+    const usedMem = runningJobs.reduce((s, j) => s + (Number(j.memory) || 0), 0);
     const quotaItems = [
       { label: 'GPU 配额', value: ns.gpu_quota, used: usedGpu, total: ns.gpu_quota },
       { label: 'CPU 配额', value: ns.cpu_quota, used: usedCpu, total: ns.cpu_quota },
       { label: '内存配额(GB)', value: ns.memory_quota, used: usedMem, total: ns.memory_quota },
       { label: '存储配额(TB)', value: ns.storage_quota },
     ];
-    const serviceColumns: any[] = [
+    const serviceColumns: ColumnsType<Resource> = [
       { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 120, render: () => <Tag color="blue">{ns.name}</Tag> },
       { title: '服务名', dataIndex: 'gpuName', key: 'gpuName' },
       { title: '类型', dataIndex: 'type', key: 'type', render: (t: string) => <Tag>{t}</Tag> },
@@ -211,7 +213,7 @@ const K8SManagement: React.FC = () => {
     return (
       <Card title="服务管理（按命名空间 / 租户）">
         <Segmented
-          options={namespaces.map((n: any) => ({ label: n.name, value: n.name }))}
+          options={namespaces.map((n) => ({ label: n.name, value: n.name }))}
           value={selectedNs}
           onChange={(v) => setSelectedNs(v as string)}
           style={{ marginBottom: 16 }}

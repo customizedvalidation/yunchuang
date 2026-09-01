@@ -6,6 +6,13 @@ import { LockOutlined, UserOutlined, EyeOutlined } from '@ant-design/icons';
 import { useThemeMode } from '../theme/ThemeModeContext';
 import { getNeutral, brand } from '../theme/tokens';
 
+/** 从 RTK Query 的错误对象中取出可读的错误信息 */
+type ApiErrorData = { message?: string; data?: { message?: string } };
+function apiErrorMessage(err: unknown): string {
+  const data = (err as { data?: ApiErrorData } | null)?.data;
+  return data?.data?.message || data?.message || '请检查用户名和密码';
+}
+
 const Login: React.FC = () => {
   const { message } = App.useApp();
   const [login, { isLoading, error }] = useLoginMutation();
@@ -50,7 +57,7 @@ const Login: React.FC = () => {
       message.success('登录成功');
       setLoginAttempts(0);
       navigate('/dashboard');
-    } catch (error: any) {
+    } catch (error) {
       const newAttempts = loginAttempts + 1;
       setLoginAttempts(newAttempts);
 
@@ -59,7 +66,7 @@ const Login: React.FC = () => {
         setLockTime(60000);
         message.error('登录失败次数过多，账号已被锁定1分钟');
       } else {
-        message.error(error.data?.data?.message || error.data?.message || '登录失败，请检查用户名和密码');
+        message.error(apiErrorMessage(error));
       }
     }
   };
@@ -164,7 +171,7 @@ const Login: React.FC = () => {
         {error && (
           <Alert
             message="登录失败"
-            description={(error as any).data?.message || '请检查用户名和密码'}
+            description={apiErrorMessage(error)}
             type="error"
             showIcon
             style={{ marginBottom: '20px', background: 'var(--mc-danger-soft)', borderColor: 'var(--mc-danger-border)' }}

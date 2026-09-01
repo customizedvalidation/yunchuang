@@ -70,6 +70,10 @@ type Config struct {
 	FeatureJobScheduler          bool
 	FeatureMonitoring            bool
 	FeatureSecurityPolicies      bool
+	// AllowPublicRegistration 控制是否开放匿名自助注册。
+	// 默认关闭：注册接口一旦对公网开放，攻击者可批量灌账号，
+	// 在内存存储模式下更是直接的 OOM 入口。
+	AllowPublicRegistration bool
 }
 
 func LoadConfig() (*Config, error) {
@@ -110,6 +114,8 @@ func LoadConfig() (*Config, error) {
 	featureJobScheduler, _ := strconv.ParseBool(getEnv("FEATURE_JOB_SCHEDULER", "true"))
 	featureMonitoring, _ := strconv.ParseBool(getEnv("FEATURE_MONITORING", "true"))
 	featureSecurityPolicies, _ := strconv.ParseBool(getEnv("FEATURE_SECURITY_POLICIES", "true"))
+	// 默认关闭开放注册，需显式通过 ALLOW_PUBLIC_REGISTRATION=true 开启。
+	allowPublicRegistration, _ := strconv.ParseBool(getEnv("ALLOW_PUBLIC_REGISTRATION", "false"))
 
 	allowedOrigins := parseAllowedOrigins(getEnv("ALLOWED_ORIGINS", ""))
 	trustedProxies := parseList(getEnv("TRUSTED_PROXIES", ""))
@@ -174,6 +180,7 @@ func LoadConfig() (*Config, error) {
 		FeatureJobScheduler:          featureJobScheduler,
 		FeatureMonitoring:            featureMonitoring,
 		FeatureSecurityPolicies:      featureSecurityPolicies,
+		AllowPublicRegistration:      allowPublicRegistration,
 	}, nil
 }
 
@@ -205,6 +212,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Environment == "production" && c.MemoryStoreEnabled {
 		return fmt.Errorf("MEMORY_STORE_ENABLED must be false in production environment")
+	}
+	// 生产环境禁止开放注册：账号必须由管理员或 IdP 开通，
+	// 匿名注册在公网等同于把账号创建权交给攻击者。
+	if c.Environment == "production" && c.AllowPublicRegistration {
+		return fmt.Errorf("ALLOW_PUBLIC_REGISTRATION must be false in production environment")
 	}
 	if c.Environment == "production" && c.UseSQLite {
 		return fmt.Errorf("USE_SQLITE must be false in production environment")

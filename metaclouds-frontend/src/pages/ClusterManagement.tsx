@@ -1,20 +1,31 @@
 import React from 'react';
-import { Card, Table, Button, Space, App, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
+import { Card, Table } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import { Button, Space, App, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
 import { useGetClustersQuery, useCreateClusterMutation, useDeleteClusterMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
+import type { Cluster } from '../types';
+
+/** 新建集群表单值 */
+interface ClusterFormValues {
+  name: string;
+  description?: string;
+  nodes?: number;
+  gpus?: number;
+}
 
 const ClusterManagement: React.FC = () => {
   const { message } = App.useApp();
   const { data: clusters, isLoading, error, refetch } = useGetClustersQuery(undefined);
-  const clustersData = extractArrayData(clusters);
+  const clustersData = extractArrayData<Cluster>(clusters);
   const [createCluster] = useCreateClusterMutation();
   const [deleteCluster] = useDeleteClusterMutation();
   const [isModalVisible, setIsModalVisible] = React.useState(false);
   const [form] = Form.useForm();
 
-  const handleCreate = async (values: any) => {
+  const handleCreate = async (values: ClusterFormValues) => {
     try {
       await createCluster(values).unwrap();
       message.success('集群创建成功');
@@ -36,7 +47,7 @@ const ClusterManagement: React.FC = () => {
     }
   };
 
-  const columns = [
+  const columns: ColumnsType<Cluster> = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 90, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '描述', dataIndex: 'description', key: 'description' },
@@ -45,7 +56,7 @@ const ClusterManagement: React.FC = () => {
     { title: 'GPU数', dataIndex: 'gpus', key: 'gpus', width: 90, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
     {
       title: '操作', key: 'action', width: 100,
-      render: (_: any, record: any) => (
+      render: (_: unknown, record: Cluster) => (
         <Space>
           <Popconfirm
             title="删除该集群？"

@@ -1,5 +1,6 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { Layout, Menu, Tooltip, Badge } from 'antd';
+import type { MenuProps } from 'antd';
 import { 
   DashboardOutlined, 
   SaveOutlined, 
@@ -18,13 +19,17 @@ import { SIDEBAR_WIDTH } from '../../theme/sidebar';
 import { semantic, brand } from '../../theme/tokens';
 import { useGetJobsQuery, useGetClustersQuery, useGetResourcesQuery, useGetTenantsQuery, useGetAlertsQuery } from '../../store/api';
 import { extractArrayData } from '../../utils/api';
+import type { Job, MenuItem } from '../../types';
 import './Sidebar.css';
 
 const { Sider } = Layout;
 
+/** antd Menu 接受的单项类型（判别联合） */
+type AntdMenuItem = NonNullable<Required<MenuProps>['items']>[number];
+
 // 菜单按“业务域”分组并合理排列：
 // 总览 → 调度 → 基础设施(集群/资源/K8S) → 平台(租户/加速) → 可观测与治理(监控/安全)
-export const menuItems = [
+export const menuItems: MenuItem[] = [
   {
     type: 'group',
     label: '总览',
@@ -101,12 +106,13 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
 
   // 递归查找当前路由所属的所有父级子菜单 key（需穿透 group 分组层）
   const getParentKeysForPath = useCallback((pathname: string): string[] => {
-    const find = (items: any[], trail: string[]): string[] => {
+    const find = (items: MenuItem[], trail: string[]): string[] => {
       let res: string[] = [];
       for (const item of items) {
         if (item.type === 'group') {
           res = res.concat(find(item.children || [], trail));
-        } else if (item.children) {
+        } else if (item.children && item.key) {
+          // 无 key 的父节点无法成为路由目标，跳过其 trail 计算
           const newTrail = [...trail, item.key];
           if (pathname === item.key || pathname.startsWith(item.key + '/')) {
             res = res.concat(newTrail);
@@ -131,12 +137,12 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
   const { data: badgeResources } = useGetResourcesQuery(undefined);
   const { data: badgeTenants } = useGetTenantsQuery(undefined);
   const { data: badgeAlerts } = useGetAlertsQuery(undefined);
-  const badgeJobsData = extractArrayData(badgeJobs);
+  const badgeJobsData = extractArrayData<Job>(badgeJobs);
   const badgeMap: Record<string, number> = {
     '/job': badgeJobsData.length,
-    '/job/queue': badgeJobsData.filter((j: any) => j.status === 'pending').length,
-    '/job/history': badgeJobsData.filter((j: any) => ['completed', 'failed', 'cancelled'].includes(j.status)).length,
-    '/k8s/pods': badgeJobsData.filter((j: any) => j.status === 'running').length,
+    '/job/queue': badgeJobsData.filter((j) => j.status === 'pending').length,
+    '/job/history': badgeJobsData.filter((j) => ['completed', 'failed', 'cancelled'].includes(j.status)).length,
+    '/k8s/pods': badgeJobsData.filter((j) => j.status === 'running').length,
     '/cluster': extractArrayData(badgeClusters).length,
     '/resource': extractArrayData(badgeResources).length,
     '/tenant': extractArrayData(badgeTenants).length,
@@ -169,7 +175,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
   };
 
   // 递归处理所有菜单项，包括分组、分隔线与子菜单
-  const processMenuItem = (item: any): any => {
+  const processMenuItem = (item: MenuItem): AntdMenuItem => {
     // 分隔线：直接透传
     if (item.type === 'divider') {
       return { type: 'divider' };
@@ -179,13 +185,15 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
       return {
         type: 'group',
         label: item.label,
-        children: (item.children || []).map((child: any) => processMenuItem(child)),
+        children: (item.children || []).map((child) => processMenuItem(child)),
       };
     }
 
-    const count = badgeMap[item.key];
+    // 无 key 的节点（理论上不存在，类型上 key 可选）取空串，badgeMap 查不到即无徽标
+    const itemKey = item.key ?? '';
+    const count = badgeMap[itemKey];
     const badge = count ? (
-      <Badge count={count} size="small" color={getBadgeColor(item.key, count)} style={{ marginLeft: 'auto' }} />
+      <Badge count={count} size="small" color={getBadgeColor(itemKey, count)} style={{ marginLeft: 'auto' }} />
     ) : null;
     const labelNode = collapsed ? (
       <div className="menu-item-content collapsed">
@@ -205,17 +213,16 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
         )}
       </div>
     );
-    const processedItem: any = {
-      ...item,
-      label: labelNode,
-    };
-
-    // 递归处理子菜单
-    if (item.children) {
-      processedItem.children = item.children.map((child: any) => processMenuItem(child));
+    // antd 的 ItemType 是判别联合，TS 无法从可选字段推导出具体分支，
+    // 因此在此边界处做一次收敛断言；上游 menuItems 本身已是强类型。
+    if (item.children?.length) {
+      return {
+        ...item,
+        label: labelNode,
+        children: item.children.map((child) => processMenuItem(child)),
+      } as AntdMenuItem;
     }
-
-    return processedItem;
+    return { ...item, label: labelNode } as AntdMenuItem;
   };
   
   const processedItems = menuItems.map(item => processMenuItem(item));

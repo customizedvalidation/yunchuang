@@ -10,22 +10,19 @@ import (
 
 	"metaclouds-backend/config"
 	"metaclouds-backend/pkg/errors"
-	"metaclouds-backend/pkg/jwttool"
 	"metaclouds-backend/pkg/logger"
 	"metaclouds-backend/pkg/response"
 )
 
 type JWTAuthConfig struct {
-	Secret           string
-	ExpirationHours  int
-	RefreshThreshold time.Duration
+	Secret          string
+	ExpirationHours int
 }
 
 func NewJWTAuth(cfg *config.Config) gin.HandlerFunc {
 	authConfig := &JWTAuthConfig{
-		Secret:           cfg.JWTSecret,
-		ExpirationHours:  cfg.JWTExpirationHours,
-		RefreshThreshold: time.Hour,
+		Secret:          cfg.JWTSecret,
+		ExpirationHours: cfg.JWTExpirationHours,
 	}
 	return jwtAuthHandler(authConfig)
 }
@@ -132,28 +129,12 @@ func jwtAuthHandler(cfg *JWTAuthConfig) gin.HandlerFunc {
 			}
 		}
 
-		if exp, ok := claims["exp"].(float64); ok {
-			expirationTime := time.Unix(int64(exp), 0)
-			timeUntilExp := time.Until(expirationTime)
-			if timeUntilExp < cfg.RefreshThreshold {
-				newToken, err := generateNewToken(claims, cfg)
-				if err != nil {
-					logger.WarnWithCtx(c, "JWT token refresh failed",
-						"client_ip", clientIP,
-						"path", path,
-						"method", method,
-						"error", err.Error())
-				} else {
-					c.Header("X-Refresh-Token", newToken)
-					logger.DebugWithCtx(c, "JWT token refreshed",
-						"client_ip", clientIP,
-						"path", path,
-						"method", method,
-						"time_until_exp", timeUntilExp)
-				}
-			}
-		}
-
+		// 注：此处曾对临近过期的令牌静默签发新令牌并通过 X-Refresh-Token 响应头返回。
+		// 该机制存在三重问题，已移除：
+		//   1) 无消费者——前端从未读取该头部，且 CORS ExposeHeaders 未暴露它，跨域下浏览器无法读取；
+		//   2) 破坏绝对会话上限——旧令牌不失效，只要持续发请求即可无限续期，被盗令牌可永久存活；
+		//   3) 无谓开销——有效期内最后 1 小时内的每个请求都要做一次 HMAC 签名。
+		// 需要续期时，客户端应显式调用 POST /api/v1/auth/refresh。
 		userIDVal, ok := claims["user_id"].(float64)
 		if !ok || userIDVal <= 0 || userIDVal != float64(uint(userIDVal)) {
 			logger.WarnWithCtx(c, "JWT authentication failed - invalid user_id",
@@ -251,10 +232,6 @@ func classifyJWTError(err error) string {
 	default:
 		return "unknown_error"
 	}
-}
-
-func generateNewToken(claims jwt.MapClaims, cfg *JWTAuthConfig) (string, error) {
-	return jwttool.GenerateTokenFromMapClaims(claims, cfg.Secret, cfg.ExpirationHours)
 }
 
 func JWTAuth() gin.HandlerFunc {
