@@ -54,6 +54,25 @@ const Login: React.FC = () => {
     try {
       const result = await login(values).unwrap();
       localStorage.setItem('token', result.data.token);
+      // 登录响应只回传 token，用户信息需由 token 解析后落盘，
+      // 否则顶栏只能回退到硬编码的 'admin'，刷新后也无法还原真实身份。
+      try {
+        const b64 = result.data.token
+          .split('.')[1]
+          .replace(/-/g, '+')
+          .replace(/_/g, '/');
+        const payload = JSON.parse(atob(b64));
+        localStorage.setItem(
+          'user',
+          JSON.stringify({
+            username: payload.username || payload.email || '',
+            email: payload.email || '',
+            role: payload.role || '',
+          }),
+        );
+      } catch {
+        // token 解析失败不应影响登录主流程
+      }
       message.success('登录成功');
       setLoginAttempts(0);
       navigate('/dashboard');
