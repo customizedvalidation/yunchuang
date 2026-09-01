@@ -28,11 +28,11 @@ func NewClusterService(db interface{}, config *config.Config) *ClusterService {
 type CreateClusterRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
-	Nodes       int    `json:"nodes"`
-	GPUs        int    `json:"gpus"`
-	CPUs        int    `json:"cpus"`
-	Memory      int    `json:"memory"`
-	Storage     int    `json:"storage"`
+	Nodes       int    `json:"nodes" binding:"gte=0"`
+	GPUs        int    `json:"gpus" binding:"gte=0"`
+	CPUs        int    `json:"cpus" binding:"gte=0"`
+	Memory      int    `json:"memory" binding:"gte=0"`
+	Storage     int    `json:"storage" binding:"gte=0"`
 	NetworkType string `json:"network_type"`
 	Location    string `json:"location"`
 }
@@ -41,11 +41,11 @@ type UpdateClusterRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Status      string `json:"status"`
-	Nodes       int    `json:"nodes"`
-	GPUs        int    `json:"gpus"`
-	CPUs        int    `json:"cpus"`
-	Memory      int    `json:"memory"`
-	Storage     int    `json:"storage"`
+	Nodes       int    `json:"nodes" binding:"gte=0"`
+	GPUs        int    `json:"gpus" binding:"gte=0"`
+	CPUs        int    `json:"cpus" binding:"gte=0"`
+	Memory      int    `json:"memory" binding:"gte=0"`
+	Storage     int    `json:"storage" binding:"gte=0"`
 	NetworkType string `json:"network_type"`
 	Location    string `json:"location"`
 }
