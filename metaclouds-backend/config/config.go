@@ -204,11 +204,14 @@ func (c *Config) Validate() error {
 	if c.JWTExpirationHours <= 0 {
 		return fmt.Errorf("JWT_EXPIRATION_HOURS must be greater than 0")
 	}
-	if c.RateLimitRequests <= 0 {
-		return fmt.Errorf("RATE_LIMIT_REQUESTS must be greater than 0")
-	}
-	if c.RateLimitDurationSeconds <= 0 {
-		return fmt.Errorf("RATE_LIMIT_DURATION_SECONDS must be greater than 0")
+	// 仅当启用限流时才校验限流参数；关闭限流时 RateLimitRequests 默认 0 不应阻断启动。
+	if c.RateLimitEnabled {
+		if c.RateLimitRequests <= 0 {
+			return fmt.Errorf("RATE_LIMIT_REQUESTS must be greater than 0 when RATE_LIMIT_ENABLED is true")
+		}
+		if c.RateLimitDurationSeconds <= 0 {
+			return fmt.Errorf("RATE_LIMIT_DURATION_SECONDS must be greater than 0 when RATE_LIMIT_ENABLED is true")
+		}
 	}
 	if c.Environment == "production" && c.MemoryStoreEnabled {
 		return fmt.Errorf("MEMORY_STORE_ENABLED must be false in production environment")
