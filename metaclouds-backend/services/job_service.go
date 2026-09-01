@@ -34,10 +34,10 @@ type CreateJobRequest struct {
 	Description string `json:"description"`
 	Type        string `json:"type"`
 	Priority    int    `json:"priority"`
-	GPUs        int    `json:"gpus"`
-	CPUs        int    `json:"cpus"`
-	Memory      int    `json:"memory"`
-	Duration    int    `json:"duration"`
+	GPUs        int    `json:"gpus" binding:"gte=0"`
+	CPUs        int    `json:"cpus" binding:"gte=0"`
+	Memory      int    `json:"memory" binding:"gte=0"`
+	Duration    int    `json:"duration" binding:"gte=0"`
 	ClusterID   uint   `json:"cluster_id"`
 	TenantID    uint   `json:"tenant_id"`
 	UserID      uint   `json:"user_id"`

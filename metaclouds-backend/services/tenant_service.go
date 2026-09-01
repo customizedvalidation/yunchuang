@@ -28,20 +28,20 @@ func NewTenantService(db interface{}, config *config.Config) *TenantService {
 type CreateTenantRequest struct {
 	Name         string `json:"name" binding:"required"`
 	Description  string `json:"description"`
-	GPUQuota     int    `json:"gpu_quota"`
-	CPUQuota     int    `json:"cpu_quota"`
-	MemoryQuota  int    `json:"memory_quota"`
-	StorageQuota int    `json:"storage_quota"`
+	GPUQuota     int    `json:"gpu_quota" binding:"gte=0"`
+	CPUQuota     int    `json:"cpu_quota" binding:"gte=0"`
+	MemoryQuota  int    `json:"memory_quota" binding:"gte=0"`
+	StorageQuota int    `json:"storage_quota" binding:"gte=0"`
 }
 
 type UpdateTenantRequest struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	Status       string `json:"status"`
-	GPUQuota     int    `json:"gpu_quota"`
-	CPUQuota     int    `json:"cpu_quota"`
-	MemoryQuota  int    `json:"memory_quota"`
-	StorageQuota int    `json:"storage_quota"`
+	GPUQuota     int    `json:"gpu_quota" binding:"gte=0"`
+	CPUQuota     int    `json:"cpu_quota" binding:"gte=0"`
+	MemoryQuota  int    `json:"memory_quota" binding:"gte=0"`
+	StorageQuota int    `json:"storage_quota" binding:"gte=0"`
 }
 
 func (s *TenantService) GetTenants() ([]models.Tenant, error) {
