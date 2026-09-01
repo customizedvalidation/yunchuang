@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { Layout, Menu, Tooltip, Badge } from 'antd';
 import type { MenuProps } from 'antd';
 import { 
@@ -19,13 +19,43 @@ import { SIDEBAR_WIDTH } from '../../theme/sidebar';
 import { semantic, brand } from '../../theme/tokens';
 import { useGetJobsQuery, useGetClustersQuery, useGetResourcesQuery, useGetTenantsQuery, useGetAlertsQuery } from '../../store/api';
 import { extractArrayData } from '../../utils/api';
-import type { Job, MenuItem } from '../../types';
+import { isRoleAllowed, readStoredRole } from '../../utils/auth';
+import type { Job, MenuItem, UserRole } from '../../types';
 import './Sidebar.css';
 
 const { Sider } = Layout;
 
 /** antd Menu 接受的单项类型（判别联合） */
 type AntdMenuItem = NonNullable<Required<MenuProps>['items']>[number];
+
+/**
+ * 按角色过滤菜单树；role 为 null 时原样返回（fail-open，理由见 isRoleAllowed）。
+ *
+ * 递归规则：叶子自身不满足 roles 则剔除；group 在其子节点被全部剔除后整体移除，
+ * 避免留下没有内容的分组标题。
+ */
+function filterMenuByRole(items: MenuItem[], role: UserRole | null): MenuItem[] {
+  if (role === null) {
+    return items;
+  }
+
+  const result: MenuItem[] = [];
+  for (const item of items) {
+    if (item.roles && !isRoleAllowed(role, item.roles)) {
+      continue;
+    }
+    if (item.children?.length) {
+      const children = filterMenuByRole(item.children, role);
+      if (children.length === 0) {
+        continue;
+      }
+      result.push({ ...item, children });
+      continue;
+    }
+    result.push(item);
+  }
+  return result;
+}
 
 // 菜单按“业务域”分组并合理排列：
 // 总览 → 调度 → 基础设施(集群/资源/K8S) → 平台(租户/加速) → 可观测与治理(监控/安全)
@@ -71,7 +101,8 @@ export const menuItems: MenuItem[] = [
     type: 'group',
     label: '平台',
     children: [
-      { key: '/tenant', icon: <UserOutlined />, label: '多租户管理', description: '租户配置' },
+      // 对齐后端 authz：tenant:read 仅授予 admin 与 manager，user 点击会被 403
+      { key: '/tenant', icon: <UserOutlined />, label: '多租户管理', description: '租户配置', roles: ['admin', 'manager'] },
       { key: '/acceleration', icon: <CiOutlined />, label: '加速套件', description: 'GPU加速' },
     ],
   },
@@ -104,6 +135,11 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
     navigate('/login');
   }, [navigate]);
 
+  // 当前角色只读取一次：登录/退出都会整页重挂载，无需做成响应式状态
+  const currentRole = useMemo(() => readStoredRole(), []);
+  // 过滤后的菜单树，后续父级 key 计算与渲染都基于它（含 badgeMap 的键空间不变）
+  const visibleMenuItems = useMemo(() => filterMenuByRole(menuItems, currentRole), [currentRole]);
+
   // 递归查找当前路由所属的所有父级子菜单 key（需穿透 group 分组层）
   const getParentKeysForPath = useCallback((pathname: string): string[] => {
     const find = (items: MenuItem[], trail: string[]): string[] => {
@@ -122,8 +158,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
       }
       return res;
     };
-    return find(menuItems, []);
-  }, []);
+    return find(visibleMenuItems, []);
+  }, [visibleMenuItems]);
 
   // 受控展开：默认展开当前路由所属父菜单，并允许用户手动展开/收起子菜单
   const [openKeys, setOpenKeys] = useState<string[]>(() => getParentKeysForPath(location.pathname));
@@ -225,7 +261,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
     return { ...item, label: labelNode } as AntdMenuItem;
   };
   
-  const processedItems = menuItems.map(item => processMenuItem(item));
+  const processedItems = visibleMenuItems.map(item => processMenuItem(item));
 
   return (
     <Sider 

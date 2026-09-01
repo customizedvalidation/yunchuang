@@ -261,11 +261,23 @@ type RefreshResponse struct {
 	ExpiresAt int64               `json:"expires_at"`
 }
 
-func (s *AuthService) Refresh(userID uint) (*RefreshResponse, error) {
+// findActiveUser 按 ID 查找仍处于有效状态的用户。
+//
+// 除"不存在"外，也排除已软删除（DeletedAt 非空）的账号 —— 存储层若只做软删除，
+// 记录仍会留在 Users 索引里，不检查会让已删除用户继续续期或读取资料。
+func (s *AuthService) findActiveUser(userID uint) (*models.User, bool) {
 	s.db.Mu.RLock()
-	user, exists := s.db.Users[userID]
-	s.db.Mu.RUnlock()
+	defer s.db.Mu.RUnlock()
 
+	user, exists := s.db.Users[userID]
+	if !exists || user.DeletedAt.Valid {
+		return nil, false
+	}
+	return user, true
+}
+
+func (s *AuthService) Refresh(userID uint) (*RefreshResponse, error) {
+	user, exists := s.findActiveUser(userID)
 	if !exists {
 		return nil, errors.NotFound("user not found")
 	}
@@ -287,4 +299,19 @@ func (s *AuthService) Refresh(userID uint) (*RefreshResponse, error) {
 		User:      user.ToResponse(),
 		ExpiresAt: expiresAt,
 	}, nil
+}
+
+// GetProfile 返回指定用户的资料，供 GET /api/v1/auth/profile 使用。
+//
+// 数据一律从存储读取，不使用 JWT claims：claims 是「签发时刻」的快照，
+// 用户角色/租户在签发后被修改时会一直返回陈旧值，直到令牌过期。
+// 返回 models.UserResponse 而非自定义结构，保证与 login/refresh 的 user 字段同形。
+func (s *AuthService) GetProfile(userID uint) (*models.UserResponse, error) {
+	user, exists := s.findActiveUser(userID)
+	if !exists {
+		return nil, errors.NotFound("user not found")
+	}
+
+	resp := user.ToResponse()
+	return &resp, nil
 }

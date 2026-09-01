@@ -51,6 +51,33 @@ const baseQueryWithReauth: BaseQueryFn<
   return result;
 };
 
+/** 后端统一响应信封 { success, data, message, code, timestamp } */
+export interface ApiEnvelope<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+  code?: string;
+  timestamp?: number;
+}
+
+/**
+ * POST /auth/refresh 响应体中 data 的结构。
+ * 与 login 的 user 字段同源：后端 models.UserResponse（services.LoginResponse）。
+ */
+export interface RefreshTokenData {
+  token: string;
+  user: {
+    id: number;
+    username: string;
+    email: string;
+    role: string;
+    tenant_id: number;
+    created_at: string;
+    updated_at: string;
+  };
+  expires_at: number;
+}
+
 export const apiSlice = createApi({
   reducerPath: 'api',
   baseQuery: baseQueryWithReauth,
@@ -74,6 +101,19 @@ export const apiSlice = createApi({
         url: '/auth/register',
         method: 'POST',
         body: userData,
+      }),
+    }),
+    /**
+     * 用「尚未过期」的令牌换取一份新令牌。
+     *
+     * 注意语义：该端点在后端同样挂在 JWTAuth 之后，令牌过期后调用只会 401，
+     * 不存在"过期自救"路径。它的唯一用途是让活跃用户免于被 24h 有效期强制登出。
+     * 落在 AUTH_ENDPOINT_PATTERN 内，因此失败产生的 401 不会触发整页跳登录。
+     */
+    refreshToken: builder.mutation<ApiEnvelope<RefreshTokenData>, void>({
+      query: () => ({
+        url: '/auth/refresh',
+        method: 'POST',
       }),
     }),
     // 集群管理
@@ -209,6 +249,7 @@ export const apiSlice = createApi({
 export const {
   useLoginMutation,
   useRegisterMutation,
+  useRefreshTokenMutation,
   useGetClustersQuery,
   useCreateClusterMutation,
   useUpdateClusterMutation,

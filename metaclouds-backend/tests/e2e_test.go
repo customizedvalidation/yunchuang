@@ -162,6 +162,17 @@ func TestE2E_GetProfile(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &response)
 	assert.True(t, response["success"].(bool))
 	assert.NotEmpty(t, response["data"])
+
+	// profile 的响应形状必须与 login/refresh 的 user 字段一致（models.UserResponse）。
+	// 这里把契约钉死，防止再退化成扁平的 {user_id, ...}。
+	data := response["data"].(map[string]interface{})
+	assert.Equal(t, "admin", data["username"])
+	assert.Equal(t, "admin", data["role"])
+	for _, field := range []string{"id", "username", "email", "role", "tenant_id", "created_at", "updated_at"} {
+		assert.Contains(t, data, field)
+	}
+	// 旧契约的字段名不应再出现
+	assert.NotContains(t, data, "user_id")
 }
 
 func TestE2E_GetProfile_NoToken(t *testing.T) {

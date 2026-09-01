@@ -134,7 +134,15 @@ func jwtAuthHandler(cfg *JWTAuthConfig) gin.HandlerFunc {
 		//   1) 无消费者——前端从未读取该头部，且 CORS ExposeHeaders 未暴露它，跨域下浏览器无法读取；
 		//   2) 破坏绝对会话上限——旧令牌不失效，只要持续发请求即可无限续期，被盗令牌可永久存活；
 		//   3) 无谓开销——有效期内最后 1 小时内的每个请求都要做一次 HMAC 签名。
-		// 需要续期时，客户端应显式调用 POST /api/v1/auth/refresh。
+		//
+		// 关于续期路径，务必按以下语义理解，不要写成"过期后刷新"：
+		//   - POST /api/v1/auth/refresh 同样挂在 JWTAuth 之后（见 api/routes.go），
+		//     因此只能用【尚未过期】的令牌调用：在有效期内换取一份有效期重新计算的令牌。
+		//   - 令牌一旦过期，前端没有任何自救通道，必须重新登录。
+		//   - 已知取舍：JWT 无状态且没有黑名单，refresh 签发的新令牌不会让旧令牌失效，
+		//     旧令牌在其自身 exp 到来前仍然可用。因此 refresh 只是免除"活跃用户被迫重登"，
+		//     它既不能缩短被盗令牌的存活窗口，也不能作为吊销手段；
+		//     缩短该窗口需要引入令牌黑名单或短 exp + 服务端会话，此处未做。
 		userIDVal, ok := claims["user_id"].(float64)
 		if !ok || userIDVal <= 0 || userIDVal != float64(uint(userIDVal)) {
 			logger.WarnWithCtx(c, "JWT authentication failed - invalid user_id",

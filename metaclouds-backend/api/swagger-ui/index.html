@@ -147,7 +147,9 @@
                 </div>
                 <div class="api-body">
                     <div class="api-summary">Refresh JWT token</div>
-                    <div class="api-description">Get a new JWT token using the refresh token</div>
+                    <div class="api-description">Exchange a still-valid JWT for a new one with a renewed expiry.</div>
+                    <div class="api-description">The current token must NOT be expired: an expired token is rejected with 401 and cannot be renewed — the client must log in again.</div>
+                    <div class="api-description">Note: tokens are stateless with no revocation list, so the previous token stays valid until its own exp.</div>
                     <div class="api-description"><strong>Requires authentication</strong></div>
                 </div>
             </div>

@@ -186,4 +186,9 @@ export interface MenuItem {
   description?: string;
   type?: 'group' | 'divider';
   children?: MenuItem[];
+  /**
+   * 允许看到该入口的角色，须与后端 authz.rolePermissions 对齐。
+   * 缺省表示不限制（所有角色可见）。
+   */
+  roles?: UserRole[];
 }

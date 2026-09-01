@@ -1,11 +1,11 @@
 package controllers
 
 import (
-	"errors"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"metaclouds-backend/pkg/errors"
 	"metaclouds-backend/pkg/logger"
 	"metaclouds-backend/pkg/response"
 	"metaclouds-backend/services"
@@ -65,14 +65,30 @@ func (c *AuthController) Register(ctx *gin.Context) {
 	response.Created(ctx, user)
 }
 
-func (c *AuthController) Refresh(ctx *gin.Context) {
-	userID, exists := ctx.Get("user_id")
+// userIDFromContext 取出 JWT 中间件写入的用户 ID。
+//
+// JWTAuth 校验通过后必然写入 uint 类型的 user_id，此处仍保留类型断言而非直接强转，
+// 避免中间件行为变化时把 panic 变成 500。
+func userIDFromContext(ctx *gin.Context) (uint, bool) {
+	value, exists := ctx.Get("user_id")
 	if !exists {
-		response.Error(ctx, errors.New("user not authenticated"))
+		return 0, false
+	}
+	userID, ok := value.(uint)
+	if !ok || userID == 0 {
+		return 0, false
+	}
+	return userID, true
+}
+
+func (c *AuthController) Refresh(ctx *gin.Context) {
+	userID, ok := userIDFromContext(ctx)
+	if !ok {
+		response.Error(ctx, errors.Unauthorized("user not authenticated"))
 		return
 	}
 
-	resp, err := c.authService.Refresh(userID.(uint))
+	resp, err := c.authService.Refresh(userID)
 	if err != nil {
 		response.Error(ctx, err)
 		return
@@ -81,23 +97,23 @@ func (c *AuthController) Refresh(ctx *gin.Context) {
 	response.Success(ctx, resp)
 }
 
+// GetProfile 返回当前登录用户的资料。
+//
+// 响应体为 models.UserResponse，与 login/refresh 的 user 字段完全一致
+// （此前是扁平 gin.H{user_id,...}，字段名与字段集都对不上）；
+// 数据取自 DB 而非 JWT claims，故角色/租户变更后立即生效。
 func (c *AuthController) GetProfile(ctx *gin.Context) {
-	userID, exists := ctx.Get("user_id")
-	if !exists {
-		response.Error(ctx, errors.New("user not authenticated"))
+	userID, ok := userIDFromContext(ctx)
+	if !ok {
+		response.Error(ctx, errors.Unauthorized("user not authenticated"))
 		return
 	}
 
-	username, _ := ctx.Get("username")
-	email, _ := ctx.Get("email")
-	role, _ := ctx.Get("role")
-	tenantID, _ := ctx.Get("tenant_id")
+	resp, err := c.authService.GetProfile(userID)
+	if err != nil {
+		response.Error(ctx, err)
+		return
+	}
 
-	response.Success(ctx, gin.H{
-		"user_id":   userID,
-		"username":  username,
-		"email":     email,
-		"role":      role,
-		"tenant_id": tenantID,
-	})
+	response.Success(ctx, resp)
 }
