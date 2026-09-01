@@ -49,10 +49,10 @@ func (s *ResourceService) GetResource(id uint) (*models.Resource, error) {
 
 type UpdateResourceRequest struct {
 	Status      string  `json:"status"`
-	Total       int     `json:"total"`
-	Used        int     `json:"used"`
-	Available   int     `json:"available"`
-	Utilization float64 `json:"utilization"`
+	Total       int     `json:"total" binding:"gte=0"`
+	Used        int     `json:"used" binding:"gte=0"`
+	Available   int     `json:"available" binding:"gte=0"`
+	Utilization float64 `json:"utilization" binding:"gte=0"`
 	Details     string  `json:"details"`
 }
 
