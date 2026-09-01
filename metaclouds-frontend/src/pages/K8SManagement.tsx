@@ -1,3 +1,4 @@
+import { Can } from '../components/Can';
 import React, { useState } from 'react';
 import { Card, Table, Button, Space, App, Modal, Progress, Tag, List, Typography, Tabs, Segmented, Statistic } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -103,9 +104,9 @@ const K8SManagement: React.FC = () => {
       title: '操作', key: 'action', width: 220,
       render: (_: React.ReactNode, record: Job) => (
         <Space>
-          <Button type="link" onClick={() => handleSubmitToK8S(record)}>提交到K8S</Button>
+          <Can perm="job:submit"><Button type="link" onClick={() => handleSubmitToK8S(record)}>提交到K8S</Button></Can>
           <Button type="link" onClick={() => handleViewStatus(record)}>查看状态</Button>
-          <Button type="link" danger onClick={() => handleCancelK8SJob(record)}>取消作业</Button>
+          <Can perm="job:write"><Button type="link" danger onClick={() => handleCancelK8SJob(record)}>取消作业</Button></Can>
         </Space>
       ),
     },

@@ -1,3 +1,4 @@
+import { Can } from '../components/Can';
 import React from 'react';
 import { Card, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -58,6 +59,7 @@ const ClusterManagement: React.FC = () => {
       title: '操作', key: 'action', width: 100,
       render: (_: unknown, record: Cluster) => (
         <Space>
+          <Can perm="cluster:write">
           <Popconfirm
             title="删除该集群？"
             description="集群下的节点与配额将一并移除，且不可恢复。"
@@ -68,6 +70,7 @@ const ClusterManagement: React.FC = () => {
           >
             <Button type="link" danger size="small">删除</Button>
           </Popconfirm>
+          </Can>
         </Space>
       ),
     },
@@ -84,7 +87,7 @@ const ClusterManagement: React.FC = () => {
       <EmptyState
         title="还没有集群"
         description="创建第一个集群来管理算力节点与 GPU 配额。"
-        action={<Button type="primary" onClick={() => setIsModalVisible(true)}>创建集群</Button>}
+        action={<Can perm="cluster:write"><Button type="primary" onClick={() => setIsModalVisible(true)}>创建集群</Button></Can>}
       />
     ),
   });
@@ -97,7 +100,7 @@ const ClusterManagement: React.FC = () => {
           <p className="mc-page-desc">共 {clustersData.length} 个集群 · 管理算力节点、GPU 配额与调度边界</p>
         </div>
         <div className="mc-page-head-extra">
-          <Button type="primary" onClick={() => setIsModalVisible(true)}>创建集群</Button>
+          <Can perm="cluster:write"><Button type="primary" onClick={() => setIsModalVisible(true)}>创建集群</Button></Can>
         </div>
       </div>
 
@@ -129,7 +132,7 @@ const ClusterManagement: React.FC = () => {
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Space>
-              <Button type="primary" htmlType="submit">创建</Button>
+              <Can perm="cluster:write"><Button type="primary" htmlType="submit">创建</Button></Can>
               <Button onClick={() => setIsModalVisible(false)}>取消</Button>
             </Space>
           </Form.Item>

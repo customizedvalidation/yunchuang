@@ -1,3 +1,4 @@
+import { Can } from '../components/Can';
 import React from 'react';
 import { Card, Table, Tag, Switch, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -32,7 +33,9 @@ const SecurityManagement: React.FC = () => {
     {
       title: '启用', key: 'enabled', width: 90,
       render: (_: React.ReactNode, record: SecurityPolicy) => (
-        <Switch checked={record.enabled} onChange={(checked) => handleToggle(record.id, checked)} />
+        <Can perm="security:write">
+          <Switch checked={record.enabled} onChange={(checked) => handleToggle(record.id, checked)} />
+        </Can>
       ),
     },
   ];

@@ -44,3 +44,35 @@ export function isRoleAllowed(role: UserRole | null, roles: UserRole[]): boolean
   }
   return roles.includes(role);
 }
+
+// ===== 操作级权限（按钮可见性收敛）=====
+// 与后端 pkg/authz.rolePermissions 保持同形；后端为权威来源。
+// JWT 仅携带 role，不携带权限列表，故前端镜像一份用于按钮级可见性。
+export type Permission =
+  | 'cluster:read' | 'cluster:write'
+  | 'resource:read' | 'resource:write'
+  | 'job:read' | 'job:write' | 'job:submit'
+  | 'tenant:read' | 'tenant:write'
+  | 'monitoring:read' | 'monitoring:write'
+  | 'acceleration:read' | 'acceleration:write'
+  | 'security:read' | 'security:write'
+  | 'admin';
+
+// 镜像后端 rolePermissions（pkg/authz/authz.go）。后端调整权限矩阵时此处必须同步。
+const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
+  admin: ['admin', 'cluster:read', 'cluster:write', 'resource:read', 'resource:write', 'job:read', 'job:write', 'job:submit', 'tenant:read', 'tenant:write', 'monitoring:read', 'monitoring:write', 'acceleration:read', 'acceleration:write', 'security:read', 'security:write'],
+  manager: ['cluster:read', 'cluster:write', 'resource:read', 'resource:write', 'job:read', 'job:write', 'job:submit', 'tenant:read', 'tenant:write', 'monitoring:read', 'monitoring:write', 'acceleration:read', 'acceleration:write', 'security:read'],
+  user: ['cluster:read', 'resource:read', 'job:read', 'monitoring:read', 'acceleration:read', 'security:read'],
+};
+
+/**
+ * 判断当前登录用户是否具备某项权限（前端按钮级可见性用）。
+ * 降级策略与 isRoleAllowed 一致：role 为 null（读不到 / 非法）时放行（fail-open）。
+ * 真正的访问控制在后端 authz.HasPermission —— 它对未知/缺失角色 fail-closed，越权请求必然 403。
+ */
+export function hasPermission(permission: Permission): boolean {
+  const role = readStoredRole();
+  if (role === null) return true;
+  if (role === 'admin') return true;
+  return ROLE_PERMISSIONS[role].includes(permission);
+}

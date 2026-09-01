@@ -1,3 +1,4 @@
+import { Can } from '../components/Can';
 import React from 'react';
 import { Card, Table, Button, Space, App, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -59,6 +60,7 @@ const MultiTenantManagement: React.FC = () => {
       title: '操作', key: 'action', width: 90,
       render: (_: React.ReactNode, record: Tenant) => (
         <Space>
+          <Can perm="tenant:write">
           <Popconfirm
             title="删除该租户？"
             description="租户下的配额与关联资源将一并移除，且不可恢复。"
@@ -69,6 +71,7 @@ const MultiTenantManagement: React.FC = () => {
           >
             <Button type="link" danger size="small">删除</Button>
           </Popconfirm>
+          </Can>
         </Space>
       ),
     },
@@ -85,7 +88,7 @@ const MultiTenantManagement: React.FC = () => {
       <EmptyState
         title="还没有租户"
         description="创建租户以划分命名空间与配额边界。"
-        action={<Button type="primary" onClick={() => setIsModalVisible(true)}>创建租户</Button>}
+        action={<Can perm="tenant:write"><Button type="primary" onClick={() => setIsModalVisible(true)}>创建租户</Button></Can>}
       />
     ),
   });
@@ -98,7 +101,7 @@ const MultiTenantManagement: React.FC = () => {
           <p className="mc-page-desc">共 {tenantsData.length} 个租户 · 按租户划分命名空间与配额边界</p>
         </div>
         <div className="mc-page-head-extra">
-          <Button type="primary" onClick={() => setIsModalVisible(true)}>创建租户</Button>
+          <Can perm="tenant:write"><Button type="primary" onClick={() => setIsModalVisible(true)}>创建租户</Button></Can>
         </div>
       </div>
 
@@ -133,7 +136,7 @@ const MultiTenantManagement: React.FC = () => {
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Space>
-              <Button type="primary" htmlType="submit">创建</Button>
+              <Can perm="tenant:write"><Button type="primary" htmlType="submit">创建</Button></Can>
               <Button onClick={() => setIsModalVisible(false)}>取消</Button>
             </Space>
           </Form.Item>

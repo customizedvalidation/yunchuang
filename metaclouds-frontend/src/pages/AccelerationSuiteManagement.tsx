@@ -1,3 +1,4 @@
+import { Can } from '../components/Can';
 import React from 'react';
 import { Card, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -34,7 +35,9 @@ const AccelerationSuiteManagement: React.FC = () => {
     {
       title: '启用', key: 'enabled', width: 90,
       render: (_: unknown, record: AccelerationSuite) => (
-        <Switch checked={record.enabled} onChange={(checked) => handleToggle(record.id, checked)} />
+        <Can perm="acceleration:write">
+          <Switch checked={record.enabled} onChange={(checked) => handleToggle(record.id, checked)} />
+        </Can>
       ),
     },
   ];

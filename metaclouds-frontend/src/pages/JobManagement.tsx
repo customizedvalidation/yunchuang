@@ -1,3 +1,4 @@
+import { Can } from '../components/Can';
 import React from 'react';
 import { Table, Card } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -110,6 +111,7 @@ const JobManagement: React.FC = () => {
         <Space>
           {record.status === 'running' || record.status === 'pending' ? (
             // 破坏性操作：二次确认，避免误触
+            <Can perm="job:write">
             <Popconfirm
               title="取消该作业？"
               description="作业将立即终止且不可恢复。"
@@ -122,6 +124,7 @@ const JobManagement: React.FC = () => {
                 取消
               </Button>
             </Popconfirm>
+            </Can>
           ) : null}
         </Space>
       ),
@@ -170,9 +173,11 @@ const JobManagement: React.FC = () => {
           title={emptyText[activeKey]?.title}
           description={emptyText[activeKey]?.desc}
           action={
-            <Button type="primary" onClick={() => setIsModalVisible(true)}>
-              新建作业
-            </Button>
+            <Can perm="job:write">
+              <Button type="primary" onClick={() => setIsModalVisible(true)}>
+                新建作业
+              </Button>
+            </Can>
           }
         />
       ),
@@ -202,9 +207,11 @@ const JobManagement: React.FC = () => {
           </p>
         </div>
         <div className="mc-page-head-extra">
-          <Button type="primary" onClick={() => setIsModalVisible(true)}>
-            新建作业
-          </Button>
+          <Can perm="job:write">
+            <Button type="primary" onClick={() => setIsModalVisible(true)}>
+              新建作业
+            </Button>
+          </Can>
         </div>
       </div>
 
@@ -242,9 +249,11 @@ const JobManagement: React.FC = () => {
           </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Space>
+              <Can perm="job:write">
               <Button type="primary" htmlType="submit">
                 创建
               </Button>
+              </Can>
               <Button onClick={() => setIsModalVisible(false)}>取消</Button>
             </Space>
           </Form.Item>
