@@ -1,0 +1,31 @@
+.mc-chart {
+  width: 100%;
+  min-width: 0;
+}
+
+.mc-chart-sm {
+  height: var(--mc-chart-h-sm);
+}
+
+.mc-chart-md {
+  height: var(--mc-chart-h-sm);
+}
+@media (min-width: 768px) {
+  .mc-chart-md {
+    height: var(--mc-chart-h-md);
+  }
+}
+
+.mc-chart-lg {
+  height: var(--mc-chart-h-sm);
+}
+@media (min-width: 768px) {
+  .mc-chart-lg {
+    height: var(--mc-chart-h-md);
+  }
+}
+@media (min-width: 1280px) {
+  .mc-chart-lg {
+    height: var(--mc-chart-h-lg);
+  }
+}

@@ -1,6 +1,7 @@
 import { Can } from '../components/Can';
 import React from 'react';
-import { Card, Table, Button, Space, App, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
+import { Card, Button, Space, App, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
+import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
 import { useGetTenantsQuery, useCreateTenantMutation, useDeleteTenantMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
@@ -107,7 +108,7 @@ const MultiTenantManagement: React.FC = () => {
 
       <Card>
         {state ?? (
-          <Table
+          <ResponsiveTable
             columns={columns}
             dataSource={tenantsData}
             rowKey="id"
@@ -117,7 +118,7 @@ const MultiTenantManagement: React.FC = () => {
         )}
       </Card>
 
-      <Modal title="创建租户" open={isModalVisible} onCancel={() => setIsModalVisible(false)} footer={null} destroyOnHidden>
+      <Modal className="mc-modal-full" title="创建租户" open={isModalVisible} onCancel={() => setIsModalVisible(false)} footer={null} destroyOnHidden>
         <Form form={form} onFinish={handleCreate} layout="vertical">
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入租户名称' }]}>
             <Input placeholder="例如：team-vision" />

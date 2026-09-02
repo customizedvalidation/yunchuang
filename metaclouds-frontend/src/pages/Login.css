@@ -1,0 +1,31 @@
+@keyframes float {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(20px, -20px);
+  }
+  50% {
+    transform: translate(-20px, 20px);
+  }
+  75% {
+    transform: translate(10px, 10px);
+  }
+}
+
+.login-card .ant-card-body {
+  padding: 32px;
+}
+
+@media screen and (max-width: 768px) {
+  .float-animation {
+    animation: none !important;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .login-card .ant-card-body {
+    padding: 20px;
+  }
+}

@@ -5,6 +5,7 @@ import { Form, Input, Button, Card, App, Alert } from 'antd';
 import { LockOutlined, UserOutlined, EyeOutlined } from '@ant-design/icons';
 import { useThemeMode } from '../theme/ThemeModeContext';
 import { getNeutral, brand } from '../theme/tokens';
+import './Login.css';
 
 /** 从 RTK Query 的错误对象中取出可读的错误信息 */
 type ApiErrorData = { message?: string; data?: { message?: string } };
@@ -145,7 +146,7 @@ const Login: React.FC = () => {
       <Card
         className="login-card"
         style={{
-          width: 420,
+          width: 'clamp(320px, 92vw, 440px)',
           background: cardBg,
           backdropFilter: 'blur(20px)',
           border: `1px solid ${cardBorder}`,
@@ -154,7 +155,6 @@ const Login: React.FC = () => {
           position: 'relative',
           zIndex: 1,
         }}
-        styles={{ body: { padding: '32px' } }}
       >
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <div
@@ -291,21 +291,6 @@ const Login: React.FC = () => {
         </div>
       </Card>
 
-      <style>{`
-        @keyframes float {
-          0%, 100% { transform: translate(0, 0); }
-          25% { transform: translate(20px, -20px); }
-          50% { transform: translate(-20px, 20px); }
-          75% { transform: translate(10px, 10px); }
-        }
-        @media screen and (max-width: 768px) {
-          .login-card { width: calc(100% - 32px) !important; margin: 0 16px; }
-          .float-animation { animation: none !important; }
-        }
-        @media screen and (max-width: 480px) {
-          .login-card { padding: 20px !important; }
-        }
-      `}</style>
     </div>
   );
 };

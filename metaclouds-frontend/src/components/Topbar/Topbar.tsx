@@ -28,7 +28,7 @@ const CRUMB_MAP: Record<string, [string, string]> = {
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
-const Topbar: React.FC = () => {
+const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { isDark, toggle } = useThemeMode();
@@ -77,6 +77,27 @@ const Topbar: React.FC = () => {
 
   return (
     <header className="mc-topbar">
+      <button
+        type="button"
+        className="mc-menu-trigger"
+        onClick={onMenuClick}
+        aria-label="打开菜单"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+          <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="mc-cmd-trigger"
+        onClick={openCommandPalette}
+        aria-label="搜索"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" strokeLinecap="round" />
+        </svg>
+      </button>
       <nav className="mc-crumb" aria-label="面包屑">
         {group && (
           <>

@@ -11,11 +11,34 @@
   transition: box-shadow var(--mc-t-base) var(--mc-ease), opacity var(--mc-t-base) var(--mc-ease);
 }
 
-.dg-span-3 { grid-column: span 3; }
-.dg-span-4 { grid-column: span 4; }
-.dg-span-6 { grid-column: span 6; }
-.dg-span-8 { grid-column: span 8; }
-.dg-span-12 { grid-column: span 12; }
+/* 响应式栅格列宽：移动优先，较小断点的值由较大断点覆盖 */
+.dg-span-xs-12 { grid-column: span 12; }
+
+@media (min-width: 576px) {
+  .dg-span-sm-12 { grid-column: span 12; }
+}
+
+@media (min-width: 768px) {
+  .dg-span-md-6 { grid-column: span 6; }
+  .dg-span-md-12 { grid-column: span 12; }
+}
+
+@media (min-width: 1024px) {
+  .dg-span-lg-6 { grid-column: span 6; }
+  .dg-span-lg-12 { grid-column: span 12; }
+}
+
+@media (min-width: 1280px) {
+  .dg-span-xl-3 { grid-column: span 3; }
+  .dg-span-xl-6 { grid-column: span 6; }
+  .dg-span-xl-12 { grid-column: span 12; }
+}
+
+@media (min-width: 1440px) {
+  .dg-span-2xl-3 { grid-column: span 3; }
+  .dg-span-2xl-6 { grid-column: span 6; }
+  .dg-span-2xl-12 { grid-column: span 12; }
+}
 
 /* 编辑模式：卡片可拖拽 */
 .dg-editable .dg-item {
@@ -87,6 +110,7 @@
 }
 
 .dg-btn {
+  position: relative;
   min-width: 24px;
   height: 22px;
   padding: 0 6px;
@@ -110,24 +134,22 @@
   cursor: not-allowed;
 }
 
+.dg-btn::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+}
+
 .dg-body {
   min-width: 0;
 }
 
-/* 响应式：窄屏自动降列 */
-@media (max-width: 1280px) {
-  .dg-span-3 { grid-column: span 6; }
-  .dg-span-4 { grid-column: span 6; }
-  .dg-span-8 { grid-column: span 12; }
-}
-
+/* 窄屏缩小栅格间隙 */
 @media (max-width: 768px) {
-  .dg-span-3,
-  .dg-span-4,
-  .dg-span-6,
-  .dg-span-8 {
-    grid-column: span 12;
-  }
   .dg {
     gap: 12px;
   }

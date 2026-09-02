@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* ============================================================
    Metaclouds Design System (MDS) v2.0 —— CSS 变量
    与 src/theme/tokens.ts 保持一致，改色时请同步修改
@@ -155,7 +159,7 @@ code {
 
 /* ============================ 页面模板 ============================ */
 .mc-page {
-  padding: 24px;
+  padding: var(--mc-gutter);
   min-width: 0;
 }
 
@@ -174,7 +178,7 @@ code {
 
 .mc-page-title {
   margin: 0 0 4px;
-  font-size: 22px;
+  font-size: var(--mc-fs-h1);
   font-weight: 660;
   letter-spacing: -0.3px;
   color: var(--mc-text-1);
@@ -182,7 +186,8 @@ code {
 
 .mc-page-desc {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--mc-fs-sm);
+  max-width: var(--mc-measure);
   color: var(--mc-text-3);
 }
 
@@ -229,9 +234,14 @@ code {
   50% { opacity: 0.35; }
 }
 
+/* R5：窄屏页头纵向堆叠，操作区占满并可换行（原仅固定 padding 16） */
 @media (max-width: 768px) {
-  .mc-page {
-    padding: 16px;
+  .mc-page-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .mc-page-head-extra {
+    width: 100%;
   }
 }
 
@@ -258,4 +268,116 @@ code {
   font-size: 13px;
   line-height: 1.6;
   color: var(--mc-text-2);
+}
+
+/* ============================================================
+   响应式地基（R1 / R2 / R3-a / R5 / R9）—— 断点流式令牌 + App Shell
+   单一真相源：本文件(CSS) + src/theme/breakpoints.ts(TS) + tailwind.config.js
+   ============================================================ */
+
+:root {
+  /* 流式间距令牌（随视口连续变化，不跳变） */
+  --mc-gutter: clamp(16px, 8px + 1.2vw, 48px);
+  --mc-gap: clamp(12px, 8px + 0.5vw, 24px);
+  --mc-section: clamp(16px, 12px + 0.7vw, 32px);
+  --mc-measure: 68ch;
+  --mc-page-max: 2400px;
+
+  /* 侧边栏栅格列宽；collapsed 状态由 .mc-app-shell.is-collapsed 覆盖（R2） */
+  --mc-sider-w: 240px;
+  --mc-sider-w-collapsed: 64px;
+
+  /* 流式字号阶梯（6.3） */
+  --mc-fs-display: clamp(28px, 24px + 1.2vw, 44px);
+  --mc-fs-metric: clamp(22px, 19px + 0.55vw, 32px);
+  --mc-fs-h1: clamp(19px, 17.6px + 0.35vw, 26px);
+  --mc-fs-h2: clamp(15px, 14.2px + 0.16vw, 17px);
+  --mc-fs-h3: clamp(14px, 13.6px + 0.1vw, 15px);
+  --mc-fs-body: clamp(13.5px, 13.2px + 0.08vw, 14.5px);
+  --mc-fs-sm: clamp(12.5px, 12.3px + 0.06vw, 13.5px);
+  --mc-fs-xs: 11.5px;
+
+  /* 图表高度令牌（R8） */
+  --mc-chart-h-sm: 200px;
+  --mc-chart-h-md: 260px;
+  --mc-chart-h-lg: 320px;
+}
+
+/* lg(1024–1279)：常驻 64px 图标轨（Q3 决策 A） */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root {
+    --mc-sider-w: 64px;
+  }
+}
+
+/* <1024：侧边栏为浮层，栅格列宽收 0，主内容占满（R3-a） */
+@media (max-width: 1023px) {
+  :root {
+    --mc-sider-w: 0px;
+  }
+}
+
+/* App Shell：纯 CSS Grid，零 JS 布局计算（G3）。列 1 宽度由 antd Sider 自身宽度驱动（auto / <1024 收 0） */
+.mc-app-shell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--mc-bg);
+  transition: grid-template-columns var(--mc-t-slow) var(--mc-ease);
+}
+@media (max-width: 1023px) {
+  .mc-app-shell {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+}
+
+.mc-app-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mc-app-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 移动端浮层遮罩（仅 <1024 且打开时可见，G2） */
+.mc-app-overlay {
+  display: none;
+}
+@media (max-width: 1023px) {
+  .mc-app-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(14, 23, 38, 0.45);
+    z-index: 999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--mc-t-base) var(--mc-ease);
+  }
+  .mc-app-shell.is-mobile-open .mc-app-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* R9：超宽屏主内容居中留白，不铺满（Q2 决策 A） */
+@media (min-width: 2560px) {
+  .mc-page {
+    max-width: var(--mc-page-max);
+    margin-inline: auto;
+  }
+}
+
+/* R14：弹窗窄屏全屏化，避免内容被截断 */
+@media (max-width: 768px) {
+  .ant-modal.mc-modal-full {
+    max-width: calc(100vw - 24px) !important;
+    margin: 12px auto !important;
+  }
+  .ant-modal.mc-modal-full .ant-modal-body {
+    max-height: calc(100vh - 130px);
+    overflow-y: auto;
+  }
 }

@@ -1,0 +1,59 @@
+/* ResponsiveTable 卡片视图样式（<768px 生效，R6） */
+.mc-responsive-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-gap);
+}
+
+.mc-responsive-card {
+  background: var(--mc-surface);
+  border: 1px solid var(--mc-line);
+  border-radius: var(--mc-radius-lg);
+  box-shadow: var(--mc-shadow-1);
+}
+
+.mc-responsive-card .ant-card-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mc-rc-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mc-rc-label {
+  flex-shrink: 0;
+  color: var(--mc-text-3);
+  font-size: var(--mc-fs-xs);
+}
+
+.mc-rc-value {
+  min-width: 0;
+  color: var(--mc-text-1);
+  font-size: var(--mc-fs-body);
+  overflow-wrap: anywhere;
+}
+
+.mc-rc-row--title .mc-rc-value {
+  font-size: var(--mc-fs-h3);
+  font-weight: 600;
+}
+
+.mc-rc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--mc-line);
+}
+
+/* 卡片操作区按钮命中区放大到 ≥40px（R12 预先铺垫，桌面端不放大视觉） */
+.mc-rc-actions .ant-btn {
+  min-height: 36px;
+}

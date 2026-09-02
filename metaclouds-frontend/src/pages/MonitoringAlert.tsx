@@ -1,12 +1,13 @@
 import React from 'react';
-import { Card, Table, Tag, Button } from 'antd';
+import { Card, Tag, Button } from 'antd';
+import ResponsiveTable from '../components/ResponsiveTable';
 import { useGetAlertsQuery } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
 import { useThemeMode } from '../theme/ThemeModeContext';
 import { getNeutral, chartPalette } from '../theme/tokens';
-import ReactECharts from 'echarts-for-react';
+import ResponsiveChart from '../components/ResponsiveChart';
 
 const MonitoringAlert: React.FC = () => {
   const { mode } = useThemeMode();
@@ -70,12 +71,12 @@ const MonitoringAlert: React.FC = () => {
       </div>
 
       <Card style={{ marginBottom: 16 }}>
-        <ReactECharts option={chartOption} style={{ height: 300 }} notMerge lazyUpdate />
+        <ResponsiveChart option={chartOption} size="lg" />
       </Card>
 
       <Card title="告警列表">
         {state ?? (
-          <Table
+          <ResponsiveTable
             columns={columns}
             dataSource={alertsData}
             rowKey="id"

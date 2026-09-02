@@ -1,6 +1,7 @@
 import { Can } from '../components/Can';
 import React from 'react';
-import { Table, Card } from 'antd';
+import { Card } from 'antd';
+import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
 import { Button, Space, App, Modal, Form, Input, Select, InputNumber, Tabs, Popconfirm } from 'antd';
 import { useGetJobsQuery, useCreateJobMutation, useCancelJobMutation } from '../store/api';
@@ -185,7 +186,7 @@ const JobManagement: React.FC = () => {
     if (state) return state;
 
     return (
-      <Table
+      <ResponsiveTable
         columns={columns}
         dataSource={currentData}
         rowKey="id"
@@ -224,6 +225,7 @@ const JobManagement: React.FC = () => {
       </Card>
 
       <Modal
+        className="mc-modal-full"
         title="创建作业"
         open={isModalVisible}
         onCancel={() => setIsModalVisible(false)}

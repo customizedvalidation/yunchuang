@@ -107,6 +107,7 @@
 }
 
 .mc-icon-btn {
+  position: relative;
   width: 34px;
   height: 34px;
   flex-shrink: 0;
@@ -199,4 +200,87 @@
   .mc-user-name {
     display: none;
   }
+}
+
+/* 移动端菜单触发按钮（R4）：仅 <1024 显示，点击打开侧边栏浮层 */
+.mc-menu-trigger {
+  display: none;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--mc-radius-md);
+  background: transparent;
+  color: var(--mc-text-2);
+  cursor: pointer;
+  transition: background var(--mc-t-fast) var(--mc-ease);
+}
+
+.mc-menu-trigger:hover {
+  background: var(--mc-surface-3);
+  color: var(--mc-text-1);
+}
+
+.mc-menu-trigger svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 1023px) {
+  .mc-menu-trigger {
+    display: inline-flex;
+  }
+}
+
+/* 移动端命令面板触发按钮（R17）：仅 <1024 显示，替代被隐藏的搜索框 */
+.mc-cmd-trigger {
+  display: none;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--mc-radius-md);
+  background: transparent;
+  color: var(--mc-text-2);
+  cursor: pointer;
+  transition: background var(--mc-t-fast) var(--mc-ease);
+}
+
+.mc-cmd-trigger:hover {
+  background: var(--mc-surface-3);
+  color: var(--mc-text-1);
+}
+
+.mc-cmd-trigger svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (max-width: 1023px) {
+  .mc-cmd-trigger {
+    display: inline-flex;
+  }
+}
+
+/* 触控命中区 ≥44px（R12）：用伪元素扩展，不改变视觉尺寸 */
+.mc-icon-btn,
+.mc-menu-trigger,
+.mc-cmd-trigger {
+  position: relative;
+}
+
+.mc-icon-btn::after,
+.mc-menu-trigger::after,
+.mc-cmd-trigger::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
 }

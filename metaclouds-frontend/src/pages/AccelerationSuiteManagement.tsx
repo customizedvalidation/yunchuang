@@ -1,6 +1,7 @@
 import { Can } from '../components/Can';
 import React from 'react';
-import { Card, Table } from 'antd';
+import { Card } from 'antd';
+import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
 import { Tag, Switch, App } from 'antd';
 import { useGetAccelerationSuitesQuery, useUpdateAccelerationSuiteMutation } from '../store/api';
@@ -63,7 +64,7 @@ const AccelerationSuiteManagement: React.FC = () => {
 
       <Card>
         {state ?? (
-          <Table
+          <ResponsiveTable
             columns={columns}
             dataSource={suitesData}
             rowKey="id"

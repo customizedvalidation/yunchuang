@@ -1,6 +1,7 @@
 import { Can } from '../components/Can';
 import React from 'react';
-import { Card, Table, Tag, Switch, App } from 'antd';
+import { Card, Tag, Switch, App } from 'antd';
+import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
 import { useGetSecurityPoliciesQuery, useUpdateSecurityPolicyMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
@@ -61,7 +62,7 @@ const SecurityManagement: React.FC = () => {
 
       <Card>
         {state ?? (
-          <Table
+          <ResponsiveTable
             columns={columns}
             dataSource={policiesData}
             rowKey="id"

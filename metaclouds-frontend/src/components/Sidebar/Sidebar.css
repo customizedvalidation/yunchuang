@@ -3,16 +3,34 @@
 .metaclouds-sidebar {
   background: linear-gradient(180deg, var(--sidebar-bg-start) 0%, var(--sidebar-bg-end) 100%) !important;
   min-height: 100vh;
-  position: fixed;
-  left: 0;
+  /* 桌面端：作为 CSS Grid 的第一列，sticky 常驻（!important 覆盖 antd Sider 的 position/height） */
+  position: sticky !important;
   top: 0;
-  bottom: 0;
+  height: 100vh !important;
+  overflow: hidden;
   box-shadow: var(--sidebar-shadow);
   z-index: var(--sidebar-z-index);
-  transition: width var(--sidebar-transition-duration) var(--sidebar-transition-easing), box-shadow var(--sidebar-transition-duration) ease;
-  will-change: width, box-shadow;
-  backface-visibility: hidden;
-  transform-style: preserve-3d;
+  transition: box-shadow var(--mc-t-base) ease, transform var(--mc-t-slow) var(--mc-ease);
+}
+
+/* <1024：侧边栏转为浮层 Drawer，由 .mc-app-overlay 提供遮罩（R3-a, G2） */
+@media (max-width: 1023px) {
+  .metaclouds-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    transform: translateX(-100%);
+    z-index: 1000;
+  }
+  .metaclouds-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+  /* 移动端隐藏桌面折叠按钮（关闭靠遮罩 / Esc） */
+  .metaclouds-sidebar .collapse-btn {
+    display: none;
+  }
 }
 
 .metaclouds-sidebar .logo {

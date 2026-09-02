@@ -1,6 +1,7 @@
 import { Can } from '../components/Can';
 import React from 'react';
-import { Card, Table } from 'antd';
+import { Card } from 'antd';
+import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
 import { Button, Space, App, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
 import { useGetClustersQuery, useCreateClusterMutation, useDeleteClusterMutation } from '../store/api';
@@ -106,7 +107,7 @@ const ClusterManagement: React.FC = () => {
 
       <Card>
         {state ?? (
-          <Table
+          <ResponsiveTable
             columns={columns}
             dataSource={clustersData}
             rowKey="id"
@@ -116,7 +117,7 @@ const ClusterManagement: React.FC = () => {
         )}
       </Card>
 
-      <Modal title="创建集群" open={isModalVisible} onCancel={() => setIsModalVisible(false)} footer={null} destroyOnHidden>
+      <Modal className="mc-modal-full" title="创建集群" open={isModalVisible} onCancel={() => setIsModalVisible(false)} footer={null} destroyOnHidden>
         <Form form={form} onFinish={handleCreate} layout="vertical">
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入集群名称' }]}>
             <Input placeholder="例如：gpu-cluster-sh" />

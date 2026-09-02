@@ -1,29 +1,29 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { Layout, Menu, Tooltip, Badge } from 'antd';
 import type { MenuProps } from 'antd';
-import { 
-  DashboardOutlined, 
-  SaveOutlined, 
-  CloudOutlined, 
-  TagsOutlined, 
-  BellOutlined, 
-  UserOutlined, 
-  CiOutlined, 
-  IeOutlined, 
+
+const { Sider } = Layout;
+import {
+  DashboardOutlined,
+  SaveOutlined,
+  CloudOutlined,
+  TagsOutlined,
+  BellOutlined,
+  UserOutlined,
+  CiOutlined,
+  IeOutlined,
   ContainerOutlined,
   LeftOutlined,
-  LogoutOutlined
+  LogoutOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { SIDEBAR_WIDTH } from '../../theme/sidebar';
 import { semantic, brand } from '../../theme/tokens';
 import { useGetJobsQuery, useGetClustersQuery, useGetResourcesQuery, useGetTenantsQuery, useGetAlertsQuery } from '../../store/api';
 import { extractArrayData } from '../../utils/api';
 import { isRoleAllowed, readStoredRole } from '../../utils/auth';
 import type { Job, MenuItem, UserRole } from '../../types';
+import { SIDER_WIDTH } from '../../theme/breakpoints';
 import './Sidebar.css';
-
-const { Sider } = Layout;
 
 /** antd Menu 接受的单项类型（判别联合） */
 type AntdMenuItem = NonNullable<Required<MenuProps>['items']>[number];
@@ -119,9 +119,11 @@ export const menuItems: MenuItem[] = [
 export interface SidebarProps {
   collapsed: boolean;
   onCollapse: (collapsed: boolean) => void;
+  /** <1024 时浮层(Drawer)是否打开；打开时强制展开菜单（即使桌面态折叠） */
+  mobileOpen?: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
+const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse, mobileOpen }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -260,14 +262,18 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
     }
     return { ...item, label: labelNode } as AntdMenuItem;
   };
-  
-  const processedItems = visibleMenuItems.map(item => processMenuItem(item));
+
+  const processedItems = visibleMenuItems.map((item) => processMenuItem(item));
+
+  // 浮层打开时强制展开完整菜单（移动端抽屉内不需要图标轨）
+  const menuCollapsed = mobileOpen ? false : collapsed;
 
   return (
-    <Sider 
-      className={`metaclouds-sidebar ${collapsed ? 'collapsed' : ''}`}
-      width={collapsed ? SIDEBAR_WIDTH.COLLAPSED : SIDEBAR_WIDTH.DEFAULT} 
-      collapsed={collapsed}
+    <Sider
+      className={`metaclouds-sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}
+      width={mobileOpen ? SIDER_WIDTH.drawer : SIDER_WIDTH.expanded}
+      collapsed={menuCollapsed}
+      collapsedWidth={SIDER_WIDTH.collapsed}
       trigger={null}
     >
       <div className="logo">
@@ -279,13 +285,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
         )}
       </div>
 
-      <div 
-        className="collapse-btn" 
+      <div
+        className="collapse-btn"
         onClick={() => {
-          const isLandscape = typeof window !== 'undefined' && window.innerWidth <= 768 && window.matchMedia('(orientation: landscape)').matches;
-          if (!isLandscape) {
-            onCollapse(!collapsed);
-          }
+          onCollapse(!collapsed);
         }}
       >
         <LeftOutlined />
@@ -303,8 +306,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse }) => {
         />
       </div>
 
-      <Tooltip 
-        title={collapsed ? '退出登录' : ''} 
+      <Tooltip
+        title={collapsed ? '退出登录' : ''}
         placement="right"
       >
         <div className="logout-btn" onClick={logout}>

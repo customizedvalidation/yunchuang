@@ -10,7 +10,7 @@ import {
   Skeleton,
   Tooltip,
 } from 'antd';
-import ReactECharts from 'echarts-for-react';
+import ResponsiveChart from '../components/ResponsiveChart';
 import {
   DatabaseOutlined,
   CloudOutlined,
@@ -258,7 +258,7 @@ const Dashboard: React.FC = () => {
             title={title}
             value={value}
             suffix={suffix}
-            valueStyle={{ fontSize: 26, fontWeight: 680, letterSpacing: '-0.5px' }}
+            valueStyle={{ fontSize: 'var(--mc-fs-metric)', fontWeight: 680, letterSpacing: '-0.5px' }}
           />
           <div style={{ marginTop: 4, minHeight: 20 }}>{footer}</div>
         </div>
@@ -269,7 +269,7 @@ const Dashboard: React.FC = () => {
   const cards: GridItem[] = [
     {
       id: 'kpi-cluster',
-      span: 3,
+      span: { xs: 12, sm: 12, md: 6, lg: 6, xl: 3, '2xl': 3 },
       title: '集群数量',
       node: statCard(
         <DatabaseOutlined />,
@@ -282,7 +282,7 @@ const Dashboard: React.FC = () => {
     },
     {
       id: 'kpi-util',
-      span: 3,
+      span: { xs: 12, sm: 12, md: 6, lg: 6, xl: 3, '2xl': 3 },
       title: 'GPU 利用率',
       node: statCard(
         <CloudOutlined />,
@@ -301,7 +301,7 @@ const Dashboard: React.FC = () => {
     },
     {
       id: 'kpi-running',
-      span: 3,
+      span: { xs: 12, sm: 12, md: 6, lg: 6, xl: 3, '2xl': 3 },
       title: '运行中作业',
       node: statCard(
         <ClockCircleOutlined />,
@@ -319,7 +319,7 @@ const Dashboard: React.FC = () => {
     },
     {
       id: 'kpi-alerts',
-      span: 3,
+      span: { xs: 12, sm: 12, md: 6, lg: 6, xl: 3, '2xl': 3 },
       title: '活跃告警',
       node: statCard(
         <BellOutlined />,
@@ -341,12 +341,12 @@ const Dashboard: React.FC = () => {
     },
     {
       id: 'chart-resource',
-      span: 6,
+      span: { xs: 12, sm: 12, md: 12, lg: 6, xl: 6, '2xl': 6 },
       title: '资源分布',
       node: (
         <Card title="资源分布" extra={<span style={{ fontSize: 12, color: 'var(--mc-text-3)' }}>GPU 卡</span>}>
           {gpuTotal > 0 ? (
-            <ReactECharts option={resourceOption} style={{ height: 260 }} notMerge />
+            <ResponsiveChart option={resourceOption} size="md" />
           ) : (
             <EmptyState
               title="暂无资源数据"
@@ -358,12 +358,12 @@ const Dashboard: React.FC = () => {
     },
     {
       id: 'chart-job',
-      span: 6,
+      span: { xs: 12, sm: 12, md: 12, lg: 6, xl: 6, '2xl': 6 },
       title: '作业状态分布',
       node: (
         <Card title="作业状态分布" extra={<span style={{ fontSize: 12, color: 'var(--mc-text-3)' }}>共 {totalJobs} 个</span>}>
           {jobStatusData.length > 0 ? (
-            <ReactECharts option={jobOption} style={{ height: 260 }} notMerge />
+            <ResponsiveChart option={jobOption} size="md" />
           ) : (
             <EmptyState
               title="还没有作业"
@@ -375,7 +375,7 @@ const Dashboard: React.FC = () => {
     },
     {
       id: 'alerts',
-      span: 12,
+      span: { xs: 12, sm: 12, md: 12, lg: 12, xl: 12, '2xl': 12 },
       title: '最近告警',
       node: (
         <Card title="最近告警" extra={<span style={{ fontSize: 12, color: 'var(--mc-text-3)' }}>按严重程度排序</span>}>
@@ -428,18 +428,18 @@ const Dashboard: React.FC = () => {
   const skeletonCards = (
     <div className="dg">
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="dg-item dg-span-3">
+        <div key={i} className="dg-item dg-span-xs-12 dg-span-md-6 dg-span-xl-3">
           <Card>
             <Skeleton active paragraph={{ rows: 2 }} />
           </Card>
         </div>
       ))}
-      <div className="dg-item dg-span-6">
+      <div className="dg-item dg-span-xs-12 dg-span-lg-6">
         <Card>
           <Skeleton active paragraph={{ rows: 7 }} />
         </Card>
       </div>
-      <div className="dg-item dg-span-12">
+      <div className="dg-item dg-span-xs-12">
         <Card>
           <Skeleton active paragraph={{ rows: 4 }} />
         </Card>

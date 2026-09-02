@@ -1,5 +1,6 @@
 import React from 'react';
-import { Card, Table, Progress, Tag } from 'antd';
+import { Card, Progress, Tag } from 'antd';
+import ResponsiveTable from '../components/ResponsiveTable';
 import { useGetResourcesQuery } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
@@ -43,7 +44,7 @@ const ResourceManagement: React.FC = () => {
 
       <Card>
         {state ?? (
-          <Table
+          <ResponsiveTable
             columns={columns}
             dataSource={resourcesData}
             rowKey="id"

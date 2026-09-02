@@ -1,6 +1,7 @@
 import { Can } from '../components/Can';
 import React, { useState } from 'react';
-import { Card, Table, Button, Space, App, Modal, Progress, Tag, List, Typography, Tabs, Segmented, Statistic } from 'antd';
+import { Card, Button, Space, App, Modal, Progress, Tag, List, Typography, Tabs, Segmented, Statistic } from 'antd';
+import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
 import {
   useGetJobsQuery,
@@ -139,7 +140,7 @@ const K8SManagement: React.FC = () => {
           刷新GPU资源
         </Button>
         {state ?? (
-          <Table
+          <ResponsiveTable
             columns={gpuColumns}
             dataSource={gpuResourcesData}
             loading={gpuLoading}
@@ -168,7 +169,7 @@ const K8SManagement: React.FC = () => {
           刷新作业列表
         </Button>
         {state ?? (
-          <Table
+          <ResponsiveTable
             columns={jobColumns}
             dataSource={dataSource}
             rowKey="id"
@@ -239,7 +240,7 @@ const K8SManagement: React.FC = () => {
           ))}
         </div>
         {state ?? (
-          <Table
+          <ResponsiveTable
             columns={serviceColumns}
             dataSource={resourcesData}
             loading={resourcesLoading}
@@ -287,7 +288,7 @@ const K8SManagement: React.FC = () => {
         onChange={(key) => navigate(key)}
       />
 
-      <Modal title="作业状态" open={isModalVisible} onCancel={() => setIsModalVisible(false)} footer={null} destroyOnHidden>
+      <Modal className="mc-modal-full" title="作业状态" open={isModalVisible} onCancel={() => setIsModalVisible(false)} footer={null} destroyOnHidden>
         {selectedJob && (
           <div>
             <List

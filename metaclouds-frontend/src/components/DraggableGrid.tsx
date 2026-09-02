@@ -3,8 +3,8 @@ import './DraggableGrid.css';
 
 export interface GridItem {
   id: string;
-  /** 12 栅格制下的列宽 */
-  span: 3 | 4 | 6 | 8 | 12;
+  /** 响应式列宽：移动优先，各断点下的 12 栅格列数（省略则沿用更小断点的值） */
+  span: { xs?: number; sm?: number; md?: number; lg?: number; xl?: number; '2xl'?: number };
   title: string;
   node: React.ReactNode;
 }
@@ -80,9 +80,12 @@ const DraggableGrid: React.FC<DraggableGridProps> = ({
     <div className={`dg${editable ? ' dg-editable' : ''}`}>
       {items.map((item, index) => {
         const isHidden = hiddenIds.includes(item.id);
+        const spanClass = Object.entries(item.span)
+          .map(([bp, val]) => `dg-span-${bp}-${val}`)
+          .join(' ');
         const classes = [
           'dg-item',
-          `dg-span-${item.span}`,
+          spanClass,
           dragId === item.id ? 'dg-dragging' : '',
           overId === item.id && dragId !== item.id ? 'dg-over' : '',
           isHidden ? 'dg-hidden' : '',
