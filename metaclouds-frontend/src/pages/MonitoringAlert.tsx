@@ -70,21 +70,23 @@ const MonitoringAlert: React.FC = () => {
         </div>
       </div>
 
-      <Card style={{ marginBottom: 16 }}>
-        <ResponsiveChart option={chartOption} size="lg" />
-      </Card>
+      <div className="mc-monitor-grid">
+        <Card>
+          <ResponsiveChart option={chartOption} size="lg" />
+        </Card>
 
-      <Card title="告警列表">
-        {state ?? (
-          <ResponsiveTable
-            columns={columns}
-            dataSource={alertsData}
-            rowKey="id"
-            pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-            scroll={{ x: 820 }}
-          />
-        )}
-      </Card>
+        <Card title="告警列表">
+          {state ?? (
+            <ResponsiveTable
+              columns={columns}
+              dataSource={alertsData}
+              rowKey="id"
+              pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+              scroll={{ x: 820 }}
+            />
+          )}
+        </Card>
+      </div>
     </div>
   );
 };

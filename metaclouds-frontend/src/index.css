@@ -388,6 +388,20 @@ code {
 .mc-mb { margin-bottom: var(--mc-gap); }
 .mc-mt { margin-top: var(--mc-gap); }
 
+/* R19：监控页栅格。<lg 纵向堆叠；≥2xl(1440px) 左右分栏（图表左、告警列表右） */
+.mc-monitor-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--mc-gap);
+  min-width: 0;
+}
+@media (min-width: 1440px) {
+  .mc-monitor-grid {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
 /* R9：超宽屏主内容居中留白，不铺满（Q2 决策 A） */
 @media (min-width: 2560px) {
   .mc-page {
