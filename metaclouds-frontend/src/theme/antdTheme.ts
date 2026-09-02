@@ -1,4 +1,5 @@
 import { theme, type ThemeConfig } from 'antd';
+import { type DensityMode } from './DensityContext';
 import { brand, semantic, neutralLight, neutralDark, radius, shadow, spacing, type ThemeMode } from './tokens';
 
 /**
