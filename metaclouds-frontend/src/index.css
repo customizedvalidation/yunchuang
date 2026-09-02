@@ -362,6 +362,32 @@ code {
   }
 }
 
+/* ============================ 布局 / 间距工具类（R15） ============================ */
+/* 纵向堆叠：间距用流式令牌 --mc-gap，随视口连续变化（替代内联 marginBottom/gap 魔法值） */
+.mc-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mc-gap);
+  min-width: 0;
+}
+/* 横向流式排布：自动换行，间距用流式令牌 */
+.mc-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mc-gap);
+  align-items: flex-start;
+}
+/* 配额卡自适应栅格：窄屏单列、宽屏多列，统一用 --mc-gap（替代内联 flex: 1 1 200px） */
+.mc-quota-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--mc-gap);
+  min-width: 0;
+}
+/* 便捷间距类：替代内联 marginBottom/marginTop 像素魔法值 */
+.mc-mb { margin-bottom: var(--mc-gap); }
+.mc-mt { margin-top: var(--mc-gap); }
+
 /* R9：超宽屏主内容居中留白，不铺满（Q2 决策 A） */
 @media (min-width: 2560px) {
   .mc-page {

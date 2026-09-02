@@ -136,7 +136,7 @@ const K8SManagement: React.FC = () => {
     });
     return (
       <Card title="GPU资源管理（节点）">
-        <Button type="primary" onClick={handleRefreshGPU} loading={isGpuRefreshing} style={{ marginBottom: 16 }}>
+        <Button type="primary" className="mc-mb" onClick={handleRefreshGPU} loading={isGpuRefreshing}>
           刷新GPU资源
         </Button>
         {state ?? (
@@ -165,7 +165,7 @@ const K8SManagement: React.FC = () => {
     });
     return (
       <Card title="作业管理（Pod）">
-        <Button type="primary" onClick={() => refetchJobs()} style={{ marginBottom: 16 }}>
+        <Button type="primary" className="mc-mb" onClick={() => refetchJobs()}>
           刷新作业列表
         </Button>
         {state ?? (
@@ -215,19 +215,19 @@ const K8SManagement: React.FC = () => {
     return (
       <Card title="服务管理（按命名空间 / 租户）">
         <Segmented
+          className="mc-mb"
           options={namespaces.map((n) => ({ label: n.name, value: n.name }))}
           value={selectedNs}
           onChange={(v) => setSelectedNs(v as string)}
-          style={{ marginBottom: 16 }}
         />
-        <div style={{ marginBottom: 16 }}>
+        <div className="mc-mb">
           <Text type="secondary">
             命名空间「{ns.name}」 · 租户状态：<StatusCell status={ns.status} /> · {ns.description}
           </Text>
         </div>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+        <div className="mc-quota-grid mc-mb">
           {quotaItems.map((q) => (
-            <Card key={q.label} size="small" style={{ flex: '1 1 200px' }}>
+            <Card key={q.label} size="small">
               <Statistic title={q.label} value={q.value} />
               {q.used != null && (
                 <Progress
@@ -249,7 +249,7 @@ const K8SManagement: React.FC = () => {
             scroll={{ x: 900 }}
           />
         )}
-        <div style={{ marginTop: 12 }}>
+        <div className="mc-mt">
           <Text type="secondary">
             说明：K8S 服务的命名空间按租户划分；配额「已用」取当前运行作业实际占用的 GPU/CPU/内存。当前为单租户演示环境，全部服务归属于默认命名空间；多租户部署时需在后端建立 job↔tenant 关联后按租户归集配额。
           </Text>
@@ -261,7 +261,7 @@ const K8SManagement: React.FC = () => {
   const renderTab = (key: string) => {
     if (key === '/k8s') {
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="mc-stack">
           {renderGpuCard()}
           {renderJobsCard(jobsData, jobsLoading, jobsError)}
         </div>
@@ -308,7 +308,7 @@ const K8SManagement: React.FC = () => {
                 </List.Item>
               )}
             />
-            <div style={{ marginTop: 16 }}>
+            <div className="mc-mt">
               <Button type="primary" onClick={() => setIsModalVisible(false)}>关闭</Button>
             </div>
           </div>
