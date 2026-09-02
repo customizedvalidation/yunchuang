@@ -33,6 +33,7 @@ import { apiSlice, useRefreshTokenMutation } from './store/api';
 
 // 设计系统：主题模式 + antd 令牌
 import { ThemeModeProvider, useThemeMode } from './theme/ThemeModeContext';
+import { DensityProvider, useDensity } from './theme/DensityContext';
 import { getThemeConfig } from './theme/antdTheme';
 import { CommandPaletteProvider } from './components/CommandPalette';
 
@@ -140,7 +141,8 @@ const ThemedApp = () => {
   useSilentTokenRefresh();
 
   const { mode } = useThemeMode();
-  const themeConfig = useMemo(() => getThemeConfig(mode), [mode]);
+  const { density } = useDensity();
+  const themeConfig = useMemo(() => getThemeConfig(mode, density), [mode, density]);
 
   return (
     <ConfigProvider theme={themeConfig} locale={zhCN}>
@@ -202,9 +204,11 @@ function App() {
   return (
     <ErrorBoundary>
       <Provider store={store}>
-        <ThemeModeProvider>
+      <ThemeModeProvider>
+        <DensityProvider>
           <ThemedApp />
-        </ThemeModeProvider>
+        </DensityProvider>
+      </ThemeModeProvider>
       </Provider>
     </ErrorBoundary>
   );

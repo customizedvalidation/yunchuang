@@ -6,12 +6,15 @@ import { brand, semantic, neutralLight, neutralDark, radius, shadow, spacing, ty
  * 深色模式使用 antd 的 darkAlgorithm 自动派生对比色，
  * 再叠加品牌色与组件级令牌，保证与自定义 CSS 变量一致。
  */
-export const getThemeConfig = (mode: ThemeMode): ThemeConfig => {
+export const getThemeConfig = (mode: ThemeMode, density: DensityMode = 'comfortable'): ThemeConfig => {
   const n = mode === 'dark' ? neutralDark : neutralLight;
   const isDark = mode === 'dark';
 
+  const modeAlgo = isDark ? theme.darkAlgorithm : theme.defaultAlgorithm;
+  const densityAlgo = density === 'compact' ? theme.compactAlgorithm : null;
+
   return {
-    algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
+    algorithm: densityAlgo ? [modeAlgo, densityAlgo] : modeAlgo,
     token: {
       colorPrimary: isDark ? brand[400] : brand[500],
       colorSuccess: semantic.success,

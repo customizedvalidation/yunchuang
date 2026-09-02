@@ -32,6 +32,7 @@ const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { isDark, toggle } = useThemeMode();
+  const { isCompact, toggle: toggleDensity } = useDensity();
   const { open: openCommandPalette } = useCommandPalette();
   const { data: alerts } = useGetAlertsQuery(undefined);
   const alertsData = extractArrayData(alerts);
@@ -141,6 +142,25 @@ const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
             <path d="M13.7 21a2 2 0 0 1-3.4 0" strokeLinecap="round" />
           </svg>
           <Badge count={alertsData.length} size="small" offset={[-2, 2]} />
+        </button>
+      </Tooltip>
+
+      <Tooltip title={isCompact ? '切换到舒适密度' : '切换到紧凑密度'}>
+        <button
+          type="button"
+          className="mc-icon-btn"
+          onClick={toggleDensity}
+          aria-label={isCompact ? '切换到舒适密度' : '切换到紧凑密度'}
+        >
+          {isCompact ? (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+              <path d="M4 9.5h16M4 12h16M4 14.5h16" strokeLinecap="round" />
+            </svg>
+          )}
         </button>
       </Tooltip>
 
