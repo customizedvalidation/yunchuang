@@ -324,6 +324,11 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* R3-b 宽度 !important 说明：antd <Sider> 会向内联 style 注入 width，
+ * 类选择器普通声明无法覆盖内联样式，故各断点处必须用 !important 才能生效。
+ * 这些 !important 是「必要条件」，切勿为降低数量而移除，否则响应式宽度会回退到 antd 内联值。
+ * 宽度真相源已统一为 src/theme/sidebar.css 的 --sidebar-width-* 变量（与 breakpoints.ts SIDER_WIDTH 对齐）；
+ * 原 src/theme/sidebar.ts 的 TS 侧宽度常量 / getSidebarWidth(window.innerWidth) 已就地收敛为对 breakpoints 的薄别名（死代码 + 违反 R2 零 JS 布局）。 */
 @media screen and (max-width: 1024px) and (min-width: 769px) {
   .metaclouds-sidebar { width: var(--sidebar-width-tablet) !important; }
   .metaclouds-sidebar.collapsed { width: var(--sidebar-width-collapsed) !important; }
