@@ -173,8 +173,13 @@ cd metaclouds-frontend && npm ci && npm run build   # 产物 dist/，由 nginx �
 | 配置单测 | `config/config_test.go` | none 需 production 校验、SameSite 映射 |
 | 前端编译 | `tsc && vite build` | 绿（dist 产物正常） |
 | 前端单测 | `npx jest` | 12 passed / 12 total |
+| 真实浏览器 e2e | Chrome CDP 无头驱动 | 登录 200；`access_token` httpOnly=true、`csrf_token` 非 httpOnly、`SameSite=Lax`；缺 `X-CSRF-Token` 的 `POST /auth/logout` 与 `POST /clusters` 均 **403**、带令牌 **200/201**；控制台 0 错误（修复 main.go 漏挂 CSRF 后闭环） |
 
-### 7.6 离线验证边界（仍需在可测环境执行一次）
-- 同前：沙箱无浏览器/目标服务，**端到端登录链路（httpOnly 写入、csrf_token 读取、X-CSRF-Token 回传、跨请求携带、logout 清除）未实跑**。
-- 新增待验证项：跨域部署（`COOKIE_SAME_SITE=none` + https）下 `X-CSRF-Token` 头与 Cookie 比对在真实浏览器中是否达成 CSRF 防护（同源 Lax 场景本就抗 CSRF，双提交令牌为跨域 None 场景兜底）。
-- 建议：在具备浏览器与 https 的目标机，按 Runbook 起服后，用浏览器跑一次登录→调用写接口→登出，确认控制台无 403（缺令牌）告警。
+### 7.6 离线验证边界（已闭环——真实浏览器 e2e 跑通并捕获一处生产漏防）
+
+沙箱实际具备无头 Chrome（CDP 驱动），因此「端到端登录链路」已在真实浏览器实跑，而非停留在“待验证”。本轮 e2e **捕获并修复了一处严重安全漏防**：
+
+- **发现**：`main.go` 自建路由（`gin.New()` + CORS）并直接 `RegisterRoutes`，**从未调用 `api.SetupRouter`**；而 CSRF 双提交令牌中间件 `r.Use(middlewares.NewCSRFProtect(cfg))` 仅挂在 `api.SetupRouter` 内。单元测试（`e2e_test.go`/`integration_test.go`/`e2e_full_test.go`）都走 `SetupRouter`，故测试全绿；但**生产实际运行的服务器完全没有 CSRF 防护**，形成“测试有、生产无”的假绿。`middlewares/stack.go:16` 曾记载过同一类“测试/生产中间件不一致”问题。
+- **修复**：`main.go` 统一改为 `r := api.SetupRouter(cfg)`（commit `736e89d`），生产/测试共用同一中间件链（CORS 含 `X-CSRF-Token` + CSRF）。同时新增 `tests/csrf_mount_test.go`，直接对“生产装配”（`SetupRouter`+`RegisterRoutes`）发请求断言 CSRF 拦截，防止此类“中间件只挂在测试路由”的回归。
+- **真实浏览器验证结果**（Chrome CDP，同源 Lax）：`login`→200；`access_token` httpOnly=true、`csrf_token` 非 httpOnly、`SameSite=Lax`；`POST /auth/logout` 与 `POST /clusters` **缺 `X-CSRF-Token` → 403**（修复前为 200/201，可被 CSRF 攻击）；带正确令牌 → 200/201；控制台 0 错误。
+- **仍待真实环境确认的项（沙箱硬限制，非代码缺陷）**：跨域部署（`COOKIE_SAME_SITE=none` + https）下 `SameSite=None` 需 Secure/https，且 CDP 跨域带 `X-CSRF-Token` 的完整比对需在具备证书的目标机跑一次。同源 Lax 路径的 CSRF 防护已在本沙箱真实浏览器中端到端闭环。
