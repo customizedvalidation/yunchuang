@@ -22,7 +22,10 @@ COPY . .
 ARG LOG_LEVEL=debug
 ENV LOG_LEVEL=${LOG_LEVEL}
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o metaclouds-backend .
+# CGO_ENABLED=0 产出静态二进制（生产强制 PostgreSQL，sqlite 仅开发用；实测 GOOS=linux
+# CGO_ENABLED=0 全量重编译通过，无 CGO 依赖问题）。
+# -trimpath/-s -w 去除路径与符号信息，产出更小、更安全的生产二进制。
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o metaclouds-backend .
 
 # ==============================================================================
 # 运行阶段

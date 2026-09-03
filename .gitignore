@@ -11,6 +11,10 @@ out/
 **/build/
 .target/
 
+# ===== Verification build artifacts (构建验证临时产物，非交付物) =====
+dist-verify/
+**/dist-verify/
+
 # ===== Logs =====
 *.log
 logs/

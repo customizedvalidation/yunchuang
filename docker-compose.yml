@@ -140,7 +140,11 @@ services:
         condition: service_started
     environment:
       - SERVER_PORT=8000
-      - SERVER_ENV=development
+      # 本 compose 是「一体化开发/联调栈」，默认 development。
+      # 生产落地请改用 deploy/kubernetes/ 清单（fail-secure 密钥、database-ssl-mode=require，
+      # 已按生产校验配置）；若坚持用 compose 起生产，需同时显式设 SERVER_ENV=production 且提供
+      # ALLOWED_ORIGINS（非 *）、DATABASE_SSL_MODE!=disable，否则 backend 会因 config.Validate 拒绝启动。
+      - SERVER_ENV=${SERVER_ENV:-development}
       - USE_SQLITE=false
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
