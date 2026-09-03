@@ -4,6 +4,7 @@ import { Badge, Dropdown, Tooltip } from 'antd';
 import { useGetAlertsQuery } from '../../store/api';
 import { extractArrayData } from '../../utils/api';
 import { useThemeMode } from '../../theme/ThemeModeContext';
+import { useDensity } from '../../theme/DensityContext';
 import { useCommandPalette } from '../CommandPalette';
 import './Topbar.css';
 
