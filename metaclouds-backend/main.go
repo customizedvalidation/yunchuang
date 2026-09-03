@@ -9,13 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
 	"metaclouds-backend/api"
 	"metaclouds-backend/config"
 	"metaclouds-backend/controllers"
-	"metaclouds-backend/middlewares"
 	"metaclouds-backend/models"
 	"metaclouds-backend/pkg/logger"
 	"metaclouds-backend/services"
@@ -176,32 +174,17 @@ func run() error {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	r := gin.New()
+	// 生产环境与测试环境共用同一套路由与中间件。api.SetupRouter 已挂载 CORS（含 X-CSRF-Token）
+	// 与 CSRF 双提交令牌中间件。此前 main.go 自建路由漏挂 CSRF，导致生产环境实际无 CSRF 防护，
+	// 而测试因走 SetupRouter 而误报通过。统一走 SetupRouter 后，“测试覆盖”即“生产行为”，
+	// 杜绝安全中间件“测试有、生产无”的漏防（见 middlewares/stack.go 历史不一致说明）。
+	r := api.SetupRouter(cfg)
 
 	// 客户端 IP 用于限流与审计。默认的 gin 会信任报文中的 X-Forwarded-For，
 	// 攻击者只要伪造该头部就能绕过限流，因此这里显式声明可信代理。
 	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		return fmt.Errorf("failed to configure trusted proxies: %w", err)
 	}
-
-	// 生产环境与测试环境共用同一套核心中间件，保证测试覆盖反映生产行为。
-	middlewares.ApplyCoreStack(r, cfg)
-
-	corsConfig := cors.Config{
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "Accept"},
-		ExposeHeaders:    []string{"Content-Length", "X-Request-ID", "Authorization"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}
-
-	if cfg.Environment == "production" {
-		corsConfig.AllowOrigins = cfg.AllowedOrigins
-	} else {
-		corsConfig.AllowOrigins = []string{"http://localhost:3000", "http://localhost:8080", "http://127.0.0.1:3000", "http://127.0.0.1:8080"}
-	}
-
-	r.Use(cors.New(corsConfig))
 
 	r.Static("/swagger", "./api/swagger-ui")
 
