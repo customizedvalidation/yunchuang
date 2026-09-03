@@ -14,6 +14,10 @@ out/
 # ===== Verification build artifacts (构建验证临时产物，非交付物) =====
 dist-verify/
 **/dist-verify/
+# 覆盖带后缀的临时验证产物（dist-verify2 / dist-verify4 / dist-verify-final 等）。
+# 构建验证常改用全新 --outDir 以规避沙箱 safe-delete 对既有 dist 清空的拦截，
+# 若不通配，每换一次 outDir 都会污染 git status。
+**/dist-verify*/
 
 # ===== Logs =====
 *.log
