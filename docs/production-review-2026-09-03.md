@@ -13,7 +13,7 @@
 | 安全 | 良好 | 真实 `.env`/`.env.production` **未入库**且已 gitignore；`metaclouds-secrets.yaml` 为 **fail-secure 模板**（刻意空 Secret，强制部署前生成）；后端对 production 强制校验（JWT≥32、禁 sqlite、SSL 非 disable、ALLOWED_ORIGINS 必设且非 `*`） | 无需改；删除入库的 2 个 `.bak` 死文件 |
 | 代码质量 | 良好 | `go build ./...`、`go vet ./...` 均 **0 错误**；前端 `tsc` 0 错误 | 无需改 |
 | 构建 | 良好 | 前端 `vite build` 绿；后端静态二进制可编译 | 后端 Dockerfile 构建 flags 升级 |
-| 测试 | 后端良好 / 前端缺失 | 后端 services+priorityscheduler 单测 **全过**（4.86s/1.14s），另有 e2e/integration | 前端 0 测试——离线无法装 vitest，列入建议 |
+| 测试 | 后端全覆盖 / 前端缺失 | 后端**全量测试通过**：`services`+`pkg/priorityscheduler`（4.86s/1.14s）+ `tests/` 目录 e2e/integration/middleware/priority_concurrency（8.31s，exit 0） | 前端 0 测试——离线无法装 vitest，列入建议 |
 | 性能 | 良好 | 前端 vendor 已按 echarts/antd/react-vendor/vendor 拆包（长效缓存）；echarts 随路由懒加载不进首屏 | 无需改 |
 | 部署 | 需修复 | **前端 Dockerfile 三处缺陷**（见下）；后端 Dockerfile 构建 flags 可优化；根 compose `SERVER_ENV` 硬编码 development | 已修复 |
 | 可观测性 | 良好 | prometheus + grafana + jaeger + health/metrics/swagger 齐备；alerts.yml 在位 | 无需改 |
@@ -119,3 +119,4 @@ cd metaclouds-frontend && npm ci && npm run build   # 产物 dist/，由 nginx �
 2. **`metaclouds-backend/docker/docker-compose.yml`**（多实例扩缩容联调栈）grafana 用弱口令 `admin`、无 DB/JWT 配置——它是测试用途（对应 `tests/docker_multi_instance_test.go`），**勿用于生产**；如需保留，至少把 `GF_SECURITY_ADMIN_PASSWORD` 改为 `${GRAFANA_ADMIN_PASSWORD:?}`。
 3. **真实 `docker compose up` / K8s 部署未在本机执行**（无 Docker/网络）。本报告已在沙箱内完成可做到的最强验证（生产二进制编译 + 配置校验正/负用例 + 端到端 /health + 前端 dist 静态托管），其余需在目标机按 Runbook 执行。
 4. 根目录散落 `*.webp/*.jpg`（参考截图，未入库）与 `.workbuddy/`（WorkBuddy 内部数据）未纳入版本控制，按现状保留。
+5. **前端 JWT 存于 `localStorage`**（`token` 键，`src/store/api.ts` 以 `Authorization: Bearer` 注入）——localStorage 可被页面内任意 JS 读取，存在 XSS 窃取 token 的理论风险。更优方案是迁移到 **httpOnly + Secure + SameSite Cookie**（JS 读不到），但需后端改 `Set-Cookie` 并加 CSRF 防护，且涉及登录/刷新链路、离线无法验证。**建议列为后续安全加固项，在有网可测环境实施**，不在本次离线复盘中盲目改动认证流程。（现有缓解：后端已有 Security Headers/CSP 中间件，生产模式下发更严格 CSP。）
