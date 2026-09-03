@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"metaclouds-backend/pkg/logger"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -74,6 +75,11 @@ type Config struct {
 	// 默认关闭：注册接口一旦对公网开放，攻击者可批量灌账号，
 	// 在内存存储模式下更是直接的 OOM 入口。
 	AllowPublicRegistration bool
+	// CookieSameSite 控制认证 Cookie（access_token / csrf_token）的 SameSite 属性。
+	// 取值：lax（默认，抵御绝大多数 CSRF）/ strict / none。
+	// 跨完全不同域部署（前端与后端非同注册域）需设为 none，此时必须配合 CSRF 双提交令牌，
+	// 且生产环境下 SameSite=None 强制要求 Secure（即必须 https）。
+	CookieSameSite string
 }
 
 func LoadConfig() (*Config, error) {
@@ -116,6 +122,8 @@ func LoadConfig() (*Config, error) {
 	featureSecurityPolicies, _ := strconv.ParseBool(getEnv("FEATURE_SECURITY_POLICIES", "true"))
 	// 默认关闭开放注册，需显式通过 ALLOW_PUBLIC_REGISTRATION=true 开启。
 	allowPublicRegistration, _ := strconv.ParseBool(getEnv("ALLOW_PUBLIC_REGISTRATION", "false"))
+	// 认证 Cookie 的 SameSite：默认 lax（同源/同注册域子域均可携带，抗绝大多数 CSRF）。
+	cookieSameSite := getEnv("COOKIE_SAME_SITE", "lax")
 
 	allowedOrigins := parseAllowedOrigins(getEnv("ALLOWED_ORIGINS", ""))
 	trustedProxies := parseList(getEnv("TRUSTED_PROXIES", ""))
@@ -181,6 +189,7 @@ func LoadConfig() (*Config, error) {
 		FeatureMonitoring:            featureMonitoring,
 		FeatureSecurityPolicies:      featureSecurityPolicies,
 		AllowPublicRegistration:      allowPublicRegistration,
+		CookieSameSite:               cookieSameSite,
 	}, nil
 }
 
@@ -242,6 +251,11 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	// SameSite=None 要求 Cookie 带 Secure，而 Secure 仅在 https（生产）下有效。
+	// 在 http 的开发环境设 none 会让浏览器直接拒绝存储 Cookie，登录态形同失效。
+	if strings.EqualFold(c.CookieSameSite, "none") && c.Environment != "production" {
+		return fmt.Errorf("COOKIE_SAME_SITE=none requires SERVER_ENV=production (Secure cookies require HTTPS)")
+	}
 	return nil
 }
 
@@ -263,6 +277,19 @@ func (c *Config) GetPrometheusURL() string {
 
 func (c *Config) GetServerAddr() string {
 	return fmt.Sprintf("%s:%s", c.ServerHost, c.ServerPort)
+}
+
+// CookieSameSiteMode 把配置的字符串映射为 net/http 的 SameSite 常量。
+// 非法值（含空串）回退到 Lax，与默认行为一致，避免误配导致 Cookie 完全不可携带。
+func (c *Config) CookieSameSiteMode() http.SameSite {
+	switch strings.ToLower(strings.TrimSpace(c.CookieSameSite)) {
+	case "none":
+		return http.SameSiteNoneMode
+	case "strict":
+		return http.SameSiteStrictMode
+	default:
+		return http.SameSiteLaxMode
+	}
 }
 
 // parseList 把逗号分隔的配置值拆成切片，并去掉空白项。

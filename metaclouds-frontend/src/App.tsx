@@ -29,7 +29,7 @@ const PrivateRoute = lazy(() => import('./components/PrivateRoute'));
 const LayoutRoute = lazy(() => import('./components/Layout'));
 
 // 导入API服务
-import { apiSlice, useRefreshTokenMutation } from './store/api';
+import { apiSlice, useRefreshTokenMutation, useGetCsrfTokenQuery, setCsrfTokenCache } from './store/api';
 
 // 设计系统：主题模式 + antd 令牌
 import { ThemeModeProvider, useThemeMode } from './theme/ThemeModeContext';
@@ -108,6 +108,16 @@ function useSilentTokenRefresh(): void {
 /** 消费主题模式并注入 antd 主题令牌 */
 const ThemedApp = () => {
   useSilentTokenRefresh();
+
+  // 已登录会话（页面刷新后）引导 CSRF 令牌：同源直接读 Cookie，跨域经本端点取得后写入缓存。
+  const { data: csrfData } = useGetCsrfTokenQuery(undefined, {
+    skip: !localStorage.getItem('auth_expiry'),
+  });
+  useEffect(() => {
+    if (csrfData?.data?.csrf_token) {
+      setCsrfTokenCache(csrfData.data.csrf_token);
+    }
+  }, [csrfData]);
 
   const { mode } = useThemeMode();
   const { density } = useDensity();

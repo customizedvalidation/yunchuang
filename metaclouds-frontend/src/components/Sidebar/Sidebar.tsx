@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { semantic, brand } from '../../theme/tokens';
-import { useGetJobsQuery, useGetClustersQuery, useGetResourcesQuery, useGetTenantsQuery, useGetAlertsQuery } from '../../store/api';
+import { useGetJobsQuery, useGetClustersQuery, useGetResourcesQuery, useGetTenantsQuery, useGetAlertsQuery, csrfHeaders } from '../../store/api';
 import { extractArrayData } from '../../utils/api';
 import { isRoleAllowed, readStoredRole } from '../../utils/auth';
 import type { Job, MenuItem, UserRole } from '../../types';
@@ -133,7 +133,11 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse, mobileOpen }) 
 
   const logout = useCallback(() => {
     // 清除后端 httpOnly access_token Cookie（幂等），再清理本地非敏感缓存。
-    fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' })
+    fetch('/api/v1/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    })
       .catch(() => undefined)
       .finally(() => {
         localStorage.removeItem('user');

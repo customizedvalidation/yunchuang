@@ -137,3 +137,43 @@ cd metaclouds-frontend && npm ci && npm run build   # 产物 dist/，由 nginx �
 - **SameSite=Lax**：默认抵御绝大多数 CSRF（跨站 POST 不携带 Cookie），且同源/同注册域子域部署下 Cookie 正常随请求携带。若前端与后端跨**完全不同域**部署（非同注册域），需将 Cookie 改为 `SameSite=None` 并配套 CSRF 双提交令牌；本实现刻意不默认开启 `None`，以免误配引入风险。
 - **Secure 仅生产**：dev 为 http，浏览器不保存 Secure Cookie，故本地开发仍可登录；生产环境必须 https，Cookie 才被标记为 Secure。
 - **离线验证边界**：沙箱无浏览器/目标服务，无法实跑登录链路。上述为「编译级 + 单测级」验证；**端到端登录态（含 httpOnly Cookie 写入、跨请求携带、logout 清除）需在可测环境用浏览器验证一次**，并确认生产 https 下 Secure Cookie 正常。
+
+---
+
+## 七、安全补充深度复盘与优化（2026-09-03 续二）
+
+针对第六节「点 5 安全补充」列出的三项提醒做深度落地：CSRF 双提交令牌、Cookie SameSite 可配置、离线验证边界。
+
+### 7.1 CSRF 双提交令牌（double-submit token）
+- 新增 `middlewares/csrf.go`：`NewCSRFProtect(cfg)` 中间件。对状态变更方法（POST/PUT/DELETE/PATCH）且请求携带 `access_token` Cookie（浏览器会话）时，校验请求头 `X-CSRF-Token` 与 `csrf_token` Cookie **值一致**（常量时间比较 `subtle.ConstantTimeCompare`，规避计时侧信道）。
+- 通道区分：走 `Authorization: Bearer` 头的非浏览器客户端（curl/SDK）不携带 `csrf_token` Cookie，自动跳过校验（它们不受 CSRF 影响）；GET/HEAD/OPTIONS 等幂等读取方法不校验。
+- 令牌来源：登录时 `AuthController.Login` 用 `crypto/rand` 生成 32 字节随机值，分别写入**非 httpOnly** 的 `csrf_token` Cookie（供同源 JS 读取）与（经 `GET /auth/csrf`）响应体，供跨域 SPA 经带凭据请求取得。
+- 登出 `Logout` 同时清除 `access_token` 与 `csrf_token` Cookie。
+
+### 7.2 Cookie SameSite 可配置
+- `config` 新增 `COOKIE_SAME_SITE`（默认 `lax`），提供 `Config.CookieSameSiteMode()` 映射到 `http.SameSite`；`access_token`/`csrf_token` Cookie 的 SameSite 均由其驱动。
+- `Validate()` 新增规则：`COOKIE_SAME_SITE=none` 且非 `SERVER_ENV=production` 时启动失败——`SameSite=None` 要求 `Secure`，而 `Secure` 仅 https 有效，开发环境（http）设 `none` 会让浏览器拒存 Cookie、登录态形同失效。
+- 跨完全不同域部署：设 `COOKIE_SAME_SITE=none` + 生产 https（自动 Secure）+ 本双提交令牌，即可安全放行跨站 Cookie。
+
+### 7.3 CORS 配合
+- `api/routes.go` 的 CORS `AllowHeaders` 增加 `X-CSRF-Token`，使浏览器在跨域请求中可携带该自定义头（否则预检失败）。
+
+### 7.4 前端接入
+- `src/store/api.ts`：`prepareHeaders` 在状态变更请求注入 `X-CSRF-Token`（取自 `csrf_token` Cookie，回退跨域缓存）；新增 `getCsrfToken` 查询，登录成功后（`login` 的 `onQueryStarted`）与已登录会话挂载时（`App.tsx`）拉取令牌写入缓存。
+- `Sidebar`/`Topbar` 的裸 `fetch` 退出改为带 `X-CSRF-Token` 头（经 `csrfHeaders()`）。
+- `tsconfig.json`：`tsc` 生产构建排除 `*.test.ts`/`setupTests.ts`（Jest 经 ts-jest 单独运行，离线无需 `@types/jest` 也能跑通 `npx jest`）。
+
+### 7.5 验证证据（离线沙箱）
+| 层 | 命令 | 结果 |
+|---|---|---|
+| 后端编译 | `go build ./...` | BUILD_OK |
+| 后端全量单测 | `go test ./...` | 全绿（config / middlewares / services 5.59s / tests 9.86s，无回归） |
+| CSRF 单测 | `middlewares/csrf_test.go` | 6 case：浏览器会话有效头→200、缺头→403、头不符→403、Bearer 跳过→200、GET 不校验→200、匿名 POST→200 |
+| 配置单测 | `config/config_test.go` | none 需 production 校验、SameSite 映射 |
+| 前端编译 | `tsc && vite build` | 绿（dist 产物正常） |
+| 前端单测 | `npx jest` | 12 passed / 12 total |
+
+### 7.6 离线验证边界（仍需在可测环境执行一次）
+- 同前：沙箱无浏览器/目标服务，**端到端登录链路（httpOnly 写入、csrf_token 读取、X-CSRF-Token 回传、跨请求携带、logout 清除）未实跑**。
+- 新增待验证项：跨域部署（`COOKIE_SAME_SITE=none` + https）下 `X-CSRF-Token` 头与 Cookie 比对在真实浏览器中是否达成 CSRF 防护（同源 Lax 场景本就抗 CSRF，双提交令牌为跨域 None 场景兜底）。
+- 建议：在具备浏览器与 https 的目标机，按 Runbook 起服后，用浏览器跑一次登录→调用写接口→登出，确认控制台无 403（缺令牌）告警。

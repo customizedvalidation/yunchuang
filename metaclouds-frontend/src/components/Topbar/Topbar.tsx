@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Badge, Dropdown, Tooltip } from 'antd';
-import { useGetAlertsQuery } from '../../store/api';
+import { useGetAlertsQuery, csrfHeaders } from '../../store/api';
 import { extractArrayData } from '../../utils/api';
 import { useThemeMode } from '../../theme/ThemeModeContext';
 import { useDensity } from '../../theme/DensityContext';
@@ -61,7 +61,11 @@ const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
   });
 
   const handleLogout = () => {
-    fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' })
+    fetch('/api/v1/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+    })
       .catch(() => undefined)
       .finally(() => {
         localStorage.removeItem('user');

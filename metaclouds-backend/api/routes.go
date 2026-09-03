@@ -407,11 +407,15 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:8080", "http://localhost:8000", "http://127.0.0.1:3000", "http://127.0.0.1:8080"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "X-Trace-ID", "Accept"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "X-Trace-ID", "Accept", "X-CSRF-Token"},
 		ExposeHeaders:    []string{"Content-Length", "X-Request-ID", "X-Trace-ID", "Authorization"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
+
+	// CSRF 双提交令牌中间件：状态变更请求且走浏览器会话（access_token Cookie）时，
+	// 校验 X-CSRF-Token 头与 csrf_token Cookie 一致；Bearer 通道（非浏览器）跳过。
+	r.Use(middlewares.NewCSRFProtect(cfg))
 
 	return r
 }
@@ -462,8 +466,10 @@ func RegisterRoutes(r *gin.Engine,
 	auth := v1.Group("/auth")
 	{
 		auth.POST("/login", authController.Login)
-		// 登出：清除 httpOnly access_token Cookie，无需鉴权（幂等）。
+		// 登出：清除 httpOnly access_token 与 csrf_token Cookie，无需鉴权（幂等）。
 		auth.POST("/logout", authController.Logout)
+		// 取 CSRF 双提交令牌：跨域部署下前端 JS 无法读 Cookie 时，带凭据 GET 获取并回传 X-CSRF-Token 头。
+		auth.GET("/csrf", authController.GetCSRFToken)
 		auth.POST("/refresh", middlewares.NewJWTAuth(cfg), authController.Refresh)
 		auth.GET("/profile", middlewares.NewJWTAuth(cfg), authController.GetProfile)
 

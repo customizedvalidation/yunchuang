@@ -6,6 +6,32 @@ import {
   type FetchBaseQueryError,
 } from '@reduxjs/toolkit/query/react';
 
+// CSRF 双提交令牌：同源部署下从 csrf_token Cookie 读取；跨域部署下由 GET /auth/csrf
+// 拉取后存入缓存。后端 NewCSRFProtect 校验「X-CSRF-Token 头 == csrf_token Cookie」一致。
+let csrfTokenCache: string | null = null;
+
+// setCsrfTokenCache 写入跨域场景下拉取到的 CSRF 令牌（同源场景直接读 Cookie，无需缓存）。
+export function setCsrfTokenCache(token: string | null): void {
+  csrfTokenCache = token;
+}
+
+function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? decodeURIComponent(match[2]) : null;
+}
+
+// getCsrfTokenValue 取当前可用的 CSRF 令牌：Cookie 优先，回退到跨域缓存。
+function getCsrfTokenValue(): string | null {
+  return getCookie('csrf_token') || csrfTokenCache;
+}
+
+// csrfHeaders 供裸 fetch（Sidebar/Topbar 退出按钮）注入 CSRF 头。
+export function csrfHeaders(): Record<string, string> {
+  const t = getCsrfTokenValue();
+  return t ? { 'X-CSRF-Token': t } : {};
+}
+
 const baseQuery = fetchBaseQuery({
   baseUrl: '/api/v1',
   timeout: 30000,
@@ -15,6 +41,9 @@ const baseQuery = fetchBaseQuery({
   prepareHeaders: (headers) => {
     headers.set('Content-Type', 'application/json');
     headers.set('Accept', 'application/json');
+    // 双提交令牌：状态变更请求携带 X-CSRF-Token 头，与 csrf_token Cookie 比对。
+    const csrf = getCsrfTokenValue();
+    if (csrf) headers.set('X-CSRF-Token', csrf);
     return headers;
   },
 });
@@ -115,6 +144,15 @@ export const apiSlice = createApi({
         method: 'POST',
         body: credentials,
       }),
+      // 登录成功后拉取 CSRF 令牌（跨域部署下 Cookie 不可读，需经 GET /auth/csrf 取得）。
+      onQueryStarted: async (_, { dispatch, queryFulfilled }) => {
+        try {
+          await queryFulfilled;
+          dispatch(apiSlice.endpoints.getCsrfToken.initiate());
+        } catch {
+          // 登录失败无需处理
+        }
+      },
     }),
     // 登出：清除后端 httpOnly access_token Cookie（幂等）。前端在 401 兜底与退出按钮处调用。
     logout: builder.mutation<ApiEnvelope<void>, void>({
@@ -122,6 +160,10 @@ export const apiSlice = createApi({
         url: '/auth/logout',
         method: 'POST',
       }),
+    }),
+    // 取 CSRF 双提交令牌：跨域部署下前端 JS 无法读 Cookie 时，带凭据 GET 取得后回传 X-CSRF-Token 头。
+    getCsrfToken: builder.query<ApiEnvelope<{ csrf_token: string }>, void>({
+      query: () => '/auth/csrf',
     }),
     register: builder.mutation({
       query: (userData) => ({
@@ -277,6 +319,7 @@ export const {
   useLoginMutation,
   useRegisterMutation,
   useLogoutMutation,
+  useGetCsrfTokenQuery,
   useRefreshTokenMutation,
   useGetClustersQuery,
   useCreateClusterMutation,
