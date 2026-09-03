@@ -169,6 +169,7 @@ cd metaclouds-frontend && npm ci && npm run build   # 产物 dist/，由 nginx �
 | 后端编译 | `go build ./...` | BUILD_OK |
 | 后端全量单测 | `go test ./...` | 全绿（config / middlewares / services 5.59s / tests 9.86s，无回归） |
 | CSRF 单测 | `middlewares/csrf_test.go` | 6 case：浏览器会话有效头→200、缺头→403、头不符→403、Bearer 跳过→200、GET 不校验→200、匿名 POST→200 |
+| CSRF 集成 | `middlewares/csrf_integration_test.go` | 经真实 JWTAuth+CSRFProtect 中间件跑通「登录设双 Cookie → 已登录 GET 200 → 带正确 X-CSRF-Token 的 POST 200 → 缺头/错头 POST 403 → Bearer 跳过 200」 |
 | 配置单测 | `config/config_test.go` | none 需 production 校验、SameSite 映射 |
 | 前端编译 | `tsc && vite build` | 绿（dist 产物正常） |
 | 前端单测 | `npx jest` | 12 passed / 12 total |
