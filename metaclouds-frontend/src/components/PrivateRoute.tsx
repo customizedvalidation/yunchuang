@@ -24,29 +24,22 @@ const PrivateRoute: React.FC<PrivateRouteProps> = ({ roles }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-
-    if (!token) {
+    // 不再读取 JWT（已移入 httpOnly Cookie）。用本地非敏感的 auth_expiry 时间戳判断登录态：
+    // 它存在且未过期即视为已登录；真正的令牌有效性始终由后端在每次请求时校验。
+    const expiresAtStr = localStorage.getItem('auth_expiry');
+    if (!expiresAtStr) {
       setIsAuthenticated(false);
       setLoading(false);
       return;
     }
 
-    const payload = token.split('.')[1];
-    try {
-      const decoded = JSON.parse(atob(payload)) as { exp?: unknown };
-      const exp = typeof decoded.exp === 'number' ? decoded.exp * 1000 : 0;
-      if (!exp || Date.now() > exp) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        setIsAuthenticated(false);
-      } else {
-        setIsAuthenticated(true);
-      }
-    } catch {
-      localStorage.removeItem('token');
+    const expiresAtMs = Number(expiresAtStr);
+    if (!expiresAtMs || Date.now() > expiresAtMs) {
       localStorage.removeItem('user');
+      localStorage.removeItem('auth_expiry');
       setIsAuthenticated(false);
+    } else {
+      setIsAuthenticated(true);
     }
 
     setLoading(false);

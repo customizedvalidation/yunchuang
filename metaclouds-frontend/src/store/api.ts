@@ -6,14 +6,13 @@ import {
   type FetchBaseQueryError,
 } from '@reduxjs/toolkit/query/react';
 
-const baseQuery = fetchBaseQuery({ 
+const baseQuery = fetchBaseQuery({
   baseUrl: '/api/v1',
   timeout: 30000,
+  // 凭据随请求自动携带：登录后后端写入的 httpOnly access_token Cookie 由浏览器托管，
+  // 前端不再用 JS 读取/存储 JWT（XSS 防护）。Bearer 头通道保留给非浏览器客户端。
+  credentials: 'include',
   prepareHeaders: (headers) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
     headers.set('Content-Type', 'application/json');
     headers.set('Accept', 'application/json');
     return headers;
@@ -40,8 +39,10 @@ const baseQueryWithReauth: BaseQueryFn<
   const result = await baseQuery(args, api, extraOptions);
 
   if (result.error && result.error.status === 401 && !isAuthEndpoint(args)) {
-    localStorage.removeItem('token');
+    // 会话失效：清理本地非敏感缓存（user/auth_expiry）并清除后端 httpOnly Cookie。
     localStorage.removeItem('user');
+    localStorage.removeItem('auth_expiry');
+    api.dispatch(apiSlice.endpoints.logout.initiate());
     // 已在登录页时不再跳转，避免并发 401 触发重复导航。
     if (window.location.pathname !== '/login') {
       window.location.href = '/login';
@@ -58,6 +59,25 @@ export interface ApiEnvelope<T> {
   message?: string;
   code?: string;
   timestamp?: number;
+}
+
+/**
+ * POST /auth/login 响应体中 data 的结构（与 services.LoginResponse 同形）。
+ * 注意：token 仅用于向后兼容非浏览器客户端，前端不再读取/存储它，
+ * 认证凭据改由后端写入的 httpOnly Cookie 承载。
+ */
+export interface LoginResponseData {
+  token: string;
+  user: {
+    id: number;
+    username: string;
+    email: string;
+    role: string;
+    tenant_id: number;
+    created_at?: string;
+    updated_at?: string;
+  };
+  expires_at: number;
 }
 
 /**
@@ -89,11 +109,18 @@ export const apiSlice = createApi({
   refetchOnReconnect: true,
   endpoints: (builder) => ({
     // 认证相关
-    login: builder.mutation({
+    login: builder.mutation<ApiEnvelope<LoginResponseData>, { username: string; password: string }>({
       query: (credentials) => ({
         url: '/auth/login',
         method: 'POST',
         body: credentials,
+      }),
+    }),
+    // 登出：清除后端 httpOnly access_token Cookie（幂等）。前端在 401 兜底与退出按钮处调用。
+    logout: builder.mutation<ApiEnvelope<void>, void>({
+      query: () => ({
+        url: '/auth/logout',
+        method: 'POST',
       }),
     }),
     register: builder.mutation({
@@ -249,6 +276,7 @@ export const apiSlice = createApi({
 export const {
   useLoginMutation,
   useRegisterMutation,
+  useLogoutMutation,
   useRefreshTokenMutation,
   useGetClustersQuery,
   useCreateClusterMutation,

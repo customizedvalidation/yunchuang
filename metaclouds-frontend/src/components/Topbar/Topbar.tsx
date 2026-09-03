@@ -61,9 +61,13 @@ const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
   });
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login', { replace: true });
+    fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' })
+      .catch(() => undefined)
+      .finally(() => {
+        localStorage.removeItem('user');
+        localStorage.removeItem('auth_expiry');
+        navigate('/login', { replace: true });
+      });
   };
 
   const userMenu = {

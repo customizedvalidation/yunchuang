@@ -120,3 +120,20 @@ cd metaclouds-frontend && npm ci && npm run build   # 产物 dist/，由 nginx �
 3. **真实 `docker compose up` / K8s 部署未在本机执行**（无 Docker/网络）。本报告已在沙箱内完成可做到的最强验证（生产二进制编译 + 配置校验正/负用例 + 端到端 /health + 前端 dist 静态托管），其余需在目标机按 Runbook 执行。
 4. 根目录散落 `*.webp/*.jpg`（参考截图，未入库）与 `.workbuddy/`（WorkBuddy 内部数据）未纳入版本控制，按现状保留。
 5. **前端 JWT 存于 `localStorage`**（`token` 键，`src/store/api.ts` 以 `Authorization: Bearer` 注入）——localStorage 可被页面内任意 JS 读取，存在 XSS 窃取 token 的理论风险。更优方案是迁移到 **httpOnly + Secure + SameSite Cookie**（JS 读不到），但需后端改 `Set-Cookie` 并加 CSRF 防护，且涉及登录/刷新链路、离线无法验证。**建议列为后续安全加固项，在有网可测环境实施**，不在本次离线复盘中盲目改动认证流程。（现有缓解：后端已有 Security Headers/CSP 中间件，生产模式下发更严格 CSP。）
+
+---
+
+## 六、五点建议落地执行记录（2026-09-03 续）
+
+| # | 建议 | 执行结果 | 验证 |
+|---|---|---|---|
+| 1 | 前端测试 | 采用项目 `package.json` **已声明且已安装**的 **Jest + RTL**（离线可跑），而非 Vitest（离线装不了）。新增 `src/utils/auth.test.ts`（RBAC 鉴权矩阵纯逻辑单测，12 case）+ `src/setupTests.ts`（node 环境补全 `localStorage`）。组件级 RTL 冒烟测试需 `jsdom`（离线缺失），暂缓。 | `npx jest` → **12 passed / 12 total** |
+| 2 | grafana 弱口令 | `docker/docker-compose.yml` 的 `GF_SECURITY_ADMIN_PASSWORD=admin` → `${GRAFANA_ADMIN_PASSWORD:-admin}`（保留默认，避免破坏 `tests/docker_multi_instance_test.go` 联调栈）。生产部署须显式设强口令。 | YAML 变更落地，`git status` 干净 |
+| 3 | 真实部署 | 沙箱无 Docker/网络，无法执行 `docker compose up`/K8s。本报告第三节已完成离线可达成的最强验证；部署须在目标机按第四节 Runbook 执行。 | 文档记录（环境限制，非代码问题） |
+| 4 | 仓库卫生 | 根 `.gitignore` 增补 `.workbuddy/` 与根级 `/*.webp`、`/*.jpg`、`/*.jpeg`、`/*.png`。原 untracked 的 4 张根图与 `.workbuddy/` 已不再出现在 `git status`。 | `git check-ignore` 命中 |
+| 5 | JWT `localStorage` → httpOnly Cookie | 后端：中间件兼容读 `access_token` Cookie（Bearer 头优先，向后兼容非浏览器客户端）；`auth_controller` Login/Refresh 写 httpOnly+Secure(仅生产)+SameSite=Lax Cookie，新增 `POST /auth/logout` 清 Cookie。前端：移除 localStorage 读写 JWT，`api.ts` 改 `credentials:'include'`，401 兜底调 logout 清 Cookie；Login/App/Sidebar/Topbar/PrivateRoute 改用非敏感的 `user`+`auth_expiry`(ms)，续期判据改用 `auth_expiry`。 | 后端 `go build ./...`+`go test ./...` 全绿（新增 `jwt_auth_cookie_test.go` 覆盖 Cookie 读取/缺失/无效三路径）；前端 `tsc` 0 错 + `vite build` 绿 + 无 JWT 的 localStorage 读写残留 |
+
+### 点 5 安全补充（Cookie 迁移）
+- **SameSite=Lax**：默认抵御绝大多数 CSRF（跨站 POST 不携带 Cookie），且同源/同注册域子域部署下 Cookie 正常随请求携带。若前端与后端跨**完全不同域**部署（非同注册域），需将 Cookie 改为 `SameSite=None` 并配套 CSRF 双提交令牌；本实现刻意不默认开启 `None`，以免误配引入风险。
+- **Secure 仅生产**：dev 为 http，浏览器不保存 Secure Cookie，故本地开发仍可登录；生产环境必须 https，Cookie 才被标记为 Secure。
+- **离线验证边界**：沙箱无浏览器/目标服务，无法实跑登录链路。上述为「编译级 + 单测级」验证；**端到端登录态（含 httpOnly Cookie 写入、跨请求携带、logout 清除）需在可测环境用浏览器验证一次**，并确认生产 https 下 Secure Cookie 正常。

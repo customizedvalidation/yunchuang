@@ -1,10 +1,12 @@
 package controllers
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"metaclouds-backend/config"
 	"metaclouds-backend/pkg/errors"
 	"metaclouds-backend/pkg/logger"
 	"metaclouds-backend/pkg/response"
@@ -46,6 +48,9 @@ func (c *AuthController) Login(ctx *gin.Context) {
 	}
 
 	logger.InfoWithCtx(ctx, "Login successful", "user", req.Username, "duration", duration)
+	// 将 JWT 写入 httpOnly Cookie：前端 SPA 不再把令牌存于 JS 可读的 localStorage，
+	// 从根源上消除 XSS 窃取令牌的攻击面。Bearer 头仍可被非浏览器客户端使用。
+	c.setAuthCookie(ctx, resp.Token)
 	response.Success(ctx, resp)
 }
 
@@ -116,4 +121,52 @@ func (c *AuthController) GetProfile(ctx *gin.Context) {
 	}
 
 	response.Success(ctx, resp)
+}
+
+// authCookieName 是存放 JWT 的 httpOnly Cookie 名。
+const authCookieName = "access_token"
+
+// setAuthCookie 将 JWT 写入 httpOnly Cookie，使前端 SPA 不再把令牌存于 JS 可读的
+// localStorage（XSS 防护）。
+//
+//   - Secure：仅在生产环境开启。dev 走 http，浏览器不会保存 Secure Cookie，开启会导致
+//     本地开发登录后拿不到令牌；生产环境必须 https，故开启。
+//   - SameSite=Lax：默认即可抵御绝大多数 CSRF（跨站 POST 不携带 Cookie），且同源及同
+//     注册域子域（如 app 与 api 同域）部署下 Cookie 正常随请求携带。若需跨完全不同域部署，
+//     应改 SameSite=None 并配套 CSRF 双提交令牌，此处不默认开启。
+//   - Domain 留空：Cookie 仅作用于当前 host，不向其他子域泄漏。
+func (c *AuthController) setAuthCookie(ctx *gin.Context, token string) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		logger.ErrorWithCtx(ctx, "failed to load config for auth cookie", err)
+		return
+	}
+	maxAge := cfg.JWTExpirationHours * 3600
+	if maxAge <= 0 {
+		maxAge = 86400
+	}
+	ctx.SetSameSite(http.SameSiteLaxMode)
+	ctx.SetCookie(
+		authCookieName,
+		token,
+		maxAge,
+		"/",
+		"",
+		cfg.Environment == "production",
+		true,
+	)
+}
+
+// clearAuthCookie 使 access_token Cookie 立即失效（用于登出）。
+func (c *AuthController) clearAuthCookie(ctx *gin.Context) {
+	ctx.SetSameSite(http.SameSiteLaxMode)
+	ctx.SetCookie(authCookieName, "", -1, "/", "", false, true)
+}
+
+// Logout 清除客户端的 access_token Cookie 并完成登出。
+//
+// 不要求已登录：清除一个不存在的 Cookie 是幂等的，前端在任意状态下调用都安全。
+func (c *AuthController) Logout(ctx *gin.Context) {
+	c.clearAuthCookie(ctx)
+	response.Success(ctx, gin.H{"message": "logged out"})
 }

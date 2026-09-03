@@ -72,3 +72,12 @@ metaclouds-backend/frontend/
 *.so
 *.dylib
 *.bin
+
+# ===== WorkBuddy internal data (not source) =====
+.workbuddy/
+
+# ===== Root-level generated images (not source) =====
+/*.webp
+/*.jpg
+/*.jpeg
+/*.png

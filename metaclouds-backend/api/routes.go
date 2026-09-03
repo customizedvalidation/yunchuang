@@ -462,6 +462,8 @@ func RegisterRoutes(r *gin.Engine,
 	auth := v1.Group("/auth")
 	{
 		auth.POST("/login", authController.Login)
+		// 登出：清除 httpOnly access_token Cookie，无需鉴权（幂等）。
+		auth.POST("/logout", authController.Logout)
 		auth.POST("/refresh", middlewares.NewJWTAuth(cfg), authController.Refresh)
 		auth.GET("/profile", middlewares.NewJWTAuth(cfg), authController.GetProfile)
 

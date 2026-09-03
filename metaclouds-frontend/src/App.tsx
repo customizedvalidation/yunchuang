@@ -55,51 +55,24 @@ const TOKEN_REFRESH_THRESHOLD_MS = 60 * 60 * 1000;
 const TOKEN_REFRESH_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
- * 读取 JWT 的 exp（秒）并换算为毫秒时间戳；无法解析时返回 null。
- *
- * JWT payload 只是 base64url 编码的明文，客户端可直接解，无需引入 jwt 依赖，
- * 也无需验签 —— 这里只用于判断"是否临近过期"，真正的校验始终在后端完成。
- */
-function readTokenExpiryMs(token: string): number | null {
-  try {
-    const payload = token.split('.')[1];
-    if (!payload) {
-      return null;
-    }
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const decoded = JSON.parse(atob(base64)) as { exp?: unknown };
-    return typeof decoded.exp === 'number' ? decoded.exp * 1000 : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 静默续期：令牌临近过期时调用 POST /auth/refresh 换取新令牌并落盘，
+ * 静默续期：令牌临近过期时调用 POST /auth/refresh 换取新令牌并刷新本地非敏感缓存，
  * 关闭"24h 到期整页登出"的缺口。
  *
- * 该端点与业务端点一样要求令牌未过期，所以这是"有效期内换新"而非"过期后自救"；
+ * 该端点与业务端点一样要求 Cookie 中的令牌未过期，所以这是"有效期内换新"而非"过期后自救"；
  * 一旦真的过期，refresh 会失败，此时安静忽略，交由统一的业务端点 401 逻辑跳登录。
+ * 续期判据来自本地存储的 auth_expiry（后端 expires_at 换算的毫秒时间戳，非敏感），
+ * 不再读取 JWT 本身。
  */
 function useSilentTokenRefresh(): void {
   const [refreshToken] = useRefreshTokenMutation();
 
   useEffect(() => {
     const refreshIfNeeded = async (): Promise<void> => {
-      let token: string | null = null;
-      try {
-        token = localStorage.getItem('token');
-      } catch {
+      const expiresAtStr = localStorage.getItem('auth_expiry');
+      if (!expiresAtStr) {
         return;
       }
-      if (!token) {
-        return;
-      }
-
-      const expiresAtMs = readTokenExpiryMs(token);
-      if (expiresAtMs === null) {
-        return;
-      }
+      const expiresAtMs = Number(expiresAtStr);
       const remainingMs = expiresAtMs - Date.now();
       // 已过期：refresh 端点同样要求令牌有效，此时调用必然 401，直接放弃。
       if (remainingMs <= 0) {
@@ -111,12 +84,7 @@ function useSilentTokenRefresh(): void {
 
       try {
         const result = await refreshToken().unwrap();
-        const { token: newToken, user } = result.data;
-        if (!newToken) {
-          return;
-        }
-        // 与 Login 页保持同一份 user 落盘结构，避免两处写入形状不一致。
-        localStorage.setItem('token', newToken);
+        const { user, expires_at } = result.data;
         localStorage.setItem(
           'user',
           JSON.stringify({
@@ -125,6 +93,7 @@ function useSilentTokenRefresh(): void {
             role: user?.role ?? '',
           }),
         );
+        localStorage.setItem('auth_expiry', String((expires_at ?? 0) * 1000));
       } catch {
         // 续期失败（含令牌已过期）静默忽略，不做整页跳转。
       }

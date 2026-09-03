@@ -40,31 +40,38 @@ func jwtAuthHandler(cfg *JWTAuthConfig) gin.HandlerFunc {
 			"method", method)
 
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			logger.WarnWithCtx(c, "JWT authentication failed - missing Authorization header",
-				"client_ip", clientIP,
-				"path", path,
-				"method", method,
-				"error", "Authorization header is required")
-			response.Error(c, errors.Unauthorized("Authorization header is required"))
-			c.Abort()
-			return
-		}
+		var tokenString string
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if !(len(parts) == 2 && parts[0] == "Bearer") {
-			logger.WarnWithCtx(c, "JWT authentication failed - invalid header format",
-				"client_ip", clientIP,
-				"path", path,
-				"method", method,
-				"error", "Authorization header format must be Bearer {token}",
-				"header", maskToken(authHeader))
-			response.Error(c, errors.BadRequest("Authorization header format must be Bearer {token}"))
-			c.Abort()
-			return
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if !(len(parts) == 2 && parts[0] == "Bearer") {
+				logger.WarnWithCtx(c, "JWT authentication failed - invalid header format",
+					"client_ip", clientIP,
+					"path", path,
+					"method", method,
+					"error", "Authorization header format must be Bearer {token}",
+					"header", maskToken(authHeader))
+				response.Error(c, errors.BadRequest("Authorization header format must be Bearer {token}"))
+				c.Abort()
+				return
+			}
+			tokenString = parts[1]
+		} else {
+			// 兼容 httpOnly Cookie：SPA 登录后由浏览器自动携带，避免 JWT 落入 JS 可读的
+			// localStorage 而被 XSS 窃取。Bearer 头仍保留作为非浏览器客户端（curl/SDK）的通道。
+			cookie, err := c.Cookie("access_token")
+			if err != nil || cookie == "" {
+				logger.WarnWithCtx(c, "JWT authentication failed - missing Authorization header and access_token cookie",
+					"client_ip", clientIP,
+					"path", path,
+					"method", method,
+					"error", "Authorization header or access_token cookie is required")
+				response.Error(c, errors.Unauthorized("Authorization header or access_token cookie is required"))
+				c.Abort()
+				return
+			}
+			tokenString = cookie
 		}
-
-		tokenString := parts[1]
 		tokenLength := len(tokenString)
 
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {

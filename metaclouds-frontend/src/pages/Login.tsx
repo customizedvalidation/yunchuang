@@ -54,26 +54,19 @@ const Login: React.FC = () => {
 
     try {
       const result = await login(values).unwrap();
-      localStorage.setItem('token', result.data.token);
-      // 登录响应只回传 token，用户信息需由 token 解析后落盘，
-      // 否则顶栏只能回退到硬编码的 'admin'，刷新后也无法还原真实身份。
-      try {
-        const b64 = result.data.token
-          .split('.')[1]
-          .replace(/-/g, '+')
-          .replace(/_/g, '/');
-        const payload = JSON.parse(atob(b64));
-        localStorage.setItem(
-          'user',
-          JSON.stringify({
-            username: payload.username || payload.email || '',
-            email: payload.email || '',
-            role: payload.role || '',
-          }),
-        );
-      } catch {
-        // token 解析失败不应影响登录主流程
-      }
+      // 后端已将 JWT 写入 httpOnly Cookie（浏览器托管，JS 不可读）；
+      // 这里只落盘非敏感的 user 信息与有效期时间戳，供菜单过滤/角色守卫/续期判断使用。
+      const { user, expires_at } = result.data;
+      localStorage.setItem(
+        'user',
+        JSON.stringify({
+          username: user?.username ?? '',
+          email: user?.email ?? '',
+          role: user?.role ?? '',
+        }),
+      );
+      // 后端 expires_at 为 Unix 秒，前端统一存毫秒时间戳。
+      localStorage.setItem('auth_expiry', String((expires_at ?? 0) * 1000));
       message.success('登录成功');
       setLoginAttempts(0);
       navigate('/dashboard');

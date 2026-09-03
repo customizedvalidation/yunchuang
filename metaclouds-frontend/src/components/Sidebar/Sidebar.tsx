@@ -132,9 +132,14 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse, mobileOpen }) 
   }, [navigate]);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/login');
+    // 清除后端 httpOnly access_token Cookie（幂等），再清理本地非敏感缓存。
+    fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' })
+      .catch(() => undefined)
+      .finally(() => {
+        localStorage.removeItem('user');
+        localStorage.removeItem('auth_expiry');
+        navigate('/login');
+      });
   }, [navigate]);
 
   // 当前角色只读取一次：登录/退出都会整页重挂载，无需做成响应式状态
