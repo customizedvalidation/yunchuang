@@ -25,9 +25,15 @@ export default defineConfig({
           if (!id.includes('node_modules')) return undefined
           // 统一为 POSIX 分隔符，规避 Windows 反斜杠导致的匹配失效
           const p = id.replace(/\\/g, '/')
-          // 图表库：echarts 及其渲染层 zrender
           if (id.includes('echarts') || id.includes('zrender')) return 'echarts'
-          // antd 及其子包（rc-*、@ant-design、@rc-component），含 cssinjs 的 @emotion
+          // antd 不建独立 manual chunk：
+          //   App.tsx 静态 import { ConfigProvider, Spin, App } from 'antd' 会命中 barrel，
+          //   一旦把 antd / rc-* / @ant-design / @emotion 强制合并成 'antd' 块，
+          //   barrel 的静态 re-export 会把首屏未用到的 Table / DatePicker / Tree / Upload /
+          //   Cascader 等 rc-* 全部绑进首屏关键路径（实测 ~1200 kB）。
+          //   返回 undefined 让 Rollup 按可达性按路由自动切分：
+          //   入口实际用到的 ConfigProvider/Spin/App 进首屏 chunk，其余 rc-* 跟所属路由走。
+          //   代价是 antd 代码的缓存粒度变粗（不能跨路由复用整块），但首屏体积正确。
           if (
             id.includes('antd') ||
             id.includes('@ant-design') ||
@@ -35,7 +41,7 @@ export default defineConfig({
             id.includes('@rc-component') ||
             id.includes('@emotion')
           ) {
-            return 'antd'
+            return undefined
           }
           // React 核心三件套（react / react-dom / scheduler）自包含、无第三方依赖，
           // 单独成块可打破 vendor <-> react-vendor 的循环依赖（路由/状态库留在 vendor）。
