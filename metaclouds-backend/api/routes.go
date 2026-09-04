@@ -404,8 +404,25 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 	r := gin.New()
 	middlewares.ApplyCoreStack(r, cfg)
 
+	// CORS 源白名单走 cfg.AllowedOrigins（从 ALLOWED_ORIGINS env 解析），
+	// 不再用 routes.go 内的硬编码列表——硬编码会让 config.Validate() 的
+	// 「生产必须非空、不能含 *」校验形同虚设（任何跑在 localhost:3000 的应用
+	// 都能带凭据调用 API，而运维配的 ALLOWED_ORIGINS 实际从未生效）。
+	//
+	// 开发环境若未显式设 ALLOWED_ORIGINS，回退到 localhost 默认列表保留 dev 体验。
+	// 生产环境由 Validate() 保证非空，到这里一定有值（且不含 *）。
+	allowedOrigins := cfg.AllowedOrigins
+	if len(allowedOrigins) == 0 && cfg.Environment != "production" {
+		allowedOrigins = []string{
+			"http://localhost:3000",
+			"http://localhost:8080",
+			"http://localhost:8000",
+			"http://127.0.0.1:3000",
+			"http://127.0.0.1:8080",
+		}
+	}
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:8080", "http://localhost:8000", "http://127.0.0.1:3000", "http://127.0.0.1:8080"},
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "X-Trace-ID", "Accept", "X-CSRF-Token"},
 		ExposeHeaders:    []string{"Content-Length", "X-Request-ID", "X-Trace-ID", "Authorization"},
