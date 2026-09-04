@@ -1,6 +1,16 @@
 # ==============================================================================
 # Metaclouds Docker Compose Configuration
 # ==============================================================================
+# ⚠️ DEPRECATED：本文件已不再维护。开发/联调请改用仓库根的 `docker-compose.yml`
+#   （即 D:/YCYD/docker-compose.yml），它与 config.Validate 的 fail-secure 契约一致，
+#   已修过 grafana 弱口令、CSRF 生产挂载、Cookie SameSite 等。
+#
+#   本文件保留是因为 CI 历史快照里仍引用它。再次提交 PR 修复本文件前请先与团队对齐：
+#   是否干脆删除。
+#
+#   生产多副本（3 × app + nginx LB）请用 metaclouds-backend/docker/docker-compose.yml
+#   （即"3-replica 栈"），那一份是当前唯一带横向扩展的部署形态。
+# ==============================================================================
 # 使用说明：
 # 1. 确保已安装 Docker 和 Docker Compose
 # 2. 复制 .env.production.example 为 .env
@@ -69,7 +79,10 @@ services:
       SERVER_PORT: ${SERVER_PORT:-8000}
       SERVER_HOST: "0.0.0.0"
       SERVER_ENV: ${SERVER_ENV:-development}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8080}
+      # CORS：未显式提供 ALLOWED_ORIGINS 时必须失败而不是默认 localhost。
+      # 默认 `http://localhost:3000,http://localhost:8080` 在生产会让外网被拒但内网任何
+      # 端口都被信任——典型配置漂移漏洞。强制显式提供。
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS is required, see .env.production.example}
       
       # JWT 配置
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required (64+ random bytes), see .env.production.example}
@@ -83,7 +96,7 @@ services:
       DATABASE_NAME: ${DATABASE_NAME:-metaclouds}
       DATABASE_USER: ${DATABASE_USER:-metaclouds_user}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required, see .env.production.example}
-      DATABASE_SSL_MODE: ${DATABASE_SSL_MODE:-disable}
+      DATABASE_SSL_MODE: ${DATABASE_SSL_MODE:?DATABASE_SSL_MODE is required (use require/verify-full in production, disable only for local dev), see .env.production.example}
       
       # Redis 配置
       REDIS_ENABLED: ${REDIS_ENABLED:-true}
@@ -157,7 +170,9 @@ services:
       - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards
       - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required, see .env.production.example}
+      # 命名对齐根 docker-compose.yml：那里是 GRAFANA_ADMIN_PASSWORD，这里之前误写
+      # 成 GRAFANA_PASSWORD，会导致直接复用根 .env 时本栈起不来（变量名不匹配）。
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required, see .env.production.example}
     depends_on:
       - prometheus
     restart: unless-stopped

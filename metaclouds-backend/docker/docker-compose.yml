@@ -1,3 +1,17 @@
+# ==============================================================================
+# Metaclouds 多副本生产栈（3 × app + nginx LB）
+# ==============================================================================
+# 本文件是横向扩展形态，与仓库根的 docker-compose.yml（一体化开发栈）互补：
+#   - 根 docker-compose.yml = 一体化开发/联调（postgres + redis + prometheus + grafana
+#     + etcd + jaeger + 1 个 backend + 1 个 frontend）
+#   - 本文件              = 3 副本 backend + redis + nginx LB + prometheus + grafana
+#     （无 postgres/etcd/jaeger/frontend，假设这些由 K8s 或外部托管）
+#
+# 历史：本文件曾用 `${GRAFANA_ADMIN_PASSWORD:-admin}` 之类的静默回退默认值，导致
+# 部署时若忘设变量就以弱口令运行。该反模式与 grafana 弱口令同源，已修。
+# 继续修改前请保持「未显式提供即失败」约定。
+# ==============================================================================
+
 version: '3.8'
 
 services:
