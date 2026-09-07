@@ -1,5 +1,5 @@
 import { Can } from '../components/Can';
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Card, Button, Space, App, Modal, Progress, Tag, List, Typography, Tabs, Segmented, Statistic } from 'antd';
 import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
@@ -47,13 +47,15 @@ const K8SManagement: React.FC = () => {
     ? tenantsData
     : [{ id: 0, name: 'default', description: '默认命名空间', status: 'active', gpu_quota: 0, cpu_quota: 0, memory_quota: 0, storage_quota: 0 }];
   const [selectedNs, setSelectedNs] = useState<string>(namespaces[0]?.name || 'default');
-  const podsData = jobsData.filter((j) => j.status === 'running');
+  // podsData 用 useMemo 缓存，避免每次渲染重复 filter
+  const podsData = useMemo(() => jobsData.filter((j) => j.status === 'running'), [jobsData]);
 
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isGpuRefreshing, setIsGpuRefreshing] = useState(false);
 
-  const handleRefreshGPU = async () => {
+  // useCallback：稳定回调引用
+  const handleRefreshGPU = useCallback(async () => {
     setIsGpuRefreshing(true);
     message.loading('正在刷新GPU资源...', 0);
     try {
@@ -65,9 +67,9 @@ const K8SManagement: React.FC = () => {
       setIsGpuRefreshing(false);
       message.destroy();
     }
-  };
+  }, [message, refetchGPU]);
 
-  const handleSubmitToK8S = async (job: Job) => {
+  const handleSubmitToK8S = useCallback(async (job: Job) => {
     try {
       await submitJobToK8S(job.id).unwrap();
       message.success('作业已提交到K8S');
@@ -75,9 +77,9 @@ const K8SManagement: React.FC = () => {
     } catch {
       message.error('提交作业到K8S失败');
     }
-  };
+  }, [submitJobToK8S, message, refetchJobs]);
 
-  const handleCancelK8SJob = async (job: Job) => {
+  const handleCancelK8SJob = useCallback(async (job: Job) => {
     try {
       await cancelK8SJob(job.id).unwrap();
       message.success('作业已取消');
@@ -85,14 +87,15 @@ const K8SManagement: React.FC = () => {
     } catch {
       message.error('取消作业失败');
     }
-  };
+  }, [cancelK8SJob, message, refetchJobs]);
 
-  const handleViewStatus = (job: Job) => {
+  const handleViewStatus = useCallback((job: Job) => {
     setSelectedJob(job);
     setIsModalVisible(true);
-  };
+  }, []);
 
-  const jobColumns: ColumnsType<Job> = [
+  // 作业列配置用 useMemo 缓存
+  const jobColumns: ColumnsType<Job> = useMemo(() => [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
@@ -111,9 +114,10 @@ const K8SManagement: React.FC = () => {
         </Space>
       ),
     },
-  ];
+  ], [handleSubmitToK8S, handleViewStatus, handleCancelK8SJob]);
 
-  const gpuColumns: ColumnsType<GPUResource> = [
+  // GPU 列配置用 useMemo 缓存
+  const gpuColumns: ColumnsType<GPUResource> = useMemo(() => [
     { title: '名称', dataIndex: 'gpuName', key: 'gpuName' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
     { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: (status: string) => <StatusCell status={status} /> },
@@ -122,9 +126,9 @@ const K8SManagement: React.FC = () => {
     { title: '可用', dataIndex: 'available', key: 'available', width: 90, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
     { title: '利用率', dataIndex: 'utilization', key: 'utilization', width: 140, render: (util: number) => <Progress percent={util} size="small" /> },
     { title: '详情', dataIndex: 'details', key: 'details' },
-  ];
+  ], []);
 
-  const renderGpuCard = () => {
+  const renderGpuCard = useCallback(() => {
     const state = renderState({
       isLoading: gpuLoading,
       error: gpuError,
@@ -151,9 +155,9 @@ const K8SManagement: React.FC = () => {
         )}
       </Card>
     );
-  };
+  }, [gpuLoading, gpuError, gpuResourcesData, refetchGPU, handleRefreshGPU, isGpuRefreshing, gpuColumns]);
 
-  const renderJobsCard = (dataSource: Job[], loading: boolean, err: unknown) => {
+  const renderJobsCard = useCallback((dataSource: Job[], loading: boolean, err: unknown) => {
     const state = renderState({
       isLoading: loading,
       error: err,
@@ -179,10 +183,11 @@ const K8SManagement: React.FC = () => {
         )}
       </Card>
     );
-  };
+  }, [refetchJobs, jobColumns]);
 
-  const renderServicesCard = () => {
+  const renderServicesCard = useCallback(() => {
     const ns = namespaces.find((n) => n.name === selectedNs) || namespaces[0];
+    // 配额计算用 useMemo 无法在回调内使用，直接计算但数据量小（命名空间数有限）
     const runningJobs = jobsData.filter((j) => j.status === 'running');
     const usedGpu = runningJobs.reduce((s, j) => s + (Number(j.gpus) || 0), 0);
     const usedCpu = runningJobs.reduce((s, j) => s + (Number(j.cpus) || 0), 0);
@@ -193,6 +198,7 @@ const K8SManagement: React.FC = () => {
       { label: '内存配额(GB)', value: ns.memory_quota, used: usedMem, total: ns.memory_quota },
       { label: '存储配额(TB)', value: ns.storage_quota },
     ];
+    // 服务列配置依赖当前命名空间，在回调内创建
     const serviceColumns: ColumnsType<Resource> = [
       { title: '命名空间', dataIndex: 'namespace', key: 'namespace', width: 120, render: () => <Tag color="blue">{ns.name}</Tag> },
       { title: '服务名', dataIndex: 'gpuName', key: 'gpuName' },
@@ -256,9 +262,9 @@ const K8SManagement: React.FC = () => {
         </div>
       </Card>
     );
-  };
+  }, [namespaces, selectedNs, jobsData, resourcesLoading, resourcesError, resourcesData, refetchJobs]);
 
-  const renderTab = (key: string) => {
+  const renderTab = useCallback((key: string) => {
     if (key === '/k8s') {
       return (
         <div className="mc-stack">
@@ -271,7 +277,7 @@ const K8SManagement: React.FC = () => {
     if (key === '/k8s/pods') return renderJobsCard(podsData, jobsLoading, jobsError);
     if (key === '/k8s/services') return renderServicesCard();
     return null;
-  };
+  }, [renderGpuCard, renderJobsCard, renderServicesCard, jobsData, jobsLoading, jobsError, podsData]);
 
   return (
     <div className="mc-page">

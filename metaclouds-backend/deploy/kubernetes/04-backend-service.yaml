@@ -1,0 +1,31 @@
+# ==============================================================================
+# Metaclouds 后端 Service
+# ==============================================================================
+# ClusterIP 类型，仅在集群内部可访问。外部流量经 Ingress 进入。
+# 端口 8080 → 容器 8080（与 ConfigMap 中 SERVER_PORT 一致）。
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: metaclouds-backend
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/name: metaclouds-backend
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/component: backend
+  annotations:
+    metaclouds.io/description: "后端 API 服务，ClusterIP 仅集群内访问"
+spec:
+  type: ClusterIP
+  # 无状态 API，不需要 session affinity（负载均衡到任意副本即可）
+  sessionAffinity: None
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: metaclouds
+    component: backend

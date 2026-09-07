@@ -10,10 +10,10 @@ import (
 )
 
 type AccelerationController struct {
-	accelerationService *services.AccelerationService
+	accelerationService AccelerationServiceInterface
 }
 
-func NewAccelerationController(accelerationService *services.AccelerationService) *AccelerationController {
+func NewAccelerationController(accelerationService AccelerationServiceInterface) *AccelerationController {
 	return &AccelerationController{
 		accelerationService: accelerationService,
 	}

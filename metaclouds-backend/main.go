@@ -213,6 +213,8 @@ func run() error {
 		// 注意：此处刻意不输出默认管理员口令。凭据属于敏感信息，
 		// 一旦写入日志就会被日志采集系统长期留存并扩大知悉范围。
 		logger.InfoWithCtx(context.Background(), "========================================")
+		// 业务指标：标记后端服务存活
+		services.SetBackendUp(true)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverErr <- err
 		}
@@ -226,6 +228,8 @@ func run() error {
 		return fmt.Errorf("failed to start server: %w", err)
 	case <-quit:
 		logger.InfoWithCtx(context.Background(), "Shutting down server...")
+		// 业务指标：标记后端服务下线
+		services.SetBackendUp(false)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

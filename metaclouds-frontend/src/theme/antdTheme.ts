@@ -1,6 +1,6 @@
 import { theme, type ThemeConfig } from 'antd';
 import { type DensityMode } from './DensityContext';
-import { brand, semantic, neutralLight, neutralDark, radius, shadow, spacing, type ThemeMode } from './tokens';
+import { brand, semanticFgLight, semanticFgDark, neutralLight, neutralDark, radius, shadow, spacing, type ThemeMode } from './tokens';
 
 /**
  * 生成 antd 5.x 主题配置。
@@ -14,13 +14,22 @@ export const getThemeConfig = (mode: ThemeMode, density: DensityMode = 'comforta
   const modeAlgo = isDark ? theme.darkAlgorithm : theme.defaultAlgorithm;
   const densityAlgo = density === 'compact' ? theme.compactAlgorithm : null;
 
+  /**
+   * 语义色必须成对使用：
+   * - semantic.*（原色）只用于图表线条、图标填充、进度条、状态点
+   * - semanticFg*（-fg 可读版）用于一切「承载文字」的场景
+   * antd 的 colorSuccess/Error/Warning 同时驱动文字与填充，若填原色，
+   * 浅色面下 Tag/Alert 文字仅 ~2.3:1（不达 AA），故此处填 -fg 版。
+   */
+  const fg = isDark ? semanticFgDark : semanticFgLight;
+
   return {
     algorithm: densityAlgo ? [modeAlgo, densityAlgo] : modeAlgo,
     token: {
       colorPrimary: isDark ? brand[400] : brand[500],
-      colorSuccess: semantic.success,
-      colorWarning: semantic.warning,
-      colorError: semantic.danger,
+      colorSuccess: fg.success,
+      colorWarning: fg.warning,
+      colorError: fg.danger,
       colorInfo: isDark ? brand[400] : brand[500],
 
       colorTextBase: n.text1,

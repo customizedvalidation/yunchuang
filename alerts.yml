@@ -1,57 +1,229 @@
+# ============================================================================
+# Metaclouds 平台告警规则
+# 严重级别：critical（需立即响应）、warning（需关注）、info（通知类）
+# ============================================================================
 groups:
-  - name: MetacloudsAlerts
+  # --------------------------------------------------------------------------
+  # 基础设施告警
+  # --------------------------------------------------------------------------
+  - name: infrastructure
     interval: 30s
     rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "实例 {{ $labels.instance }} 宕机"
+          description: "实例 {{ $labels.instance }}（job: {{ $labels.job }}）已持续 2 分钟无法采集指标，可能服务已崩溃或网络中断。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/instance-down"
+
       - alert: HighCPUUsage
-        expr: cpu_usage_percent > 80
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
         for: 5m
         labels:
           severity: warning
+          team: platform
         annotations:
-          summary: "High CPU Usage detected"
-          description: "CPU usage is {{ $value }}% for more than 5 minutes"
+          summary: "实例 {{ $labels.instance }} CPU 使用率过高"
+          description: "实例 {{ $labels.instance }} CPU 使用率已超过 80%（当前 {{ $value | printf \"%.2f\" }}%），持续 5 分钟。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/high-cpu"
 
       - alert: HighMemoryUsage
-        expr: memory_usage_percent > 85
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
         for: 5m
         labels:
           severity: warning
+          team: platform
         annotations:
-          summary: "High Memory Usage detected"
-          description: "Memory usage is {{ $value }}% for more than 5 minutes"
+          summary: "实例 {{ $labels.instance }} 内存使用率过高"
+          description: "实例 {{ $labels.instance }} 内存使用率已超过 85%（当前 {{ $value | printf \"%.2f\" }}%），持续 5 分钟，存在 OOM 风险。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/high-memory"
 
-      - alert: HighGPUUsage
-        expr: gpu_usage_percent > 90
-        for: 3m
-        labels:
-          severity: critical
-        annotations:
-          summary: "High GPU Usage detected"
-          description: "GPU usage is {{ $value }}% for more than 3 minutes"
-
-      - alert: JobFailed
-        expr: job_failed_count > 0
-        for: 1m
-        labels:
-          severity: error
-        annotations:
-          summary: "Job Failed detected"
-          description: "Number of failed jobs: {{ $value }}"
-
-      - alert: LowGPUMemory
-        expr: gpu_memory_available_bytes < 10737418240
+      - alert: HighDiskUsage
+        expr: (1 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100 > 85
         for: 5m
         labels:
           severity: warning
+          team: platform
         annotations:
-          summary: "Low GPU Memory detected"
-          description: "GPU memory available is {{ $value }} bytes (below 10GiB)"
+          summary: "实例 {{ $labels.instance }} 磁盘使用率过高"
+          description: "实例 {{ $labels.instance }} 根分区磁盘使用率已超过 85%（当前 {{ $value | printf \"%.2f\" }}%），持续 5 分钟。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/high-disk"
 
-      - alert: ServiceDown
-        expr: up == 0
+  # --------------------------------------------------------------------------
+  # 应用告警
+  # --------------------------------------------------------------------------
+  - name: application
+    interval: 30s
+    rules:
+      - alert: MetacloudsBackendDown
+        expr: metaclouds_backend_up == 0
         for: 1m
         labels:
           severity: critical
+          team: platform
         annotations:
-          summary: "Service Down"
-          description: "Service {{ $labels.instance }} has been down for more than 1 minute"
+          summary: "Metaclouds 后端服务不可用"
+          description: "Metaclouds 后端实例（{{ $labels.instance }}）已持续 1 分钟标记为不可用，API 服务可能中断。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/backend-down"
+
+      - alert: HighHTTPErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m])) by (instance)
+          /
+          sum(rate(http_requests_total[5m])) by (instance)
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "实例 {{ $labels.instance }} HTTP 5xx 错误率过高"
+          description: "实例 {{ $labels.instance }} HTTP 5xx 错误率已超过 5%（当前 {{ $value | printf \"%.2f\" }}%），持续 5 分钟，可能存在服务端异常。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/high-http-errors"
+
+      - alert: HighHTTPLatency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, instance)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "实例 {{ $labels.instance }} HTTP P99 延迟过高"
+          description: "实例 {{ $labels.instance }} HTTP 请求 P99 延迟已超过 2 秒（当前 {{ $value | printf \"%.2f\" }}s），持续 5 分钟。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/high-latency"
+
+      - alert: FrequentRestarts
+        expr: increase(kube_pod_container_status_restarts_total[1h]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Pod {{ $labels.pod }} 重启频繁"
+          description: "Pod {{ $labels.pod }}（namespace: {{ $labels.namespace }}）在过去 1 小时内重启超过 5 次（当前 {{ $value }} 次），可能存在稳定性问题。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/frequent-restarts"
+
+      - alert: CrashLoopBackOff
+        expr: |
+          max_over_time(kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}[5m]) == 1
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Pod {{ $labels.pod }} 处于 CrashLoopBackOff 状态"
+          description: "Pod {{ $labels.pod }}（namespace: {{ $labels.namespace }}）已持续 5 分钟处于 CrashLoopBackOff 状态，容器反复崩溃无法正常启动。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/crashloopbackoff"
+
+  # --------------------------------------------------------------------------
+  # 业务告警
+  # --------------------------------------------------------------------------
+  - name: business
+    interval: 30s
+    rules:
+      - alert: HighJobQueueDepth
+        expr: metaclouds_jobs_total{status="pending"} - metaclouds_jobs_total{status="running"} - metaclouds_jobs_total{status="completed"} - metaclouds_jobs_total{status="failed"} - metaclouds_jobs_total{status="cancelled"} > 100
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "作业排队数过高"
+          description: "当前排队中的作业数已超过 100（当前约 {{ $value }} 个），持续 10 分钟，调度资源可能不足。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/high-job-queue"
+
+      - alert: HighJobFailureRate
+        expr: |
+          sum(rate(metaclouds_jobs_total{status="failed"}[15m])) by (tenant_id)
+          /
+          sum(rate(metaclouds_jobs_total[15m])) by (tenant_id)
+          > 0.10
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "租户 {{ $labels.tenant_id }} 作业失败率过高"
+          description: "租户 {{ $labels.tenant_id }} 作业失败率已超过 10%（当前 {{ $value | printf \"%.2f\" }}%），持续 15 分钟。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/high-job-failure"
+
+      - alert: HighGPUAllocation
+        expr: |
+          sum(metaclouds_resources_gpu_allocated) by (cluster_id)
+          /
+          sum(metaclouds_resources_gpu_total) by (cluster_id)
+          > 0.90
+        for: 30m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "集群 {{ $labels.cluster_id }} GPU 分配率过高"
+          description: "集群 {{ $labels.cluster_id }} GPU 分配率已超过 90%（当前 {{ $value | printf \"%.2f\" }}%），持续 30 分钟，剩余算力不足。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/high-gpu-allocation"
+
+      - alert: HighLoginFailureRate
+        expr: |
+          sum(rate(metaclouds_auth_login_total{result="failure"}[5m]))
+          /
+          sum(rate(metaclouds_auth_login_total[5m]))
+          > 0.20
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "登录失败率过高，可能存在暴力破解"
+          description: "全局登录失败率已超过 20%（当前 {{ $value | printf \"%.2f\" }}%），持续 5 分钟，可能存在暴力破解攻击。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/high-login-failure"
+
+  # --------------------------------------------------------------------------
+  # 数据库 / 中间件告警
+  # --------------------------------------------------------------------------
+  - name: middleware
+    interval: 30s
+    rules:
+      - alert: PostgresHighConnections
+        expr: |
+          sum(pg_stat_activity_count) by (instance)
+          /
+          pg_settings_max_connections
+          > 0.80
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PostgreSQL 实例 {{ $labels.instance }} 连接数过高"
+          description: "PostgreSQL 实例 {{ $labels.instance }} 连接数已超过 max_connections 的 80%（当前 {{ $value | printf \"%.2f\" }}%），持续 5 分钟。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/postgres-connections"
+
+      - alert: RedisHighMemoryUsage
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Redis 实例 {{ $labels.instance }} 内存使用率过高"
+          description: "Redis 实例 {{ $labels.instance }} 内存使用率已超过 80%（当前 {{ $value | printf \"%.2f\" }}%），持续 5 分钟，可能触发 key 淘汰。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/redis-memory"
+
+      - alert: EtcdMemberUnavailable
+        expr: etcd_server_has_leader == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "etcd 实例 {{ $labels.instance }} 无 leader"
+          description: "etcd 实例 {{ $labels.instance }} 已持续 1 分钟无 leader，集群可能处于不可用状态。"
+          runbook_url: "https://wiki.metaclouds.com/runbooks/etcd-unavailable"

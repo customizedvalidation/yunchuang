@@ -1,5 +1,5 @@
 import { Can } from '../components/Can';
-import React from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Card } from 'antd';
 import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
@@ -24,10 +24,11 @@ const ClusterManagement: React.FC = () => {
   const clustersData = extractArrayData<Cluster>(clusters);
   const [createCluster] = useCreateClusterMutation();
   const [deleteCluster] = useDeleteClusterMutation();
-  const [isModalVisible, setIsModalVisible] = React.useState(false);
+  const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
 
-  const handleCreate = async (values: ClusterFormValues) => {
+  // useCallback：稳定回调引用，避免子组件（Popconfirm/Button）无谓重渲染
+  const handleCreate = useCallback(async (values: ClusterFormValues) => {
     try {
       await createCluster(values).unwrap();
       message.success('集群创建成功');
@@ -37,9 +38,9 @@ const ClusterManagement: React.FC = () => {
     } catch {
       message.error('集群创建失败，请检查必填项后重试');
     }
-  };
+  }, [createCluster, form, message, refetch]);
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = useCallback(async (id: number) => {
     try {
       await deleteCluster(id).unwrap();
       message.success('集群删除成功');
@@ -47,9 +48,10 @@ const ClusterManagement: React.FC = () => {
     } catch {
       message.error('集群删除失败，请稍后重试');
     }
-  };
+  }, [deleteCluster, message, refetch]);
 
-  const columns: ColumnsType<Cluster> = [
+  // 列配置用 useMemo 缓存
+  const columns: ColumnsType<Cluster> = useMemo(() => [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 90, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '描述', dataIndex: 'description', key: 'description' },
@@ -75,7 +77,7 @@ const ClusterManagement: React.FC = () => {
         </Space>
       ),
     },
-  ];
+  ], [handleDelete]);
 
   const state = renderState({
     isLoading,

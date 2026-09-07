@@ -171,6 +171,9 @@ func (s *JobService) CreateJob(req CreateJobRequest) (*models.Job, error) {
 	s.db.AddJobWithIndex(job)
 	s.db.JobSeq++
 
+	// 业务指标：记录作业创建（初始状态 pending）
+	RecordJobStatus("pending", job.TenantID)
+
 	logger.InfoWithCtx(context.Background(), "Job created",
 		"job_id", job.ID,
 		"job_name", job.Name,
@@ -215,6 +218,8 @@ func (s *JobService) UpdateJob(id uint, req UpdateJobRequest) (*models.Job, erro
 	}
 	if req.Status != "" && req.Status != job.Status {
 		s.db.UpdateJobStatus(id, req.Status)
+		// 业务指标：记录作业状态变更
+		RecordJobStatus(req.Status, job.TenantID)
 	}
 	if req.Priority != nil && *req.Priority >= 0 && *req.Priority <= 3 && *req.Priority != job.Priority {
 		oldPriority := job.Priority

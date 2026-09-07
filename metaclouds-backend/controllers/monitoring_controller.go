@@ -6,14 +6,13 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"metaclouds-backend/pkg/response"
-	"metaclouds-backend/services"
 )
 
 type MonitoringController struct {
-	monitoringService *services.MonitoringService
+	monitoringService MonitoringServiceInterface
 }
 
-func NewMonitoringController(monitoringService *services.MonitoringService) *MonitoringController {
+func NewMonitoringController(monitoringService MonitoringServiceInterface) *MonitoringController {
 	return &MonitoringController{
 		monitoringService: monitoringService,
 	}

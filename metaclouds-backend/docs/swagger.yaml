@@ -2,22 +2,130 @@ openapi: "3.0.0"
 info:
   version: 1.0.0
   title: Metaclouds Backend API
-  description: AI Computing Power Scheduling Platform API Documentation
+  description: |
+    Metaclouds AI 算力调度平台后端 API 文档。
+
+    ## 认证方式
+    - **JWT Bearer**：在 `Authorization` 头中携带 `Bearer <token>`，适用于非浏览器客户端。
+    - **HttpOnly Cookie**：登录后服务端设置 `access_token` Cookie（httpOnly），浏览器自动携带。
+    - **CSRF 防护**：使用 Cookie 认证时，状态变更请求（POST/PUT/DELETE）必须在 `X-CSRF-Token` 头中携带与 `csrf_token` Cookie 一致的令牌。
+
+    ## 统一响应格式
+    所有 API 响应遵循统一包装结构：
+    ```json
+    {
+      "success": true,
+      "data": { ... },
+      "message": "操作成功",
+      "code": "OK",
+      "timestamp": 1757200000
+    }
+    ```
+
+    ## 分页规范
+    列表接口支持 `page`（默认 1）和 `page_size`（默认 10，最大 100）查询参数。
   contact:
     name: Metaclouds Team
     email: support@metaclouds.com
 servers:
   - url: http://localhost:8000/api/v1
     description: Development server
+  - url: https://api.metaclouds.com/api/v1
+    description: Production server
+
+tags:
+  - name: auth
+    description: 认证与用户管理
+  - name: cluster
+    description: 集群管理
+  - name: resource
+    description: 资源管理
+  - name: job
+    description: 作业管理
+  - name: k8s
+    description: Kubernetes 集成
+  - name: monitoring
+    description: 监控与告警
+  - name: tenant
+    description: 租户管理
+  - name: acceleration
+    description: 加速套件管理
+  - name: security
+    description: 安全策略管理
+  - name: health
+    description: 健康检查与指标
 
 components:
   securitySchemes:
-    BearerAuth:
+    bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: JWT Bearer 认证，适用于非浏览器客户端
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: access_token
+      description: HttpOnly Cookie 认证，浏览器登录后自动携带
 
   schemas:
+    # ===== 通用响应 =====
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 请求是否成功
+        data:
+          description: 响应数据（具体类型由接口决定）
+        message:
+          type: string
+          description: 提示信息
+        code:
+          type: string
+          description: 业务状态码
+        timestamp:
+          type: integer
+          format: int64
+          description: 响应时间戳（Unix 秒）
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          description: 错误信息
+        code:
+          type: string
+          description: 错误码
+        timestamp:
+          type: integer
+          format: int64
+
+    PaginatedData:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {}
+          description: 数据列表
+        total:
+          type: integer
+          description: 总记录数
+        page:
+          type: integer
+          description: 当前页码
+        page_size:
+          type: integer
+          description: 每页条数
+        total_pages:
+          type: integer
+          description: 总页数
+
+    # ===== 用户 =====
     User:
       type: object
       properties:
@@ -30,6 +138,7 @@ components:
           type: string
         role:
           type: string
+          description: 用户角色（admin/user）
         tenant_id:
           type: integer
           format: uint
@@ -50,18 +159,46 @@ components:
           type: string
         password:
           type: string
+          format: password
 
     LoginResponse:
       type: object
       properties:
         token:
           type: string
+          description: JWT 访问令牌
         user:
           $ref: '#/components/schemas/User'
         expires_at:
           type: integer
           format: int64
+          description: 令牌过期时间戳
 
+    RegisterRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 6
+
+    CSRFResponse:
+      type: object
+      properties:
+        csrf_token:
+          type: string
+          description: CSRF 双提交令牌
+
+    # ===== 集群 =====
     Cluster:
       type: object
       properties:
@@ -74,10 +211,26 @@ components:
           type: string
         status:
           type: string
-        node_count:
+          description: 集群状态（active/inactive/maintenance）
+        nodes:
           type: integer
-        gpu_count:
+          description: 节点数
+        gpus:
           type: integer
+          description: GPU 总数
+        cpus:
+          type: integer
+          description: CPU 核数
+        memory:
+          type: integer
+          description: 内存（GB）
+        storage:
+          type: integer
+          description: 存储（TB）
+        network_type:
+          type: string
+        location:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -85,6 +238,159 @@ components:
           type: string
           format: date-time
 
+    ClusterCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        nodes:
+          type: integer
+        gpus:
+          type: integer
+        cpus:
+          type: integer
+        memory:
+          type: integer
+        storage:
+          type: integer
+        network_type:
+          type: string
+        location:
+          type: string
+
+    ClusterUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        nodes:
+          type: integer
+        gpus:
+          type: integer
+        cpus:
+          type: integer
+        memory:
+          type: integer
+        storage:
+          type: integer
+        network_type:
+          type: string
+        location:
+          type: string
+
+    ClusterStatus:
+      type: object
+      properties:
+        cluster_id:
+          type: integer
+          format: uint
+        status:
+          type: string
+        nodes_ready:
+          type: integer
+        nodes_total:
+          type: integer
+        gpus_available:
+          type: integer
+        gpus_allocated:
+          type: integer
+        cpu_usage_percent:
+          type: number
+          format: float
+        memory_usage_percent:
+          type: number
+          format: float
+
+    # ===== 资源 =====
+    Resource:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: uint
+        cluster_id:
+          type: integer
+          format: uint
+        type:
+          type: string
+          description: 资源类型（gpu/cpu/memory/storage/network）
+        name:
+          type: string
+        status:
+          type: string
+          description: 资源状态（available/allocated/maintenance）
+        total:
+          type: integer
+        used:
+          type: integer
+        available:
+          type: integer
+        utilization:
+          type: number
+          format: float
+          description: 利用率百分比
+        details:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ResourceUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+        total:
+          type: integer
+        used:
+          type: integer
+        details:
+          type: string
+
+    GPUResource:
+      type: object
+      properties:
+        cluster_id:
+          type: integer
+          format: uint
+        node_id:
+          type: string
+        gpu_id:
+          type: string
+        name:
+          type: string
+        total_memory_bytes:
+          type: integer
+          format: int64
+        used_memory_bytes:
+          type: integer
+          format: int64
+        utilization_percent:
+          type: number
+          format: float
+        temperature:
+          type: number
+          format: float
+        power_watts:
+          type: number
+          format: float
+
+    # ===== 作业 =====
     Job:
       type: object
       properties:
@@ -97,12 +403,47 @@ components:
           type: string
         status:
           type: string
+          description: 作业状态（pending/running/completed/failed/cancelled）
+        type:
+          type: string
+          description: 作业类型（training/inference/batch）
+        priority:
+          type: integer
+          description: 优先级（0=low, 1=medium, 2=high, 3=critical）
         progress:
-          type: number
-          format: float
+          type: integer
+          description: 进度百分比（0-100）
         cluster_id:
           type: integer
           format: uint
+        tenant_id:
+          type: integer
+          format: uint
+        user_id:
+          type: integer
+          format: uint
+        gpus:
+          type: integer
+        cpus:
+          type: integer
+        memory:
+          type: integer
+          description: 内存（GB）
+        duration:
+          type: integer
+          description: 预计运行时间（分钟）
+        start_time:
+          type: string
+          format: date-time
+          nullable: true
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+        output_path:
+          type: string
+        error_msg:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -110,24 +451,396 @@ components:
           type: string
           format: date-time
 
-    ErrorResponse:
+    JobCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 3
+        gpus:
+          type: integer
+          minimum: 0
+        cpus:
+          type: integer
+          minimum: 0
+        memory:
+          type: integer
+          minimum: 0
+        duration:
+          type: integer
+          minimum: 0
+        cluster_id:
+          type: integer
+          format: uint
+        tenant_id:
+          type: integer
+          format: uint
+        user_id:
+          type: integer
+          format: uint
+
+    JobUpdateRequest:
       type: object
       properties:
-        error:
+        name:
           type: string
+        description:
+          type: string
+        status:
+          type: string
+        priority:
+          type: integer
+        progress:
+          type: integer
+        output_path:
+          type: string
+        error_msg:
+          type: string
+
+    JobStatus:
+      type: object
+      properties:
+        job_id:
+          type: integer
+          format: uint
+        status:
+          type: string
+        progress:
+          type: integer
+        start_time:
+          type: string
+          format: date-time
+          nullable: true
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+        pod_name:
+          type: string
+        pod_status:
+          type: string
+        error_msg:
+          type: string
+
+    # ===== 监控 =====
+    MonitoringMetrics:
+      type: object
+      properties:
+        cpu:
+          type: object
+          properties:
+            usage:
+              type: number
+              format: float
+            total:
+              type: integer
+        memory:
+          type: object
+          properties:
+            usage:
+              type: number
+              format: float
+            total_bytes:
+              type: integer
+              format: int64
+        gpu:
+          type: object
+          properties:
+            usage:
+              type: number
+              format: float
+            memory_usage:
+              type: number
+              format: float
+            available:
+              type: number
+              format: float
+        jobs:
+          type: object
+          properties:
+            running:
+              type: integer
+            pending:
+              type: integer
+            completed:
+              type: integer
+            failed:
+              type: integer
+
+    Alert:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: uint
+        name:
+          type: string
+        severity:
+          type: string
+          description: 严重级别（critical/warning/info）
+        status:
+          type: string
+          description: 状态（firing/resolved）
         message:
           type: string
-        code:
-          type: integer
-        timestamp:
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
           type: string
           format: date-time
 
+    # ===== 租户 =====
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: uint
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          description: 租户状态（active/inactive/suspended）
+        gpu_quota:
+          type: integer
+        cpu_quota:
+          type: integer
+        memory_quota:
+          type: integer
+          description: 内存配额（GB）
+        storage_quota:
+          type: integer
+          description: 存储配额（TB）
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TenantCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        gpu_quota:
+          type: integer
+        cpu_quota:
+          type: integer
+        memory_quota:
+          type: integer
+        storage_quota:
+          type: integer
+
+    TenantUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        gpu_quota:
+          type: integer
+        cpu_quota:
+          type: integer
+        memory_quota:
+          type: integer
+        storage_quota:
+          type: integer
+
+    # ===== 加速套件 =====
+    AccelerationSuite:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: uint
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          description: 加速类型（data/training/inference）
+        version:
+          type: string
+        status:
+          type: string
+        enabled:
+          type: boolean
+        details:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AccelerationSuiteCreateRequest:
+      type: object
+      required:
+        - name
+        - type
+        - version
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+        enabled:
+          type: boolean
+        details:
+          type: string
+
+    AccelerationSuiteUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+        enabled:
+          type: boolean
+        details:
+          type: string
+
+    # ===== 安全策略 =====
+    SecurityPolicy:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: uint
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          description: 策略类型（access/network/data/system）
+        status:
+          type: string
+        enabled:
+          type: boolean
+        rules:
+          type: string
+          description: JSON 格式的规则定义
+        details:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SecurityPolicyCreateRequest:
+      type: object
+      required:
+        - name
+        - type
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+        enabled:
+          type: boolean
+        rules:
+          type: string
+        details:
+          type: string
+
+    SecurityPolicyUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+        enabled:
+          type: boolean
+        rules:
+          type: string
+        details:
+          type: string
+
+    # ===== 健康检查 =====
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          description: 健康状态（healthy/unhealthy）
+        timestamp:
+          type: integer
+          format: int64
+        dependencies:
+          type: integer
+          description: 已注册的依赖探针数量
+
 paths:
+  # ========================================================================
+  # 认证
+  # ========================================================================
   /auth/login:
     post:
-      summary: Login user
-      description: Authenticate user and return JWT token
+      tags: [auth]
+      summary: 用户登录
+      description: 验证用户名和密码，返回 JWT 令牌并设置 httpOnly Cookie。
       requestBody:
         required: true
         content:
@@ -136,48 +849,85 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Successful login
+          description: 登录成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoginResponse'
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
-          description: Unauthorized
+          description: 认证失败（用户名或密码错误）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: 登录失败次数过多，账户临时锁定
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /auth/register:
+  /auth/logout:
     post:
-      summary: Register new user
-      description: Create a new user account
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - username
-                - email
-                - password
-              properties:
-                username:
-                  type: string
-                email:
-                  type: string
-                password:
-                  type: string
+      tags: [auth]
+      summary: 用户登出
+      description: 清除客户端的 access_token 和 csrf_token Cookie，幂等操作无需鉴权。
       responses:
-        '201':
-          description: User created
+        '200':
+          description: 登出成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
-        '400':
-          description: Bad request
+                $ref: '#/components/schemas/ApiResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/csrf:
+    get:
+      tags: [auth]
+      summary: 获取 CSRF 令牌
+      description: 返回当前会话的 CSRF 双提交令牌，用于跨域部署下前端 JS 无法读取 Cookie 的场景。
+      responses:
+        '200':
+          description: CSRF 令牌
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CSRFResponse'
+        '401':
+          description: 未登录（无 csrf_token Cookie）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
           content:
             application/json:
               schema:
@@ -185,66 +935,221 @@ paths:
 
   /auth/refresh:
     post:
-      summary: Refresh JWT token
-      description: Get a new JWT token using the refresh token
+      tags: [auth]
+      summary: 刷新 JWT 令牌
+      description: 使用当前有效 JWT 换取新的令牌，延长会话有效期。
       security:
-        - BearerAuth: []
+        - bearerAuth: []
+        - cookieAuth: []
       responses:
         '200':
-          description: Token refreshed
+          description: 令牌刷新成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoginResponse'
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: 未认证或令牌已过期
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
-  /clusters:
+  /auth/profile:
     get:
-      summary: Get all clusters
-      description: Retrieve a list of all clusters
+      tags: [auth]
+      summary: 获取当前用户资料
+      description: 返回当前登录用户的详细信息，数据取自数据库而非 JWT claims。
       security:
-        - BearerAuth: []
+        - bearerAuth: []
+        - cookieAuth: []
       responses:
         '200':
-          description: List of clusters
+          description: 用户资料
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Cluster'
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
+  /auth/register:
     post:
-      summary: Create cluster
-      description: Create a new cluster
-      security:
-        - BearerAuth: []
+      tags: [auth]
+      summary: 用户注册
+      description: |
+        创建新用户账号。默认关闭公开注册（需 ALLOW_PUBLIC_REGISTRATION=true），
+        关闭时返回 404。自注册账号一律赋予 user 角色。
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - name
-              properties:
-                name:
-                  type: string
-                description:
-                  type: string
+              $ref: '#/components/schemas/RegisterRequest'
       responses:
         '201':
-          description: Cluster created
+          description: 用户创建成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Cluster'
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 注册功能未启用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ========================================================================
+  # 集群管理
+  # ========================================================================
+  /clusters:
+    get:
+      tags: [cluster]
+      summary: 获取集群列表
+      description: 返回所有已注册的集群。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+      responses:
+        '200':
+          description: 集群列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Cluster'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [cluster]
+      summary: 创建集群
+      description: 注册新的计算集群。需要 cluster_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClusterCreateRequest'
+      responses:
+        '201':
+          description: 集群创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Cluster'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限（需要 cluster_write）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /clusters/{id}:
     get:
-      summary: Get cluster by ID
-      description: Retrieve a specific cluster by ID
+      tags: [cluster]
+      summary: 获取集群详情
+      description: 根据 ID 获取单个集群的详细信息。
       security:
-        - BearerAuth: []
+        - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -254,23 +1159,41 @@ paths:
             format: uint
       responses:
         '200':
-          description: Cluster found
+          description: 集群详情
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Cluster'
-        '404':
-          description: Cluster not found
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Cluster'
+        '401':
+          description: 未认证
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
+        '404':
+          description: 集群不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     put:
-      summary: Update cluster
-      description: Update an existing cluster
+      tags: [cluster]
+      summary: 更新集群
+      description: 更新集群配置信息。需要 cluster_write 权限。
       security:
-        - BearerAuth: []
+        - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -283,25 +1206,56 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                description:
-                  type: string
+              $ref: '#/components/schemas/ClusterUpdateRequest'
       responses:
         '200':
-          description: Cluster updated
+          description: 集群更新成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Cluster'
-
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Cluster'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 集群不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     delete:
-      summary: Delete cluster
-      description: Delete a cluster
+      tags: [cluster]
+      summary: 删除集群
+      description: 删除指定集群。需要 cluster_write 权限。
       security:
-        - BearerAuth: []
+        - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -310,66 +1264,390 @@ paths:
             type: integer
             format: uint
       responses:
-        '204':
-          description: Cluster deleted
+        '200':
+          description: 集群删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Cluster not found
+          description: 集群不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /clusters/{id}/status:
+    get:
+      tags: [cluster, k8s]
+      summary: 获取集群实时状态
+      description: 从 Kubernetes 获取集群的实时运行状态，包括节点就绪情况和资源使用率。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 集群实时状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ClusterStatus'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 集群不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ========================================================================
+  # 资源管理
+  # ========================================================================
+  /resources:
+    get:
+      tags: [resource]
+      summary: 获取资源列表
+      description: 返回所有集群的资源信息。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+      responses:
+        '200':
+          description: 资源列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Resource'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /resources/{id}:
+    get:
+      tags: [resource]
+      summary: 获取资源详情
+      description: 根据 ID 获取单个资源的详细信息。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 资源详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Resource'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 资源不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [resource]
+      summary: 更新资源
+      description: 更新资源配置。需要 resource_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceUpdateRequest'
+      responses:
+        '200':
+          description: 资源更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Resource'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 资源不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /resources/gpu:
+    get:
+      tags: [resource, k8s]
+      summary: 获取 GPU 资源详情
+      description: 从 Kubernetes 获取各节点 GPU 的实时使用情况，包括显存、利用率、温度和功耗。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        '200':
+          description: GPU 资源列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/GPUResource'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ========================================================================
+  # 作业管理
+  # ========================================================================
   /jobs:
     get:
-      summary: Get all jobs
-      description: Retrieve a list of all jobs
+      tags: [job]
+      summary: 获取作业列表
+      description: |
+        返回作业列表。管理员可见全部租户作业，普通用户仅可见本租户作业。
       security:
-        - BearerAuth: []
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, running, completed, failed, cancelled]
+          description: 按状态筛选
       responses:
         '200':
-          description: List of jobs
+          description: 作业列表
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Job'
-
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Job'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     post:
-      summary: Create job
-      description: Create a new job
+      tags: [job]
+      summary: 创建作业
+      description: 创建新的计算作业。需要 job_write 权限。
       security:
-        - BearerAuth: []
+        - bearerAuth: []
+        - cookieAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - name
-              properties:
-                name:
-                  type: string
-                description:
-                  type: string
-                cluster_id:
-                  type: integer
-                  format: uint
+              $ref: '#/components/schemas/JobCreateRequest'
       responses:
         '201':
-          description: Job created
+          description: 作业创建成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Job'
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Job'
+        '400':
+          description: 请求参数错误或配额不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /jobs/{id}:
     get:
-      summary: Get job by ID
-      description: Retrieve a specific job by ID
+      tags: [job]
+      summary: 获取作业详情
+      description: 根据 ID 获取单个作业的详细信息。
       security:
-        - BearerAuth: []
+        - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -379,17 +1657,47 @@ paths:
             format: uint
       responses:
         '200':
-          description: Job found
+          description: 作业详情
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Job'
-
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Job'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权访问其他租户作业
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 作业不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     put:
-      summary: Update job
-      description: Update an existing job
+      tags: [job]
+      summary: 更新作业
+      description: 更新作业配置或状态。需要 job_write 权限。
       security:
-        - BearerAuth: []
+        - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -402,25 +1710,56 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                status:
-                  type: string
+              $ref: '#/components/schemas/JobUpdateRequest'
       responses:
         '200':
-          description: Job updated
+          description: 作业更新成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Job'
-
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Job'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 作业不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     delete:
-      summary: Delete job
-      description: Delete a job
+      tags: [job]
+      summary: 删除作业
+      description: 删除指定作业。需要 job_write 权限。
       security:
-        - BearerAuth: []
+        - bearerAuth: []
+        - cookieAuth: []
       parameters:
         - name: id
           in: path
@@ -429,31 +1768,1148 @@ paths:
             type: integer
             format: uint
       responses:
-        '204':
-          description: Job deleted
-
-  /health:
-    get:
-      summary: Health check
-      description: Check service health status
-      responses:
         '200':
-          description: Service is healthy
+          description: 作业删除成功
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
+                $ref: '#/components/schemas/ApiResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 作业不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{id}/cancel:
+    post:
+      tags: [job]
+      summary: 取消作业
+      description: 取消正在运行或排队中的作业。需要 job_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 作业取消成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Job'
+        '400':
+          description: 作业状态不允许取消
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 作业不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{id}/submit:
+    post:
+      tags: [job, k8s]
+      summary: 提交作业到 Kubernetes
+      description: 将作业提交到 Kubernetes 集群执行。需要 job_submit 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 作业提交成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          job_id:
+                            type: integer
+                            format: uint
+                          pod_name:
+                            type: string
+                          status:
+                            type: string
+        '400':
+          description: 作业状态不允许提交
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 作业不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误或 Kubernetes 提交失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{id}/status:
+    get:
+      tags: [job, k8s]
+      summary: 获取作业实时状态
+      description: 从 Kubernetes 获取作业的实时运行状态，包括 Pod 状态和进度。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 作业实时状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/JobStatus'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 作业不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ========================================================================
+  # 监控
+  # ========================================================================
+  /monitoring/metrics:
+    get:
+      tags: [monitoring]
+      summary: 获取监控指标
+      description: 返回系统资源使用情况和作业统计的聚合指标。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        '200':
+          description: 监控指标
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MonitoringMetrics'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /monitoring/alerts:
+    get:
+      tags: [monitoring]
+      summary: 获取告警列表
+      description: 返回当前活跃和历史告警记录。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [firing, resolved]
+          description: 按状态筛选
+      responses:
+        '200':
+          description: 告警列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Alert'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /monitoring/alerts/{id}/resolve:
+    put:
+      tags: [monitoring]
+      summary: 标记告警已解决
+      description: 将指定告警标记为已解决状态。需要 monitoring_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 告警已解决
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Alert'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 告警不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ========================================================================
+  # 租户管理
+  # ========================================================================
+  /tenants:
+    get:
+      tags: [tenant]
+      summary: 获取租户列表
+      description: 返回所有租户。需要 tenant_read 权限（仅管理员）。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+      responses:
+        '200':
+          description: 租户列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Tenant'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限（需要 tenant_read）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [tenant]
+      summary: 创建租户
+      description: 创建新租户并设置资源配额。需要 tenant_write 权限（仅管理员）。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantCreateRequest'
+      responses:
+        '201':
+          description: 租户创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Tenant'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tenants/{id}:
+    get:
+      tags: [tenant]
+      summary: 获取租户详情
+      description: 根据 ID 获取租户详细信息。需要 tenant_read 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 租户详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Tenant'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [tenant]
+      summary: 更新租户
+      description: 更新租户信息和资源配额。需要 tenant_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantUpdateRequest'
+      responses:
+        '200':
+          description: 租户更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Tenant'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [tenant]
+      summary: 删除租户
+      description: 删除指定租户。需要 tenant_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 租户删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ========================================================================
+  # 加速套件
+  # ========================================================================
+  /acceleration:
+    get:
+      tags: [acceleration]
+      summary: 获取加速套件列表
+      description: 返回所有已注册的加速套件。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+      responses:
+        '200':
+          description: 加速套件列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AccelerationSuite'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [acceleration]
+      summary: 创建加速套件
+      description: 注册新的加速套件。需要 accel_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccelerationSuiteCreateRequest'
+      responses:
+        '201':
+          description: 加速套件创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AccelerationSuite'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /acceleration/{id}:
+    get:
+      tags: [acceleration]
+      summary: 获取加速套件详情
+      description: 根据 ID 获取加速套件详细信息。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 加速套件详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AccelerationSuite'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 加速套件不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [acceleration]
+      summary: 更新加速套件
+      description: 更新加速套件配置。需要 accel_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccelerationSuiteUpdateRequest'
+      responses:
+        '200':
+          description: 加速套件更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AccelerationSuite'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 加速套件不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [acceleration]
+      summary: 删除加速套件
+      description: 删除指定加速套件。需要 accel_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 加速套件删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 加速套件不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ========================================================================
+  # 安全策略
+  # ========================================================================
+  /security/policies:
+    get:
+      tags: [security]
+      summary: 获取安全策略列表
+      description: 返回所有安全策略。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+      responses:
+        '200':
+          description: 安全策略列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SecurityPolicy'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [security]
+      summary: 创建安全策略
+      description: 创建新的安全策略。需要 security_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecurityPolicyCreateRequest'
+      responses:
+        '201':
+          description: 安全策略创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SecurityPolicy'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /security/policies/{id}:
+    get:
+      tags: [security]
+      summary: 获取安全策略详情
+      description: 根据 ID 获取安全策略详细信息。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 安全策略详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SecurityPolicy'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 安全策略不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [security]
+      summary: 更新安全策略
+      description: 更新安全策略配置。需要 security_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecurityPolicyUpdateRequest'
+      responses:
+        '200':
+          description: 安全策略更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SecurityPolicy'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 安全策略不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [security]
+      summary: 删除安全策略
+      description: 删除指定安全策略。需要 security_write 权限。
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: 安全策略删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '401':
+          description: 未认证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 无权限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 安全策略不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ========================================================================
+  # 健康检查与指标（非 /api/v1 前缀）
+  # ========================================================================
+  /health:
+    get:
+      tags: [health]
+      summary: 健康检查
+      description: |
+        检查服务健康状态。只有全部已注册依赖探针（数据库、缓存等）通过时才返回 200。
+        支持 Accept: text/html 返回 HTML 页面。
+      responses:
+        '200':
+          description: 服务健康
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: 服务不健康（依赖探针失败）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
 
   /metrics:
     get:
-      summary: Metrics endpoint
-      description: Prometheus metrics endpoint
+      tags: [health]
+      summary: Prometheus 指标端点
+      description: 暴露 Prometheus 格式的运行时指标和业务指标，供 Prometheus 采集。
       responses:
         '200':
-          description: Metrics data
+          description: Prometheus 指标文本
           content:
             text/plain:
               schema:

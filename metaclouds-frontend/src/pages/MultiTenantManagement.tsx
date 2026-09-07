@@ -1,5 +1,5 @@
 import { Can } from '../components/Can';
-import React from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Card, Button, Space, App, Modal, Form, Input, InputNumber, Popconfirm } from 'antd';
 import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
@@ -24,10 +24,11 @@ const MultiTenantManagement: React.FC = () => {
   const tenantsData = extractArrayData<Tenant>(tenants);
   const [createTenant] = useCreateTenantMutation();
   const [deleteTenant] = useDeleteTenantMutation();
-  const [isModalVisible, setIsModalVisible] = React.useState(false);
+  const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
 
-  const handleCreate = async (values: TenantFormValues) => {
+  // useCallback：稳定回调引用
+  const handleCreate = useCallback(async (values: TenantFormValues) => {
     try {
       await createTenant(values).unwrap();
       message.success('租户创建成功');
@@ -37,9 +38,9 @@ const MultiTenantManagement: React.FC = () => {
     } catch {
       message.error('租户创建失败，请检查必填项后重试');
     }
-  };
+  }, [createTenant, form, message, refetch]);
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = useCallback(async (id: number) => {
     try {
       await deleteTenant(id).unwrap();
       message.success('租户删除成功');
@@ -47,9 +48,10 @@ const MultiTenantManagement: React.FC = () => {
     } catch {
       message.error('租户删除失败，请稍后重试');
     }
-  };
+  }, [deleteTenant, message, refetch]);
 
-  const columns: ColumnsType<Tenant> = [
+  // 列配置用 useMemo 缓存
+  const columns: ColumnsType<Tenant> = useMemo(() => [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '描述', dataIndex: 'description', key: 'description' },
@@ -76,7 +78,7 @@ const MultiTenantManagement: React.FC = () => {
         </Space>
       ),
     },
-  ];
+  ], [handleDelete]);
 
   const state = renderState({
     isLoading,

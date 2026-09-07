@@ -1,0 +1,50 @@
+# ==============================================================================
+# Metaclouds 预发环境 Overlay
+# ==============================================================================
+# 用法：kubectl apply -k deploy/kubernetes/overlays/staging
+#
+# 此 overlay 基于基础清单（../../），可在此处添加预发环境特有的：
+#   - 镜像 tag（预发版本）
+#   - 较少副本数
+#   - 预发环境域名 / TLS
+#   - 较低资源限制
+#
+# 当前为占位配置，直接引用基础清单。
+# ==============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 引用基础清单
+resources:
+  - ../../
+
+# 预发环境标签
+commonLabels:
+  environment: staging
+
+# 预发环境副本数（较少，节省资源）
+# replicas:
+#   - name: metaclouds-backend
+#     count: 2
+#   - name: metaclouds-frontend
+#     count: 1
+
+# 预发环境镜像 tag
+# images:
+#   - name: ghcr.io/customizedvalidation/yunchuang/backend
+#     newTag: "staging-latest"
+#   - name: ghcr.io/customizedvalidation/yunchuang/frontend
+#     newTag: "staging-latest"
+
+# 预发环境 Ingress 域名补丁
+# patches:
+#   - target:
+#       kind: Ingress
+#       name: metaclouds-ingress
+#     patch: |-
+#       - op: replace
+#         path: /spec/rules/0/host
+#         value: staging.metaclouds.example.com
+#       - op: replace
+#         path: /spec/tls/0/hosts/0
+#         value: staging.metaclouds.example.com

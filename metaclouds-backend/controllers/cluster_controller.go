@@ -10,10 +10,10 @@ import (
 )
 
 type ClusterController struct {
-	clusterService *services.ClusterService
+	clusterService ClusterServiceInterface
 }
 
-func NewClusterController(clusterService *services.ClusterService) *ClusterController {
+func NewClusterController(clusterService ClusterServiceInterface) *ClusterController {
 	return &ClusterController{
 		clusterService: clusterService,
 	}

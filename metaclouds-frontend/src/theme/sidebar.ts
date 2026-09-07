@@ -13,10 +13,10 @@
 export { SIDER_WIDTH } from './breakpoints';
 
 export const SIDEBAR_COLORS = {
-  PRIMARY: '#3b82f6',
-  PRIMARY_LIGHT: '#60a5fa',
+  PRIMARY: '#2f6bff',
+  PRIMARY_LIGHT: '#5b8bff',
   PRIMARY_DARK: '#2563eb',
-  SECONDARY: '#8b5cf6',
-  SECONDARY_LIGHT: '#a78bfa',
-  ACCENT: '#ec4899',
+  SECONDARY: '#5b3fd9',
+  SECONDARY_LIGHT: '#7c5cff',
+  ACCENT: '#00b8a9',
 };

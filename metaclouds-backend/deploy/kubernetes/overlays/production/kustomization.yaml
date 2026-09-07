@@ -1,0 +1,45 @@
+# ==============================================================================
+# Metaclouds 生产环境 Overlay
+# ==============================================================================
+# 用法：kubectl apply -k deploy/kubernetes/overlays/production
+#
+# 此 overlay 基于基础清单（../../），可在此处添加生产环境特有的：
+#   - 镜像 tag 固定（images 字段）
+#   - 副本数覆盖（replicas 字段）
+#   - 生产环境 ConfigMap 补丁
+#   - 节点选择器 / 容忍
+#   - HPA 上限调整
+#
+# 当前为占位配置，直接引用基础清单。
+# ==============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 引用基础清单
+resources:
+  - ../../
+
+# 生产环境标签
+commonLabels:
+  environment: production
+
+# 镜像 tag 固定（CI/CD 注入，取消注释并填写真实 tag）
+# images:
+#   - name: ghcr.io/customizedvalidation/yunchuang/backend
+#     newTag: "v1.0.0"   # 或 git commit SHA
+#   - name: ghcr.io/customizedvalidation/yunchuang/frontend
+#     newTag: "v1.0.0"
+
+# 生产环境副本数（覆盖基础清单）
+# replicas:
+#   - name: metaclouds-backend
+#     count: 5
+#   - name: metaclouds-frontend
+#     count: 3
+
+# 生产环境补丁（如需修改 ConfigMap / Deployment 等）
+# patches:
+#   - path: patches/backend-production.yaml
+#     target:
+#       kind: Deployment
+#       name: metaclouds-backend

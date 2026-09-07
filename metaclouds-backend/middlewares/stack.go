@@ -9,6 +9,7 @@ import (
 	"metaclouds-backend/config"
 	"metaclouds-backend/pkg/logger"
 	"metaclouds-backend/pkg/middleware"
+	"metaclouds-backend/pkg/tracing"
 )
 
 // ApplyCoreStack 注册生产环境与测试环境共用的核心中间件。
@@ -33,6 +34,9 @@ func ApplyCoreStack(r *gin.Engine, cfg *config.Config) {
 
 	r.Use(PanicRecovery())
 	r.Use(RequestID())
+	// 追踪中间件：为每个请求生成/透传 trace_id，注入 context 并返回响应头，
+	// 必须在 RequestLogger 之前注册，确保日志中能关联 trace_id。
+	r.Use(tracing.GinMiddleware("metaclouds-backend"))
 	r.Use(SecurityHeaders())
 	r.Use(SecurityFilter())
 	r.Use(RequestLogger())

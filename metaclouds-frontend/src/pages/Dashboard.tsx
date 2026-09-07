@@ -324,8 +324,8 @@ const Dashboard: React.FC = () => {
       node: statCard(
         <BellOutlined />,
         alertCount > 0
-          ? 'linear-gradient(135deg, #f0445a, #ff616e)'
-          : 'linear-gradient(135deg, #12b886, #2bd9a6)',
+          ? 'linear-gradient(135deg, #ff5c7a, #ff616e)'
+          : 'linear-gradient(135deg, #16c784, #2bd9a6)',
         '活跃告警',
         alertCount,
         ' 条',

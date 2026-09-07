@@ -10,10 +10,10 @@ import (
 )
 
 type TenantController struct {
-	tenantService *services.TenantService
+	tenantService TenantServiceInterface
 }
 
-func NewTenantController(tenantService *services.TenantService) *TenantController {
+func NewTenantController(tenantService TenantServiceInterface) *TenantController {
 	return &TenantController{
 		tenantService: tenantService,
 	}

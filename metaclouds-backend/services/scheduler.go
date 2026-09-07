@@ -201,6 +201,13 @@ func (s *Scheduler) executeJobOnce(ctx context.Context, jobID uint, scheduleName
 		return err
 	}
 
+	// 业务指标：记录调度决策——pending 作业被调度视为 allocate
+	if job.Status == "pending" {
+		RecordSchedulerDecision("allocate")
+	} else if job.Status == "running" {
+		RecordSchedulerDecision("queue")
+	}
+
 	if job.Status != "pending" && job.Status != "completed" {
 		logger.InfoWithCtx(ctx, "Job not in pending or completed state", "job_id", jobID, "status", job.Status)
 		return nil

@@ -1,0 +1,102 @@
+# ==============================================================================
+# Metaclouds HPA（Horizontal Pod Autoscaler）
+# ==============================================================================
+# 基于 CPU / 内存使用率自动扩缩容。
+# 扩缩容行为：
+#   - 扩容：稳定窗口 60 秒，避免瞬时流量毛刺导致频繁扩容
+#   - 缩容：稳定窗口 300 秒（5 分钟），避免缩容过快导致性能抖动
+#
+# 前置条件：集群已安装 metrics-server（HPA 依赖其提供 CPU/内存指标）。
+#   kubectl get pods -n kube-system | grep metrics-server
+# ==============================================================================
+
+---
+# 后端 HPA：CPU 70% / 内存 80% 触发扩容
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: metaclouds-backend-hpa
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/part-of: metaclouds
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: metaclouds-backend
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+      selectPolicy: Min
+
+---
+# 前端 HPA：CPU 60% 触发扩容（静态资源服务，内存通常不是瓶颈）
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: metaclouds-frontend-hpa
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: frontend
+    app.kubernetes.io/part-of: metaclouds
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: metaclouds-frontend
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+      selectPolicy: Min

@@ -2,9 +2,42 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <!-- 视口：禁止用户缩放以保持管理后台布局一致性 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <!-- 主题色：移动端浏览器地址栏 / 任务栏配色，对齐品牌量子蓝 -->
+    <meta name="theme-color" content="#2F6BFF" />
+    <!-- 页面描述：SEO 与社交分享摘要 -->
+    <meta name="description" content="Metaclouds 算力调度平台 — 统一纳管 GPU 集群、作业调度、多租户配额与监控告警" />
+    <!-- iOS 全屏 Web App 支持 -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Metaclouds" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 预连接 API 域名（生产环境替换为实际后端域名，加速首次请求 DNS+TLS 握手） -->
+    <!-- <link rel="preconnect" href="https://api.metaclouds.example.com" crossorigin /> -->
     <title>Metaclouds 算力调度平台</title>
+    <!--
+      PWA 支持（可选启用）：
+      离线环境未安装 vite-plugin-pwa，有网环境执行：
+        npm install -D vite-plugin-pwa
+      然后在 vite.config.ts 中添加：
+        import { VitePWA } from 'vite-plugin-pwa'
+        plugins: [react(), VitePWA({
+          registerType: 'autoUpdate',
+          includeAssets: ['vite.svg'],
+          manifest: {
+            name: 'Metaclouds 算力调度平台',
+            short_name: 'Metaclouds',
+            theme_color: '#2F6BFF',
+            icons: [{ src: 'vite.svg', sizes: 'any', type: 'image/svg+xml' }],
+          },
+          workbox: {
+            // 仅缓存静态资源（JS/CSS/字体），API 响应走网络优先不缓存
+            globPatterns: ['**/*.{js,css,svg,woff,woff2}'],
+          },
+        })]
+      启用后首屏二次加载可走 Service Worker 缓存，离线可访问登录页。
+    -->
   </head>
   <body>
     <div id="root"></div>

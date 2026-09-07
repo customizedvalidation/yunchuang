@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Table, Card, Grid } from 'antd';
 import type { TableProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -11,6 +11,11 @@ export interface ResponsiveTableProps<T extends Row> extends TableProps<T> {
   cardFields?: (keyof T | string)[];
   /** 卡片标题字段；缺省取 cardFields[0] */
   cardTitleField?: keyof T | string;
+  /**
+   * 启用虚拟滚动（大数据量时开启，需配合 scroll.y 使用）。
+   * antd 5.x Table virtual 要求行高固定，适用于作业列表/资源列表等纯文本行。
+   */
+  virtual?: boolean;
 }
 
 /**
@@ -20,9 +25,13 @@ export interface ResponsiveTableProps<T extends Row> extends TableProps<T> {
  * 断点判定用 antd Grid.useBreakpoint()，不引入任何 window.innerWidth / resize 监听（G3）。
  * 卡片视图同构于同一份 columns：含 dataIndex 的列作为「标签-值」行，无 dataIndex 的渲染列（操作列）
  * 作为卡片底部操作区，因此移动端也能保留关键操作（如作业取消）。
+ *
+ * 性能优化：
+ * - React.memo 包裹：父组件重渲染时，若 columns/dataSource 引用不变则跳过表格重渲染。
+ * - virtual 属性透传 antd Table 虚拟滚动：超过 100 行的列表建议开启，仅渲染可视区行。
  */
-const ResponsiveTable = <T extends Row>(props: ResponsiveTableProps<T>) => {
-  const { cardFields, cardTitleField, columns, dataSource, scroll, ...rest } = props;
+const ResponsiveTableInner = <T extends Row>(props: ResponsiveTableProps<T>) => {
+  const { cardFields, cardTitleField, columns, dataSource, scroll, virtual, ...rest } = props;
   const screens = Grid.useBreakpoint();
   const isCard = !screens.md;
 
@@ -80,10 +89,14 @@ const ResponsiveTable = <T extends Row>(props: ResponsiveTableProps<T>) => {
     <Table<T>
       columns={columns}
       dataSource={dataSource}
+      // 虚拟滚动要求 scroll.y 为固定像素值；未设置时回退普通渲染。
       scroll={{ ...(scroll as object), x: 'max-content' }}
+      virtual={virtual && typeof scroll?.y === 'number'}
       {...rest}
     />
   );
 };
+
+const ResponsiveTable = memo(ResponsiveTableInner) as typeof ResponsiveTableInner;
 
 export default ResponsiveTable;

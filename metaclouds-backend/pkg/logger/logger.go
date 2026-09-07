@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"metaclouds-backend/pkg/tracing"
 )
 
 type Logger struct {
@@ -87,50 +89,25 @@ func ensureLogDir(logPath string) error {
 }
 
 func (l *Logger) InfoWithCtx(ctx context.Context, msg string, fields ...interface{}) {
-	reqID := getRequestID(ctx)
-	if reqID != "" {
-		l.Printf("[%s] INFO: %s", reqID, formatMessage(msg, fields...))
-	} else {
-		l.Printf("INFO: %s", formatMessage(msg, fields...))
-	}
+	l.Printf("%sINFO: %s", logPrefix(ctx), formatMessage(msg, fields...))
 }
 
 func (l *Logger) ErrorWithCtx(ctx context.Context, msg string, err error, fields ...interface{}) {
-	reqID := getRequestID(ctx)
-	if reqID != "" {
-		if err != nil {
-			allFields := append(fields, "error", err)
-			l.Printf("[%s] ERROR: %s", reqID, formatMessage(msg, allFields...))
-		} else {
-			l.Printf("[%s] ERROR: %s", reqID, formatMessage(msg, fields...))
-		}
+	if err != nil {
+		allFields := append(fields, "error", err)
+		l.Printf("%sERROR: %s", logPrefix(ctx), formatMessage(msg, allFields...))
 	} else {
-		if err != nil {
-			allFields := append(fields, "error", err)
-			l.Printf("ERROR: %s", formatMessage(msg, allFields...))
-		} else {
-			l.Printf("ERROR: %s", formatMessage(msg, fields...))
-		}
+		l.Printf("%sERROR: %s", logPrefix(ctx), formatMessage(msg, fields...))
 	}
 }
 
 func (l *Logger) WarnWithCtx(ctx context.Context, msg string, fields ...interface{}) {
-	reqID := getRequestID(ctx)
-	if reqID != "" {
-		l.Printf("[%s] WARN: %s", reqID, formatMessage(msg, fields...))
-	} else {
-		l.Printf("WARN: %s", formatMessage(msg, fields...))
-	}
+	l.Printf("%sWARN: %s", logPrefix(ctx), formatMessage(msg, fields...))
 }
 
 func (l *Logger) DebugWithCtx(ctx context.Context, msg string, fields ...interface{}) {
 	if l.logLevel <= LevelDebug {
-		reqID := getRequestID(ctx)
-		if reqID != "" {
-			l.Printf("[%s] DEBUG: %s", reqID, formatMessage(msg, fields...))
-		} else {
-			l.Printf("DEBUG: %s", formatMessage(msg, fields...))
-		}
+		l.Printf("%sDEBUG: %s", logPrefix(ctx), formatMessage(msg, fields...))
 	}
 }
 
@@ -144,6 +121,27 @@ func getRequestID(ctx context.Context) string {
 	}
 	if reqID, ok := ctx.Value(RequestIDKey).(string); ok {
 		return reqID
+	}
+	return ""
+}
+
+// getTraceID 从 context 中提取 trace_id，供日志关联追踪。
+func getTraceID(ctx context.Context) string {
+	return tracing.GetTraceID(ctx)
+}
+
+// logPrefix 生成日志前缀，包含 request_id 和 trace_id（如有）。
+func logPrefix(ctx context.Context) string {
+	reqID := getRequestID(ctx)
+	traceID := getTraceID(ctx)
+	if reqID != "" && traceID != "" {
+		return fmt.Sprintf("[%s %s] ", reqID, traceID)
+	}
+	if reqID != "" {
+		return fmt.Sprintf("[%s] ", reqID)
+	}
+	if traceID != "" {
+		return fmt.Sprintf("[trace:%s] ", traceID)
 	}
 	return ""
 }

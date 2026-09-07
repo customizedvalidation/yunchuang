@@ -16,14 +16,15 @@
   --sidebar-transition-duration: 0.2s;
   --sidebar-transition-easing: cubic-bezier(0.4, 0, 0.2, 1);
   
-  --sidebar-primary-color: #3b82f6;
-  --sidebar-primary-light: #60a5fa;
-  --sidebar-primary-dark: #2563eb;
-  
-  --sidebar-secondary-color: #8b5cf6;
-  --sidebar-secondary-light: #a78bfa;
-  
-  --sidebar-accent-color: #ec4899;
+  /* 品牌色统一走设计系统（历史遗留的 Tailwind 默认色已统一为设计系统品牌色） */
+  --sidebar-primary-color: #2f6bff;
+  --sidebar-primary-light: #5b8bff;
+  --sidebar-primary-dark: #1f52e0;
+
+  --sidebar-secondary-color: #5b3fd9; /* 品牌渐变浅端（原型 v1.2） */
+  --sidebar-secondary-light: #7c5cff;
+
+  --sidebar-accent-color: #00b8a9; /* 原型 teal */
   
   --sidebar-text-primary: #f8fafc;
   --sidebar-text-secondary: #e2e8f0;
@@ -31,16 +32,16 @@
   --sidebar-text-disabled: #64748b;
   
   --sidebar-menu-bg: rgba(255, 255, 255, 0.06);
-  --sidebar-menu-bg-hover: rgba(59, 130, 246, 0.22);
-  --sidebar-menu-bg-active: rgba(59, 130, 246, 0.35);
+  --sidebar-menu-bg-hover: rgba(47, 107, 255, 0.24);
+  --sidebar-menu-bg-active: rgba(47, 107, 255, 0.38);
   
-  --sidebar-menu-border-radius: 8px;
-  --sidebar-menu-border-radius-sm: 6px;
+  --sidebar-menu-border-radius: 12px;
+  --sidebar-menu-border-radius-sm: 8px;
   
-  --sidebar-menu-border-color: rgba(59, 130, 246, 0.5);
+  --sidebar-menu-border-color: rgba(47, 107, 255, 0.5);
   
   --sidebar-submenu-bg: rgba(15, 23, 42, 0.85);
-  --sidebar-submenu-border-color: rgba(59, 130, 246, 0.2);
+  --sidebar-submenu-border-color: rgba(47, 107, 255, 0.2);
   
   --sidebar-indicator-width: 4px;
   --sidebar-indicator-height: 36px;
@@ -75,16 +76,16 @@
   --sidebar-menu-icon-size-phone: 16px;
   --sidebar-menu-icon-size-landscape: 17px;
   
-  --sidebar-logout-bg: rgba(239, 68, 68, 0.1);
-  --sidebar-logout-bg-hover: rgba(239, 68, 68, 0.2);
-  --sidebar-logout-border-color: rgba(239, 68, 68, 0.2);
-  --sidebar-logout-border-color-hover: rgba(239, 68, 68, 0.4);
+  --sidebar-logout-bg: rgba(255, 92, 122, 0.12);
+  --sidebar-logout-bg-hover: rgba(255, 92, 122, 0.22);
+  --sidebar-logout-border-color: rgba(255, 92, 122, 0.22);
+  --sidebar-logout-border-color-hover: rgba(255, 92, 122, 0.4);
   --sidebar-logout-text-color: #94a3b8;
-  --sidebar-logout-text-color-hover: #ef4444;
+  --sidebar-logout-text-color-hover: #ff5c7a;
   
   --sidebar-collapse-btn-size: 28px;
-  --sidebar-collapse-btn-bg-start: #3b82f6;
-  --sidebar-collapse-btn-bg-end: #8b5cf6;
+  --sidebar-collapse-btn-bg-start: #2f6bff;
+  --sidebar-collapse-btn-bg-end: #5b3fd9;
   
   --sidebar-z-index: 1000;
   

@@ -11,10 +11,10 @@ import (
 )
 
 type K8SController struct {
-	k8sService *services.K8SService
+	k8sService K8SServiceInterface
 }
 
-func NewK8SController(k8sService *services.K8SService) *K8SController {
+func NewK8SController(k8sService K8SServiceInterface) *K8SController {
 	return &K8SController{
 		k8sService: k8sService,
 	}

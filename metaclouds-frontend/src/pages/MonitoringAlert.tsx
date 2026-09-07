@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, Tag, Button } from 'antd';
 import ResponsiveTable from '../components/ResponsiveTable';
 import { useGetAlertsQuery } from '../store/api';
@@ -11,11 +11,13 @@ import ResponsiveChart from '../components/ResponsiveChart';
 
 const MonitoringAlert: React.FC = () => {
   const { mode } = useThemeMode();
-  const neutral = getNeutral(mode);
+  const neutral = useMemo(() => getNeutral(mode), [mode]);
   const { data: alerts, isLoading, error, refetch } = useGetAlertsQuery(undefined);
   const alertsData = extractArrayData(alerts);
 
-  const chartOption = {
+  // 图表配置用 useMemo 缓存：仅依赖主题色板，主题不变时不重建，
+  // 避免 ECharts 因 option 引用变化而无谓重绘。
+  const chartOption = useMemo(() => ({
     title: { text: '资源使用趋势', left: 'center', textStyle: { color: neutral.text1, fontSize: 14, fontWeight: 600 } },
     tooltip: { trigger: 'axis' },
     legend: { data: ['CPU', '内存', 'GPU'], top: 30, textStyle: { color: neutral.text2 } },
@@ -37,16 +39,17 @@ const MonitoringAlert: React.FC = () => {
       { name: '内存', type: 'line', smooth: true, data: [40, 50, 55, 60, 65, 70, 60], itemStyle: { color: chartPalette.teal } },
       { name: 'GPU', type: 'line', smooth: true, data: [20, 30, 50, 70, 80, 75, 60], itemStyle: { color: chartPalette.gpu } },
     ],
-  };
+  }), [neutral]);
 
-  const columns = [
+  // 列配置用 useMemo 缓存
+  const columns = useMemo(() => [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
     { title: '级别', dataIndex: 'level', key: 'level', width: 100, render: (level: string) => <StatusCell status={level} /> },
     { title: '消息', dataIndex: 'message', key: 'message' },
     { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: (status: string) => <StatusCell status={status} /> },
     { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 180 },
-  ];
+  ], []);
 
   const state = renderState({
     isLoading,

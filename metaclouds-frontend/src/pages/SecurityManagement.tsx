@@ -1,5 +1,5 @@
 import { Can } from '../components/Can';
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Card, Tag, Switch, App } from 'antd';
 import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
@@ -15,7 +15,8 @@ const SecurityManagement: React.FC = () => {
   const policiesData = extractArrayData<SecurityPolicy>(policies);
   const [updatePolicy] = useUpdateSecurityPolicyMutation();
 
-  const handleToggle = async (id: number, enabled: boolean) => {
+  // useCallback：稳定回调引用
+  const handleToggle = useCallback(async (id: number, enabled: boolean) => {
     try {
       await updatePolicy({ id, enabled }).unwrap();
       message.success(`安全策略${enabled ? '启用' : '禁用'}成功`);
@@ -23,9 +24,10 @@ const SecurityManagement: React.FC = () => {
     } catch {
       message.error('操作失败，请稍后重试');
     }
-  };
+  }, [updatePolicy, message, refetch]);
 
-  const columns: ColumnsType<SecurityPolicy> = [
+  // 列配置用 useMemo 缓存
+  const columns: ColumnsType<SecurityPolicy> = useMemo(() => [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
@@ -39,7 +41,7 @@ const SecurityManagement: React.FC = () => {
         </Can>
       ),
     },
-  ];
+  ], [handleToggle]);
 
   const state = renderState({
     isLoading,

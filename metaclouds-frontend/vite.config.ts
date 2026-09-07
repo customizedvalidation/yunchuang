@@ -3,7 +3,23 @@ import react from '@vitejs/plugin-react'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // ===== 构建时包体积分析（可选启用）=====
+    // 离线环境未安装 vite-plugin-bundle-analyzer，有网环境执行：
+    //   npm install -D vite-plugin-bundle-analyzer
+    // 然后取消下方注释，并运行：npx vite build --mode analyze
+    // 构建完成后会在 dist/.analyze/ 下生成交互式 treemap HTML，
+    // 可直观查看每个 chunk 的模块构成与体积占比。
+    //
+    // import { visualizer } from 'vite-plugin-bundle-analyzer'
+    // visualizer({
+    //   filename: 'dist/.analyze/stats.html',
+    //   gzipSize: true,
+    //   brotliSize: true,
+    //   open: false,
+    // }),
+  ],
   server: {
     port: 3000,
     proxy: {
@@ -14,8 +30,8 @@ export default defineConfig({
     }
   },
   build: {
-    // ECharts 是体积最大的 vendor，且已随路由懒加载（Dashboard / MonitoringAlert），
-    // 上调告警阈值避免误报；真正的收益来自下方 manualChunks 的 vendor 拆包。
+    // ECharts 按需引入后体积已降至 ~300KB（原 ~1MB），
+    // 告警阈值维持 1200KB 以覆盖 antd 路由级拆分产生的中等 chunk。
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
@@ -25,7 +41,15 @@ export default defineConfig({
           if (!id.includes('node_modules')) return undefined
           // 统一为 POSIX 分隔符，规避 Windows 反斜杠导致的匹配失效
           const p = id.replace(/\\/g, '/')
-          if (id.includes('echarts') || id.includes('zrender')) return 'echarts'
+          // ECharts 全家桶（echarts core / charts / components / zrender / echarts-for-react）
+          // 统一打入 echarts chunk：随 Dashboard / MonitoringAlert 路由懒加载，不进首屏。
+          if (
+            p.includes('/node_modules/echarts/') ||
+            p.includes('/node_modules/zrender/') ||
+            p.includes('/node_modules/echarts-for-react/')
+          ) {
+            return 'echarts'
+          }
           // antd 不建独立 manual chunk：
           //   App.tsx 静态 import { ConfigProvider, Spin, App } from 'antd' 会命中 barrel，
           //   一旦把 antd / rc-* / @ant-design / @emotion 强制合并成 'antd' 块，

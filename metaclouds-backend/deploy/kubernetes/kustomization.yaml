@@ -1,0 +1,39 @@
+# ==============================================================================
+# Metaclouds Kustomize 基础配置
+# ==============================================================================
+# 用法：
+#   kubectl apply -k deploy/kubernetes/overlays/production   # 生产环境
+#   kubectl apply -k deploy/kubernetes/overlays/staging       # 预发环境
+#   kubectl apply -k deploy/kubernetes/                       # 基础清单（无环境覆盖）
+#
+# 资源按编号顺序 apply，确保依赖关系正确：
+#   namespace → configmap → secrets → serviceaccount → deployment → service →
+#   ingress → hpa → networkpolicy → pdb → backup-cronjob
+# ==============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 所有资源统一添加的标签
+commonLabels:
+  app.kubernetes.io/part-of: metaclouds
+  app.kubernetes.io/managed-by: kustomize
+
+# 按顺序引用所有清单文件
+resources:
+  - 00-namespace.yaml
+  - 01-configmap.yaml
+  - 02-secrets.yaml
+  - 10-serviceaccount.yaml
+  - 03-backend-deployment.yaml
+  - 04-backend-service.yaml
+  - 05-frontend-deployment.yaml
+  - 06-frontend-service.yaml
+  - 07-ingress.yaml
+  - 08-hpa.yaml
+  - 09-networkpolicy.yaml
+  - 11-pdb.yaml
+  # 备份 CronJob（保留原有文件，不做修改）
+  - backup-cronjob.yaml
+
+# 注意：metaclouds-secrets.yaml 是 02-secrets.yaml 的兼容副本，
+# 内容一致，不重复引用以避免资源冲突。

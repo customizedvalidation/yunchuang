@@ -1,5 +1,5 @@
 import { Can } from '../components/Can';
-import React from 'react';
+import React, { memo, useCallback, useMemo, useState } from 'react';
 import { Card } from 'antd';
 import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
@@ -25,8 +25,8 @@ const JOB_TABS = [
   { key: '/job/history', label: '历史记录' },
 ];
 
-/** 状态 = 色点 + 文字，禁止仅用颜色表意 */
-const StatusCell: React.FC<{ status: string }> = ({ status }) => {
+/** 状态 = 色点 + 文字，禁止仅用颜色表意。React.memo 避免父组件重渲染时无谓重绘。 */
+const StatusCell: React.FC<{ status: string }> = memo(({ status }) => {
   const cls = ['running', 'pending', 'completed', 'failed'].includes(status) ? status : 'idle';
   return (
     <span className={`mc-status ${cls}`}>
@@ -34,23 +34,24 @@ const StatusCell: React.FC<{ status: string }> = ({ status }) => {
       {statusText[status] ?? status}
     </span>
   );
-};
+});
 
 const JobManagement: React.FC = () => {
   const { message } = App.useApp();
   const location = useLocation();
   const navigate = useNavigate();
-  // 子路由驱动当前激活的页签；父路由 /job 默认落到“作业列表”
+  // 子路由驱动当前激活的页签；父路由 /job 默认落到"作业列表"
   const activeKey = location.pathname.startsWith('/job/') ? location.pathname : '/job/list';
 
   const { data: jobs, isLoading, error: jobsError, refetch } = useGetJobsQuery(undefined);
   const jobsData = extractArrayData<Job>(jobs);
   const [createJob] = useCreateJobMutation();
   const [cancelJob] = useCancelJobMutation();
-  const [isModalVisible, setIsModalVisible] = React.useState(false);
+  const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
 
-  const handleCreate = async (values: JobFormValues) => {
+  // useCallback：稳定回调引用，避免传给子组件（Popconfirm/Button）时触发无谓重渲染
+  const handleCreate = useCallback(async (values: JobFormValues) => {
     try {
       await createJob(values).unwrap();
       message.success('作业创建成功');
@@ -60,9 +61,9 @@ const JobManagement: React.FC = () => {
     } catch {
       message.error('作业创建失败，请检查必填项后重试');
     }
-  };
+  }, [createJob, form, message, refetch]);
 
-  const handleCancel = async (id: number) => {
+  const handleCancel = useCallback(async (id: number) => {
     try {
       await cancelJob(id).unwrap();
       message.success('作业已取消');
@@ -70,9 +71,10 @@ const JobManagement: React.FC = () => {
     } catch {
       message.error('作业取消失败，请稍后重试');
     }
-  };
+  }, [cancelJob, message, refetch]);
 
-  const baseColumns: ColumnsType<Job> = [
+  // 基础列定义用 useMemo 缓存：列配置不随渲染变化，避免每次渲染重建导致 Table 深比较失效
+  const baseColumns = useMemo<ColumnsType<Job>>(() => [
     {
       title: 'ID',
       dataIndex: 'id',
@@ -130,29 +132,34 @@ const JobManagement: React.FC = () => {
         </Space>
       ),
     },
-  ];
+  ], [handleCancel]);
 
   // 历史记录额外展示错误信息列
-  const columns =
-    activeKey === '/job/history'
-      ? [
-          ...baseColumns,
-          {
-            title: '错误信息',
-            dataIndex: 'error_msg',
-            key: 'error_msg',
-            render: (v: string) => v || '-',
-          },
-        ]
-      : baseColumns;
+  const columns = useMemo(() => {
+    if (activeKey === '/job/history') {
+      return [
+        ...baseColumns,
+        {
+          title: '错误信息',
+          dataIndex: 'error_msg',
+          key: 'error_msg',
+          render: (v: string) => v || '-',
+        },
+      ];
+    }
+    return baseColumns;
+  }, [activeKey, baseColumns]);
 
   // 按子路由过滤数据，使每个子菜单项对应真实数据集
-  const currentData =
-    activeKey === '/job/queue'
-      ? jobsData.filter((j) => j.status === 'pending')
-      : activeKey === '/job/history'
-      ? jobsData.filter((j) => ['completed', 'failed', 'cancelled'].includes(j.status))
-      : jobsData;
+  const currentData = useMemo(() => {
+    if (activeKey === '/job/queue') {
+      return jobsData.filter((j) => j.status === 'pending');
+    }
+    if (activeKey === '/job/history') {
+      return jobsData.filter((j) => ['completed', 'failed', 'cancelled'].includes(j.status));
+    }
+    return jobsData;
+  }, [activeKey, jobsData]);
 
   const emptyText: Record<string, { title: string; desc: string }> = {
     '/job/list': { title: '还没有作业', desc: '提交第一个作业后，就可以在这里跟踪它的运行状态。' },
@@ -191,10 +198,20 @@ const JobManagement: React.FC = () => {
         dataSource={currentData}
         rowKey="id"
         pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-        scroll={{ x: 900 }}
+        scroll={{ x: 900, y: 520 }}
+        // 作业列表可能达数百行，启用 antd 虚拟滚动仅渲染可视区行，
+        // 要求行高固定（本表格均为纯文本行，满足条件）。
+        virtual
       />
     );
   };
+
+  // 页头统计数据用 useMemo 缓存，避免每次渲染重复 filter
+  const headerStats = useMemo(() => ({
+    total: jobsData.length,
+    pending: jobsData.filter((j) => j.status === 'pending').length,
+    running: jobsData.filter((j) => j.status === 'running').length,
+  }), [jobsData]);
 
   return (
     <div className="mc-page">
@@ -202,9 +219,9 @@ const JobManagement: React.FC = () => {
         <div className="mc-page-head-main">
           <h1 className="mc-page-title">作业管理</h1>
           <p className="mc-page-desc">
-            共 {jobsData.length} 个作业 · 排队{' '}
-            {jobsData.filter((j) => j.status === 'pending').length} 个 · 运行中{' '}
-            {jobsData.filter((j) => j.status === 'running').length} 个
+            共 {headerStats.total} 个作业 · 排队{' '}
+            {headerStats.pending} 个 · 运行中{' '}
+            {headerStats.running} 个
           </p>
         </div>
         <div className="mc-page-head-extra">

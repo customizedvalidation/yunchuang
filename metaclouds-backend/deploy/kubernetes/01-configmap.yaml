@@ -1,0 +1,313 @@
+# ==============================================================================
+# Metaclouds ConfigMap 集合
+# ==============================================================================
+# 包含三个 ConfigMap：
+#   1. metaclouds-backend-config  — 后端非敏感环境变量（envFrom 注入）
+#   2. metaclouds-frontend-nginx  — 前端 nginx.conf（挂载到 /etc/nginx/conf.d/）
+#   3. metaclouds-prometheus      — Prometheus scrape_configs（可选内嵌）
+#
+# 敏感凭据（JWT / DB 密码 / Redis 密码 / 管理员密码 / CSRF）见 02-secrets.yaml。
+# 环境变量名与 metaclouds-backend/config/config.go 中 getEnv() 读取的键一一对应。
+# ==============================================================================
+
+---
+# ============================================================================
+# 1. 后端环境变量 ConfigMap
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metaclouds-backend-config
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/part-of: metaclouds
+data:
+  # ---- 服务器基础配置 ----
+  # 后端监听端口。代码读取 SERVER_PORT（config.go 默认 8000），
+  # 此处显式设为 8080 以对齐 Service / Ingress / Prometheus annotations。
+  SERVER_PORT: "8080"
+  SERVER_HOST: "0.0.0.0"
+  # 生产环境标识。config.Validate() 会据此强制禁 sqlite、禁内存存储、
+  # 要求 ALLOWED_ORIGINS 非空且不含 '*'、DATABASE_SSL_MODE 非 disable。
+  SERVER_ENV: "production"
+
+  # ---- CORS / 反向代理信任 ----
+  # 生产必配：允许的前端来源，逗号分隔，不得含 '*'（带凭据时 '*' 被浏览器拒绝）。
+  ALLOWED_ORIGINS: "https://app.metaclouds.example.com"
+  # 信任的反向代理 CIDR，用于正确解析 X-Forwarded-For（基于 IP 的限流依赖此值）。
+  # 按集群 Pod CIDR / ingress-nginx controller 所在节点网段调整。
+  TRUSTED_PROXIES: "10.0.0.0/8"
+
+  # ---- 数据库配置（PostgreSQL 16）----
+  # 生产禁用 SQLite（config.Validate 强制）
+  USE_SQLITE: "false"
+  DATABASE_HOST: "postgresql.metaclouds.svc.cluster.local"
+  DATABASE_PORT: "5432"
+  DATABASE_USER: "metaclouds_user"
+  DATABASE_NAME: "metaclouds"
+  # 生产强制非 disable；require 表示要求 SSL 但不校验证书（若有 CA 可改用 verify-full）。
+  DATABASE_SSL_MODE: "require"
+
+  # ---- 内存存储 / Redis 配置 ----
+  # 生产禁用内存存储（重启即丢数据，且无法多实例共享会话）
+  MEMORY_STORE_ENABLED: "false"
+  REDIS_ENABLED: "true"
+  REDIS_HOST: "redis.metaclouds.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+
+  # ---- JWT 配置（密钥本身在 Secret 中）----
+  JWT_EXPIRATION_HOURS: "24"
+  JWT_REFRESH_EXPIRATION_HOURS: "168"
+
+  # ---- 监控 / 可观测性 ----
+  PROMETHEUS_ENABLED: "true"
+  # Prometheus 自身端口（用于后端内部构造查询 URL，非后端 metrics 端口）
+  PROMETHEUS_PORT: "9090"
+  MONITORING_ENABLED: "true"
+  ALERT_ENABLED: "true"
+  METRICS_COLLECTION_INTERVAL_SECONDS: "15"
+  # 分布式追踪（Jaeger）
+  TRACING_ENABLED: "true"
+  TRACING_SERVICE_NAME: "metaclouds-backend"
+  # Jaeger collector endpoint（OTLP / Jaeger thrift）
+  JAEGER_ENDPOINT: "http://jaeger-collector.monitoring.svc.cluster.local:14268/api/traces"
+
+  # ---- K8s 集成 / 调度器 ----
+  K8S_ENABLED: "true"
+  K8S_NAMESPACE: "metaclouds"
+  # 生产关闭模拟模式，真实操作 K8s API
+  K8S_SIMULATION_MODE: "false"
+  SCHEDULER_ENABLED: "true"
+  SCHEDULER_INTERVAL_SECONDS: "10"
+
+  # ---- 配置中心（etcd）----
+  # 若启用 etcd 作为配置中心，设为 true 并配置 ENDPOINTS；
+  # 当前版本配置中心为可选，默认关闭以减少外部依赖。
+  CONFIG_CENTER_ENABLED: "false"
+  CONFIG_CENTER_ENDPOINTS: "etcd.metaclouds.svc.cluster.local:2379"
+  CONFIG_CENTER_PREFIX: "/metaclouds/config/"
+
+  # ---- 限流 / 熔断 ----
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_REQUESTS: "1000"
+  RATE_LIMIT_DURATION_SECONDS: "60"
+  CIRCUIT_BREAKER_ENABLED: "true"
+  CIRCUIT_BREAKER_THRESHOLD: "50"
+  CIRCUIT_BREAKER_TIMEOUT_SECONDS: "30"
+
+  # ---- 日志 ----
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  # 容器环境输出到 stdout，由 kubelet 采集；不写文件（readOnlyRootFilesystem）
+  LOG_OUTPUT: "console"
+
+  # ---- HTTP 超时 / 体大小 ----
+  # 大文件上传（模型 / 数据集），100MB 上限，与 Ingress proxy-body-size 对齐
+  MAX_REQUEST_BODY_SIZE: "104857600"
+  READ_TIMEOUT_SECONDS: "30"
+  WRITE_TIMEOUT_SECONDS: "60"
+  IDLE_TIMEOUT_SECONDS: "120"
+
+  # ---- 分页 / 性能 ----
+  DEFAULT_PAGE_SIZE: "10"
+  MAX_PAGE_SIZE: "100"
+  SLOW_REQUEST_THRESHOLD_MS: "2000"
+
+  # ---- 功能开关 ----
+  FEATURE_GPU_ALLOCATION: "true"
+  FEATURE_JOB_SCHEDULER: "true"
+  FEATURE_MONITORING: "true"
+  FEATURE_SECURITY_POLICIES: "true"
+
+  # ---- 安全 / 注册 ----
+  # 生产禁止开放匿名注册（账号必须由管理员或 IdP 开通）
+  ALLOW_PUBLIC_REGISTRATION: "false"
+  # Cookie SameSite：前端与后端经同一 Ingress 域名部署（同源），lax 即可；
+  # 若前后端跨完全不同域，需改为 none 并配合 CSRF 双提交令牌 + HTTPS。
+  COOKIE_SAME_SITE: "lax"
+  # Cookie Secure：代码在 SERVER_ENV=production 时自动标记 Secure，此变量为预留。
+  COOKIE_SECURE: "true"
+
+---
+# ============================================================================
+# 2. 前端 nginx 配置 ConfigMap
+# ============================================================================
+# 挂载到容器 /etc/nginx/conf.d/default.conf，覆盖镜像内置配置。
+# 监听 80 端口（K8s 标准），SPA fallback + /api 反向代理 + 安全头 + 缓存策略。
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metaclouds-frontend-nginx
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: frontend
+    app.kubernetes.io/part-of: metaclouds
+data:
+  default.conf: |
+    upstream metaclouds_backend {
+        server metaclouds-backend.metaclouds.svc.cluster.local:8080;
+        keepalive 32;
+    }
+
+    server {
+        listen 80;
+        server_name _;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # ---- gzip 压缩 ----
+        gzip on;
+        gzip_vary on;
+        gzip_proxied any;
+        gzip_comp_level 6;
+        gzip_min_length 1024;
+        gzip_types
+            text/plain
+            text/css
+            text/xml
+            text/javascript
+            application/javascript
+            application/x-javascript
+            application/json
+            application/xml
+            application/xml+rss
+            application/vnd.ms-fontobject
+            application/x-font-ttf
+            font/opentype
+            image/svg+xml
+            image/x-icon;
+
+        # ---- 安全响应头 ----
+        # 禁止被嵌入 iframe（防点击劫持）
+        add_header X-Frame-Options "DENY" always;
+        # 禁止 MIME 类型嗅探
+        add_header X-Content-Type-Options "nosniff" always;
+        # Referrer 策略：仅在同源导航时发送完整 URL，跨域仅发送 origin
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        # XSS 防护（现代浏览器已默认，但保留兼容旧浏览器）
+        add_header X-XSS-Protection "1; mode=block" always;
+        # 权限策略：禁用不必要的浏览器 API
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+        # ---- 健康检查端点（不记录日志，避免噪音）----
+        location = /health {
+            access_log off;
+            return 200 "ok\n";
+            add_header Content-Type text/plain;
+        }
+
+        # ---- API 反向代理 ----
+        # 后端路由为 /api/v1/...，保留 /api 前缀透传，不 rewrite。
+        location /api/ {
+            proxy_pass http://metaclouds_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            # WebSocket / SSE 支持（作业日志流式输出）
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_read_timeout 300s;
+            proxy_send_timeout 300s;
+            # 大文件上传
+            client_max_body_size 100m;
+        }
+
+        # ---- 静态资源缓存策略 ----
+        # Vite 构建产物带 hash 的 JS/CSS：长效缓存（1 年，immutable）
+        location /assets/ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+            access_log off;
+        }
+
+        # 图片 / 字体 / 图标：中等缓存
+        location ~* \.(?:jpg|jpeg|gif|png|ico|svg|woff2?|ttf|eot)$ {
+            expires 30d;
+            add_header Cache-Control "public";
+            access_log off;
+        }
+
+        # ---- SPA fallback：所有非文件路由回退到 index.html ----
+        location / {
+            try_files $uri $uri/ /index.html;
+            # index.html 不缓存（确保发布后用户立即拿到新版本）
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # ---- 禁止隐藏文件 ----
+        location ~ /\. {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+    }
+
+---
+# ============================================================================
+# 3. Prometheus 抓取配置 ConfigMap（可选内嵌）
+# ============================================================================
+# 若集群中 Prometheus 通过 ConfigMap 挂载 prometheus.yml，可将此 ConfigMap
+# 的内容合并到 Prometheus 的 scrape_configs 中。
+# 若使用 Prometheus Operator（ServiceMonitor / PodMonitor），则无需此 ConfigMap，
+# 直接创建 ServiceMonitor 即可。此处保留以便裸 Prometheus 部署使用。
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metaclouds-prometheus
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: monitoring
+    app.kubernetes.io/part-of: metaclouds
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: metaclouds-production
+        environment: production
+
+    scrape_configs:
+      # ---- 抓取后端 /metrics 端点 ----
+      - job_name: "metaclouds-backend"
+        metrics_path: /metrics
+        scheme: http
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - metaclouds
+        relabel_configs:
+          # 仅抓取带 prometheus.io/scrape=true annotation 的 Pod
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          # 仅抓取后端组件
+          - source_labels: [__meta_kubernetes_pod_label_component]
+            action: keep
+            regex: "backend"
+          # 使用 annotation 中指定的端口
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+)
+            replacement: $1:${1}
+          # 使用 annotation 中指定的 metrics 路径
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          # 保留 Pod 名作为 instance 标签
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: instance

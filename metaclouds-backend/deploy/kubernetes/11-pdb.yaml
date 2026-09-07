@@ -1,0 +1,43 @@
+# ==============================================================================
+# Metaclouds PodDisruptionBudget
+# ==============================================================================
+# 确保节点维护 / 集群升级期间，自愿中断（eviction）不会导致服务不可用。
+# PDB 仅影响自愿中断（kubectl drain / 节点升级），不影响节点故障等非自愿中断。
+#
+# backend:  minAvailable=2（3 副本中至少 2 个可用，允许同时驱逐 1 个）
+# frontend: minAvailable=1（2 副本中至少 1 个可用，允许同时驱逐 1 个）
+# ==============================================================================
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: metaclouds-backend-pdb
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/part-of: metaclouds
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: metaclouds
+      component: backend
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: metaclouds-frontend-pdb
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: frontend
+    app.kubernetes.io/part-of: metaclouds
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: metaclouds
+      component: frontend

@@ -34,7 +34,8 @@ const Login: React.FC = () => {
   const cardBorder = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(14,23,38,0.08)';
   const inputBg = isDark ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.9)';
   const inputBorder = isDark ? 'rgba(148,163,184,0.20)' : 'rgba(14,23,38,0.12)';
-  const brandGradient = `linear-gradient(135deg, ${brand[500]} 0%, ${brand[600]} 100%)`;
+  // 原型 v1.2 品牌渐变（浅端 #5B3FD9，白字全程 ≥4.6:1）
+  const brandGradient = brand.grad;
 
   useEffect(() => {
     if (isLocked) {
@@ -85,7 +86,8 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div
+    <main
+      aria-label="登录"
       style={{
         minHeight: '100vh',
         display: 'flex',
@@ -284,7 +286,7 @@ const Login: React.FC = () => {
         </div>
       </Card>
 
-    </div>
+    </main>
   );
 };
 

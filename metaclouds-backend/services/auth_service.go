@@ -169,10 +169,14 @@ func (s *AuthService) Login(req LoginRequest) (*LoginResponse, error) {
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
 		s.recordFailure(req.Username)
+		// 业务指标：记录登录失败
+		RecordLoginResult("failure")
 		return nil, errors.Unauthorized("invalid username or password")
 	}
 	if user == nil {
 		s.recordFailure(req.Username)
+		// 业务指标：记录登录失败（用户不存在）
+		RecordLoginResult("failure")
 		return nil, errors.Unauthorized("invalid username or password")
 	}
 
@@ -189,6 +193,9 @@ func (s *AuthService) Login(req LoginRequest) (*LoginResponse, error) {
 	}
 
 	s.recordSuccess(req.Username)
+
+	// 业务指标：记录登录成功
+	RecordLoginResult("success")
 
 	return &LoginResponse{
 		Token:     token,

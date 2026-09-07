@@ -1,0 +1,65 @@
+# ==============================================================================
+# Metaclouds Ingress
+# ==============================================================================
+# 统一入口：app.metaclouds.example.com
+#   /     → frontend service（静态资源 + SPA）
+#   /api  → backend service（API，前缀保留，后端路由为 /api/v1/...）
+#
+# TLS 由 cert-manager 自动签发（需集群已安装 cert-manager + ClusterIssuer）。
+# 若使用其他证书管理方式，替换 tls.secretName 即可。
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: metaclouds-ingress
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    app.kubernetes.io/part-of: metaclouds
+  annotations:
+    # ---- cert-manager：自动签发 TLS 证书 ----
+    # 需提前创建 ClusterIssuer（如 letsencrypt-prod），名称需与此处一致
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # ---- nginx ingress 通用配置 ----
+    # 强制 HTTP → HTTPS 重定向
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # 大文件上传（模型 / 数据集），与后端 MAX_REQUEST_BODY_SIZE 对齐
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    # 后端连接保活
+    nginx.ingress.kubernetes.io/connection-proxy-header: "keep-alive"
+    # WebSocket / SSE（作业日志流式输出）需要较长的读写超时
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # 传递真实客户端 IP
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+    # 限速：每秒 100 请求，突发 200（基于客户端 IP）
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-burst: "200"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - app.metaclouds.example.com
+      # cert-manager 会自动创建此 Secret 并填入证书
+      secretName: metaclouds-tls
+  rules:
+    - host: app.metaclouds.example.com
+      http:
+        paths:
+          # 前端：所有非 /api 路径走 frontend（SPA fallback 由 nginx 处理）
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: metaclouds-frontend
+                port:
+                  number: 80
+          # 后端 API：/api 前缀保留，直接路由到 backend service
+          # 后端实际路由为 /api/v1/...，无需 rewrite
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: metaclouds-backend
+                port:
+                  number: 8080

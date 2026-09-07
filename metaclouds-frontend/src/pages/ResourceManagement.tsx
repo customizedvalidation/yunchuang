@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, Progress, Tag } from 'antd';
 import ResponsiveTable from '../components/ResponsiveTable';
 import { useGetResourcesQuery } from '../store/api';
@@ -10,7 +10,8 @@ const ResourceManagement: React.FC = () => {
   const { data: resources, isLoading, error, refetch } = useGetResourcesQuery(undefined);
   const resourcesData = extractArrayData(resources);
 
-  const columns = [
+  // 列配置用 useMemo 缓存：不随渲染变化，避免 Table 因 columns 引用变化而深比较重渲染
+  const columns = useMemo(() => [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
@@ -19,7 +20,7 @@ const ResourceManagement: React.FC = () => {
     { title: '已用', dataIndex: 'used', key: 'used', width: 90, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
     { title: '可用', dataIndex: 'available', key: 'available', width: 90, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
     { title: '利用率', dataIndex: 'utilization', key: 'utilization', width: 140, render: (util: number) => <Progress percent={util} size="small" /> },
-  ];
+  ], []);
 
   const state = renderState({
     isLoading,
@@ -49,7 +50,9 @@ const ResourceManagement: React.FC = () => {
             dataSource={resourcesData}
             rowKey="id"
             pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-            scroll={{ x: 900 }}
+            scroll={{ x: 900, y: 520 }}
+            // 资源列表可能包含大量 GPU/CPU 节点，启用虚拟滚动
+            virtual
           />
         )}
       </Card>

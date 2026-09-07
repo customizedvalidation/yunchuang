@@ -1,5 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import ReactECharts from 'echarts-for-react';
+// 使用 echarts-for-react 的 core 入口：不默认导入全量 echarts，
+// 必须通过 echarts prop 传入按需注册的实例，从而实现真正的按需打包。
+import ReactEChartsCore from 'echarts-for-react/lib/core';
+// 按需引入的 echarts 实例（仅注册饼图/折线图 + 必要组件），
+// 替代默认全量引入，echarts chunk 体积由 ~1MB 降至 ~300KB。
+import echarts from '../utils/echarts';
 import './ResponsiveChart.css';
 
 interface ResponsiveChartProps {
@@ -16,7 +21,7 @@ interface ResponsiveChartProps {
  *   主动调用 echartsInstance.resize()，避免图表被裁切或留白
  */
 const ResponsiveChart: React.FC<ResponsiveChartProps> = ({ option, size = 'md', className }) => {
-  const chartRef = useRef<ReactECharts>(null);
+  const chartRef = useRef<ReactEChartsCore>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,7 +39,13 @@ const ResponsiveChart: React.FC<ResponsiveChartProps> = ({ option, size = 'md', 
       ref={wrapRef}
       className={`mc-chart mc-chart-${size}${className ? ` ${className}` : ''}`}
     >
-      <ReactECharts ref={chartRef} option={option} notMerge style={{ height: '100%', width: '100%' }} />
+      <ReactEChartsCore
+        ref={chartRef}
+        echarts={echarts}
+        option={option}
+        notMerge
+        style={{ height: '100%', width: '100%' }}
+      />
     </div>
   );
 };

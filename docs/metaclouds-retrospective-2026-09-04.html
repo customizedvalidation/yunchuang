@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Metaclouds（yunchuang）项目全面复盘报告</title>
+<style>
+  :root {
+    --brand: #2F6BFF;
+    --brand-600: #1F52E0;
+    --brand-100: #DCE8FF;
+    --brand-50: #EEF4FF;
+    --success: #12B886;
+    --warning: #F59E0B;
+    --danger: #F0445A;
+    --violet: #7C5CFF;
+    --text-1: #0E1726;
+    --text-2: #4A5B75;
+    --text-3: #7C8DA6;
+    --line: #E4EAF3;
+    --bg: #F5F7FC;
+    --surface: #FFFFFF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text-1); line-height: 1.65;
+    padding: 32px 16px;
+  }
+  .container { max-width: 1080px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1B47C4 0%, #2F6BFF 55%, #5B8BFF 100%);
+    border-radius: 16px; padding: 36px 32px; color: #fff; margin-bottom: 24px;
+  }
+  .header .kicker { font-size: 13px; letter-spacing: 2px; opacity: .85; text-transform: uppercase; }
+  .header h1 { font-size: 30px; margin: 8px 0 6px; font-weight: 700; }
+  .header .sub { font-size: 15px; opacity: .92; }
+  .header .meta { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 18px; font-size: 13px; }
+  .header .meta span { background: rgba(255,255,255,.16); padding: 4px 12px; border-radius: 999px; }
+
+  /* KPI */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .kpi .label { font-size: 12.5px; color: var(--text-3); }
+  .kpi .value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text-1); }
+  .kpi .value small { font-size: 13px; font-weight: 400; color: var(--text-3); }
+  .kpi .hint { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+
+  /* Section */
+  .section { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 24px; margin-bottom: 22px; }
+  .section h2 { font-size: 20px; margin-bottom: 4px; display: flex; align-items: center; gap: 10px; }
+  .section h2 .no { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: var(--brand-50); color: var(--brand-600); font-size: 14px; flex-shrink: 0; }
+  .section .desc { font-size: 13.5px; color: var(--text-3); margin-bottom: 16px; }
+  h3 { font-size: 16px; margin: 18px 0 8px; color: var(--text-1); }
+  p { font-size: 14px; color: var(--text-2); margin-bottom: 8px; }
+  ul { padding-left: 20px; margin-bottom: 10px; }
+  li { font-size: 14px; color: var(--text-2); margin-bottom: 5px; }
+  strong { color: var(--text-1); }
+  code { background: var(--brand-50); color: var(--brand-600); padding: 1px 6px; border-radius: 5px; font-size: 13px; font-family: "SFMono-Regular", Consolas, monospace; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 13.5px; }
+  th { background: var(--brand-50); color: var(--brand-600); text-align: left; padding: 9px 12px; font-weight: 600; border-bottom: 1px solid var(--line); }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--line); color: var(--text-2); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td:first-child, th:first-child { white-space: nowrap; }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .b-green { background: rgba(18,184,134,.12); color: #0E9A6F; }
+  .b-red { background: rgba(240,68,90,.12); color: #D63447; }
+  .b-amber { background: rgba(245,158,11,.14); color: #B97406; }
+  .b-blue { background: rgba(47,107,255,.12); color: var(--brand-600); }
+  .b-gray { background: rgba(124,141,166,.14); color: var(--text-3); }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 26px; }
+  .timeline::before { content: ""; position: absolute; left: 7px; top: 4px; bottom: 4px; width: 2px; background: var(--line); }
+  .tl-item { position: relative; margin-bottom: 20px; }
+  .tl-item::before { content: ""; position: absolute; left: -26px; top: 6px; width: 14px; height: 14px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px var(--line); }
+  .tl-item.p1::before { background: var(--brand); }
+  .tl-item.p2::before { background: var(--danger); }
+  .tl-item.p3::before { background: var(--warning); }
+  .tl-item.p4::before { background: var(--success); }
+  .tl-item.p5::before { background: var(--violet); }
+  .tl-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+  .tl-head .name { font-size: 15px; font-weight: 700; }
+  .tl-head .date { font-size: 12.5px; color: var(--text-3); }
+  .tl-body { margin-top: 5px; }
+  .tl-body p { margin-bottom: 4px; }
+
+  /* Score row */
+  .score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin: 12px 0; }
+  .score { border: 1px solid var(--line); border-radius: 10px; padding: 12px; text-align: center; }
+  .score .d { font-size: 13px; color: var(--text-3); }
+  .score .s { font-size: 18px; font-weight: 700; margin-top: 3px; }
+  .s-good { color: var(--success); } .s-fix { color: var(--warning); } .s-ok { color: var(--brand-600); }
+
+  .callout { background: var(--brand-50); border-left: 4px solid var(--brand); border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 12px 0; font-size: 13.5px; color: var(--text-2); }
+  .callout.warn { background: rgba(245,158,11,.1); border-left-color: var(--warning); }
+  .callout.red { background: rgba(240,68,90,.08); border-left-color: var(--danger); }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } .header { padding: 26px 20px; } .header h1 { font-size: 24px; } }
+
+  .footer { text-align: center; color: var(--text-3); font-size: 12.5px; padding: 12px 0 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="kicker">Metaclouds · Yunchuang · 复盘报告</div>
+    <h1>Metaclouds 算力调度平台 · 全面复盘报告</h1>
+    <div class="sub">从「可运行 Demo」到「安全达标、门禁全绿、已推送远端」的全周期回顾</div>
+    <div class="meta">
+      <span>撰写日期：2026-09-04</span>
+      <span>仓库：github.com/customizedvalidation/yunchuang</span>
+      <span>基线：main @ 8f8a091</span>
+      <span>工作区：D:\YCYD</span>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="label">后端代码</div><div class="value">12,207<small> 行</small></div><div class="hint">85 个 Go 文件 · 20 个测试文件</div></div>
+    <div class="kpi"><div class="label">前端代码</div><div class="value">6,213<small> 行</small></div><div class="hint">47 个 TS/TSX/CSS 文件 · 10 个业务页面</div></div>
+    <div class="kpi"><div class="label">提交规模</div><div class="value">22<small> 笔推送</small></div><div class="hint">远端 main 已完全同步</div></div>
+    <div class="kpi"><div class="label">质量门禁</div><div class="value">全绿</div><div class="hint">go build/vet/test + tsc + vite build + jest 12/12</div></div>
+    <div class="kpi"><div class="label">安全加固</div><div class="value">5<small> 大项</small></div><div class="hint">凭据轮换 / RBAC / httpOnly / CSRF / fail-secure</div></div>
+  </div>
+
+  <div class="section">
+    <h2><span class="no">1</span>项目概览</h2>
+    <div class="desc">一页读懂「这是一个什么样的项目」</div>
+    <p><strong>定位</strong>：企业级云资源管理平台（算力调度平台），提供 GPU 加速计算资源管理、Kubernetes 集群管理、作业调度、监控告警等核心能力，面向多租户的 AI 训练与推理场景。</p>
+    <p><strong>架构风格</strong>：集成式单体（Integrated Monolith），为后续微服务拆分预留边界。</p>
+    <table>
+      <tr><th>分类</th><th>技术</th><th>分类</th><th>技术</th></tr>
+      <tr><td>后端语言</td><td>Go 1.21 + Gin 1.9</td><td>ORM</td><td>GORM 1.25</td></tr>
+      <tr><td>数据库</td><td>PostgreSQL 16（生产）/ SQLite（开发）</td><td>缓存</td><td>Redis 7 / 内存存储（dev）</td></tr>
+      <tr><td>前端</td><td>React 18 + TS + Vite 5 + antd 5 + RTK Query + ECharts + Tailwind 3</td><td>监控</td><td>Prometheus + Grafana + Jaeger</td></tr>
+      <tr><td>配置中心</td><td>etcd 3.5（可观测栈齐备）</td><td>部署</td><td>Docker Compose / Kubernetes 清单</td></tr>
+    </table>
+    <p><strong>后端模块</strong>：auth / cluster / resource / job / k8s / monitoring / tenant / acceleration / security 共 9 个业务服务与控制器；pkg 层含 authz（RBAC）、jwttool、priorityscheduler（优先级调度）、logger、tracing、response 等。</p>
+    <p><strong>前端页面</strong>：Dashboard、JobManagement、ClusterManagement、ResourceManagement、K8SManagement、MultiTenantManagement、AccelerationSuiteManagement、MonitoringAlert、SecurityManagement、Login，共 10 页。</p>
+  </div>
+
+  <div class="section">
+    <h2><span class="no">2</span>阶段演进时间线</h2>
+    <div class="desc">五个阶段，覆盖 2026-05 至 2026-09-03 的完整开发与治理历程</div>
+    <div class="timeline">
+      <div class="tl-item p1">
+        <div class="tl-head"><span class="name">① 初始构建期</span><span class="date">2026-05</span><span class="badge b-blue">奠基</span></div>
+        <div class="tl-body">
+          <p>交付 v1.0 初始版本：JWT 认证、集群/作业/资源/租户管理 API、Swagger 文档、React 仪表盘。v1.1 加入配置中心与全链路追踪，v1.2 加入服务治理（限流/熔断）。</p>
+          <p>2026-05-27 完成全流程最终验证（<code>FINAL_VERIFICATION_REPORT.md</code>）：健康检查、Swagger、前端资源、日志/性能计时全部通过；同步补齐安全响应头（CSP 分环境）、慢请求检测、错误处理重构等。</p>
+        </div>
+      </div>
+      <div class="tl-item p2">
+        <div class="tl-head"><span class="name">② P0 凭据轮换与安全加固</span><span class="date">2026-08-30 ~ 08-31</span><span class="badge b-red">安全攻坚</span></div>
+        <div class="tl-body">
+          <p>发现两处严重问题：真实 <code>.env</code> 曾被 force-add 入库、默认口令 <code>Admin@123!</code> 硬编码。采取 8 步闭环：完整备份 → 代码去硬编码（<code>bootstrap_credentials.go</code> 生产缺失即拒启动）→ 轮换全部凭据（≥24 字符）→ <code>git filter-branch</code> 重写历史（27MiB→279KiB，密钥零残留）→ pre-commit 密钥扫描钩子 → 前端泄露提示清理与 dist 脱敏 → 外部轮换 runbook + <code>rotate_*.sh</code> 可执行脚本 → K8s secrets 改为 fail-secure 模板。</p>
+          <p>同期完成 MDS 设计系统（UI 高保真原型 + 设计规范）与 8 个业务页面 MDS 收口，后端扁平化纳入单一仓库（3 笔本地提交）。</p>
+        </div>
+      </div>
+      <div class="tl-item p3">
+        <div class="tl-head"><span class="name">③ 全栈 RBAC 与质量收敛</span><span class="date">2026-09-01</span><span class="badge b-amber">权限收敛</span></div>
+        <div class="tl-body">
+          <p><strong>后端</strong>：<code>pkg/authz</code> 完整接入路由，写操作/敏感资源全部挂 <code>RequirePermission</code>（越权请求 403）；注册开关、令牌续期死机制移除、中间件栈统一；租户/作业/集群/资源负值入参以 400 拒绝；<code>go test -race</code> 实证无数据竞争。</p>
+          <p><strong>前端</strong>：全站消除 <code>any</code> 类型化；401 处理修复；菜单/路由按 role 收敛（<code>/tenant</code> 仅 admin/manager）；profile/refresh 契约对齐 + 静默续期；操作级写按钮用 <code>&lt;Can&gt;</code> 收敛 16 处。</p>
+          <p><strong>验证</strong>：引入 CDP 真实浏览器（无头 Chrome）验证登录流、RBAC 接线、按钮可见性；交付 <code>docs/rbac-permission-convergence.md</code> 前后端对照清单。</p>
+        </div>
+      </div>
+      <div class="tl-item p4">
+        <div class="tl-head"><span class="name">④ 前端响应式改版</span><span class="date">2026-09-02</span><span class="badge b-green">体验升级</span></div>
+        <div class="tl-body">
+          <p>PRD 目标「自适应不同分辨率 + 国际一流水准」被拆解为 8 项可测量目标（G1–G8：零横向溢出、零遮挡、零 JS 布局抖动、8 档断点连续覆盖、44px 触控、超宽屏收敛、功能零回归、暗色零回归）。</p>
+          <p>M1 地基：8 档断点单一真相源 + 纯 CSS Grid 布局（去 <code>window.innerWidth</code>）+ 侧边栏 Drawer/遮罩/Esc + Tailwind 接入；M2 表格卡片化：<code>ResponsiveTable</code> 接入 10 张表（<code>scroll.x</code> 硬编码归零）；M3 仪表盘：<code>DraggableGrid</code> 断点 span + <code>ResponsiveChart</code> ResizeObserver 令牌化高度；M4 补齐：触控 44px 命中区、弹窗窄屏全屏、登录页 clamp，并以四档视口 × 明暗双主题 CDP 走查全绿收口。</p>
+          <p>续项：R3-b 侧边栏宽度真相合并、Q6 密度切换（紧凑/舒适）、R15 内联魔法值收敛、R19 监控页分栏、vendor chunk 拆分（echarts/antd/react-vendor/vendor）。</p>
+        </div>
+      </div>
+      <div class="tl-item p5">
+        <div class="tl-head"><span class="name">⑤ 生产复盘 · 安全加固 · 远端推送</span><span class="date">2026-09-03</span><span class="badge b-blue">收官</span></div>
+        <div class="tl-body">
+          <p>八维度生产复盘（安全/代码/构建/测试/性能/部署/可观测/文档）：修复前端 Dockerfile 3 处真实缺陷（<code>/app/build</code>→<code>/app/dist</code>、node:18→22、<code>npm ci</code>）、后端 Dockerfile 构建 flags 优化、compose SERVER_ENV 参数化；离线完成生产二进制编译（23MB 静态）、生产配置校验正/负例、<code>/health</code> 端到端。</p>
+          <p>五点建议落地：前端 Jest 单测 12/12、grafana 弱口令彻底移除、仓库卫生、<strong>JWT 迁移 httpOnly Cookie</strong>、CSRF 双提交令牌 + SameSite 可配置。真实浏览器 e2e <strong>捕获并修复「生产路由漏挂 CSRF」</strong>这一关键安全漏防。</p>
+          <p>GitHub 远端推送闭环：识别「无共同祖先」破坏性分叉，经用户确认强制推送，先并入远端 README，重试循环突破间歇性网络阻断，22 笔提交完全同步。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2><span class="no">3</span>多维度复盘评分</h2>
+    <div class="desc">基于各阶段复盘报告与验证证据的现状评级</div>
+    <div class="score-grid">
+      <div class="score"><div class="d">安全</div><div class="s s-good">良好</div></div>
+      <div class="score"><div class="d">代码质量</div><div class="s s-good">良好</div></div>
+      <div class="score"><div class="d">构建</div><div class="s s-good">良好</div></div>
+      <div class="score"><div class="d">测试</div><div class="s s-good">后端全覆盖 / 前端偏弱</div></div>
+      <div class="score"><div class="d">性能</div><div class="s s-good">良好</div></div>
+      <div class="score"><div class="d">部署</div><div class="s s-fix">已修复·待真机验证</div></div>
+      <div class="score"><div class="d">可观测性</div><div class="s s-good">良好</div></div>
+      <div class="score"><div class="d">文档</div><div class="s s-good">良好</div></div>
+    </div>
+    <table>
+      <tr><th>门禁项</th><th>结果</th><th>证据</th></tr>
+      <tr><td>后端编译</td><td><span class="badge b-green">通过</span></td><td><code>go build ./...</code> 0 错误；<code>go vet</code> 0 错误</td></tr>
+      <tr><td>后端测试</td><td><span class="badge b-green">通过</span></td><td><code>go test -count=1 ./...</code> 去缓存真跑全绿（config/middlewares/priorityscheduler/services/tests 全 ok，FAIL 0）</td></tr>
+      <tr><td>前端类型检查</td><td><span class="badge b-green">通过</span></td><td><code>tsc --noEmit</code> 0 错误，strict + noUnusedLocals 全绿</td></tr>
+      <tr><td>前端构建</td><td><span class="badge b-green">通过</span></td><td><code>vite build</code> 成功（20s+），路由级懒加载 + vendor 分包生效</td></tr>
+      <tr><td>前端单测</td><td><span class="badge b-green">通过</span></td><td><code>npx jest</code> 12 passed / 12 total（RBAC 鉴权矩阵纯逻辑）</td></tr>
+      <tr><td>真实浏览器 e2e</td><td><span class="badge b-green">通过</span></td><td>CDP 驱动：登录流、RBAC、按钮收敛、四档视口走查、CSRF 拦截均验证</td></tr>
+      <tr><td>生产配置校验</td><td><span class="badge b-green">通过</span></td><td>负例（production+sqlite）被拒；正例 dry-run 全通过</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2><span class="no">4</span>安全加固成果</h2>
+    <div class="desc">从「密钥泄露 + 弱口令 + localStorage JWT」到「纵深防御」</div>
+    <table>
+      <tr><th>威胁面</th><th>处置</th><th>状态</th></tr>
+      <tr><td>真实 .env 入库</td><td>git 历史重写清除 + pre-commit 密钥扫描钩子（阶段 0 阻断）</td><td><span class="badge b-green">已闭环</span></td></tr>
+      <tr><td>硬编码默认口令</td><td>生产缺失变量拒绝启动；非生产生成随机 24 位口令</td><td><span class="badge b-green">已闭环</span></td></tr>
+      <tr><td>越权访问</td><td>后端 <code>RequirePermission</code> fail-closed 强制 + 前端 <code>&lt;Can&gt;</code> UX 收敛，16 处无越权盲区</td><td><span class="badge b-green">已闭环</span></td></tr>
+      <tr><td>JWT 存 localStorage（XSS 风险）</td><td>迁移 httpOnly + Secure（仅生产）+ SameSite（可配置）Cookie；<code>credentials:'include'</code></td><td><span class="badge b-green">已闭环</span></td></tr>
+      <tr><td>CSRF</td><td>双提交令牌（常量时间比较）+ Cookie SameSite 可配置 + CORS 放行 <code>X-CSRF-Token</code></td><td><span class="badge b-green">已闭环</span></td></tr>
+      <tr><td>弱口令兜底</td><td>三份 compose 全部 fail-fast（<code>:?</code>），Grafana 弱口令清零</td><td><span class="badge b-green">已闭环</span></td></tr>
+      <tr><td>K8s 弱密钥</td><td>secrets 改为无值 fail-secure 模板，部署前用生成脚本从轮换凭据生成</td><td><span class="badge b-green">已闭环</span></td></tr>
+      <tr><td>负值/非法入参</td><td>租户/作业/集群/资源四域 <code>binding:"gte=0"</code>，400 拒绝</td><td><span class="badge b-green">已闭环</span></td></tr>
+    </table>
+    <div class="callout red">关键复盘点：安全中间件曾只挂在测试路由（<code>api.SetupRouter</code>），而 <code>main.go</code> 自建路由未调用，造成「测试有、生产无」的假绿。真实浏览器 e2e 才暴露并修复——验证安全控制必须驱动真实运行的服务。</div>
+  </div>
+
+  <div class="section">
+    <h2><span class="no">5</span>做得好的地方</h2>
+    <div class="desc">沉淀为团队 SOP 的可复用实践</div>
+    <ul>
+      <li><strong>安全优先、纵深防御</strong>：P0 凭据事件从备份 → 轮换 → 历史重写 → 钩子防再发全链路闭环，且每步可逆（bundle 回滚）。</li>
+      <li><strong>先实证再动配置</strong>：一度假设 sqlite 需 CGO 会破坏 <code>CGO_ENABLED=0</code>，经强制全量重编译实证假设不成立后回退，避免静态二进制退化。</li>
+      <li><strong>破坏性操作前征求用户</strong>：面对「无共同祖先」强制推送，摆清三个选项与后果让用户拍板，而非自行决定。</li>
+      <li><strong>覆盖前抢救存量内容</strong>：强制推送前将远端真实 README 并入本地历史（<code>c119538</code>），零丢失。</li>
+      <li><strong>验证不靠「构建绿」</strong>：引入 CDP 真实浏览器（Fetch 域注入假数据信封）做四档视口 × 明暗双主题走查，把「构建通过」与「行为正确」分开证明。</li>
+      <li><strong>网络失败按间歇性处理</strong>：单次 push 失败不判死，重试循环第 3 次即成功；管道退出码判断（<code>git push | tail</code> 会误报）教训已沉淀。</li>
+      <li><strong>文档贯穿始终</strong>：PRD、设计文档、复盘报告、部署 Runbook、权限对照清单、验证报告六类文档齐备且互相引用。</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2><span class="no">6</span>问题与教训</h2>
+    <div class="desc">踩过的坑与改进建议</div>
+    <table>
+      <tr><th>类别</th><th>问题</th><th>改进建议</th></tr>
+      <tr><td>工具链</td><td>同文件多处并行 Edit 竞态导致 import 行被回滚丢失（两次出现，靠构建门禁抓出）</td><td>同文件多处修改顺序单发，改后立即编译验证；grep 用法同时核对 import 行</td></tr>
+      <tr><td>环境</td><td>沙箱 safe-delete shim 对源码 <code>git rm</code>/<code>rm</code> 触发级联删除整棵 <code>src/</code> 树</td><td>源码删除类操作一律规避，用「就地收敛 / 注释」替代</td></tr>
+      <tr><td>验证</td><td>「测试绿 ≠ 生产有」：安全中间件只挂在测试路由，生产漏挂 CSRF</td><td>回归测试直接对「生产装配」发请求断言；安全控制必须驱动真实服务验证</td></tr>
+      <tr><td>限流</td><td>429 限流多次中断架构师/工程师子代理</td><td>主理人代拟兜底；分批工具调用降低长输出触发概率</td></tr>
+      <tr><td>依赖</td><td><code>@ant-design/icons</code> 未声明却使用（依赖 hoist）；锁文件镜像域名 502</td><td>重装须基于原锁文件结构仅替换镜像域名，勿删锁重解析</td></tr>
+      <tr><td>测试</td><td>前端仅 12 个纯逻辑单测，无组件级 RTL</td><td>有网环境补 jsdom + React Testing Library 组件冒烟测试</td></tr>
+      <tr><td>部署</td><td>真实 docker compose up / K8s 部署未执行（离线无 Docker）</td><td>按 Runbook 在目标机执行并闭环验证</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2><span class="no">7</span>遗留事项与后续建议</h2>
+    <div class="desc">按优先级排列，需在有网 / 目标机环境处理</div>
+    <h3>P0（部署与安全）</h3>
+    <ul>
+      <li><strong>真实部署</strong>：在目标机按 <code>docs/production-review-2026-09-03.md</code> Runbook 执行（K8s 推荐路径 / Docker Compose / 裸二进制三选一），验证 <code>/health</code> 与登录链路。</li>
+      <li><strong>外部系统轮换</strong>：在真实环境执行 <code>D:/YCYD/scripts/rotate_all.sh</code>，让旧凭据在 PostgreSQL/Redis/Grafana/JWT 消费方真正失效。</li>
+      <li><strong>备份目录处置</strong>：确认新凭据落地后清理/加密迁移 <code>.credential-rotation-backup-20260831-035733/</code>（含明文凭据）。</li>
+    </ul>
+    <h3>P1（质量与安全增强）</h3>
+    <ul>
+      <li>前端组件级 RTL 测试（需 jsdom）；优先覆盖 <code>&lt;Can&gt;</code> RBAC 渲染与 <code>ResponsiveTable</code>/<code>ResponsiveChart</code> 断点行为。</li>
+      <li>依赖漏洞扫描：有网环境执行 <code>govulncheck</code>（当前离线无法拉取 vuln DB）。</li>
+      <li>监控指标真实化：CPU/内存指标目前为内存仿真模拟值，生产建议接入 node_exporter。</li>
+    </ul>
+    <h3>P2（体验迭代）</h3>
+    <ul>
+      <li>表格操作列 sticky 右固定 + 大列表虚拟滚动、仪表盘卡片尺寸档位记忆、路由切换过渡动效、无障碍增强（Skip to content / WCAG AA）等（PRD P2 池）。</li>
+    </ul>
+    <div class="callout warn">环境边界说明：本复盘全部验证基于离线 Windows 沙箱。真实 Docker/K8s 部署、跨域 SameSite=None 的浏览器往返、https 下 Secure Cookie 生效三项，必须在目标环境补验一次。</div>
+  </div>
+
+  <div class="section">
+    <h2><span class="no">8</span>结论</h2>
+    <div class="desc">最终交付状态</div>
+    <p>Metaclouds（yunchuang）项目在 2026-05 至 2026-09-03 间完成了从初始搭建到生产级治理的全周期演进：<strong>安全上</strong>消除了密钥泄露与弱口令存量、建立了 RBAC 纵深防御与 CSRF/httpOnly Cookie 会话体系；<strong>质量上</strong>后端 build/vet/test 与前端 tsc/build/jest 全绿；<strong>体验上</strong>前端完成响应式改版并通过四档视口真机走查；<strong>交付上</strong>22 笔提交已推送 GitHub 远端完全同步。</p>
+    <p>系统处于<strong>「可交付验证状态」</strong>：唯一剩余的硬性缺口是离线环境无法执行的真实生产部署与外部系统凭据轮换，这两项均已有明确的 Runbook/脚本，待目标机环境执行即可闭环。</p>
+  </div>
+
+  <div class="footer">Metaclouds · 全面复盘报告 · 2026-09-04 · 数据来源：D:\YCYD 仓库文档、.workbuddy/memory 工作日志、docs 复盘报告</div>
+</div>
+</body>
+</html>

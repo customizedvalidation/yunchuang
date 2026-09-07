@@ -1,0 +1,207 @@
+# ==============================================================================
+# Metaclouds 后端 Deployment
+# ==============================================================================
+# Go 1.24 + Gin 静态二进制，3 副本，滚动更新零宕机。
+# 健康检查依赖 DB 连通性（/health 端点会探测 PostgreSQL）。
+#
+# 镜像 tag 通过 CI/CD 注入：kubectl set image deployment/metaclouds-backend \
+#   metaclouds-backend=ghcr.io/customizedvalidation/yunchuang/backend:${GIT_SHA}
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metaclouds-backend
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/name: metaclouds-backend
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # 记录镜像构建来源，便于追踪
+    metaclouds.io/description: "Metaclouds 企业级算力调度平台后端 API"
+spec:
+  replicas: 3
+  # 滚动更新策略：maxUnavailable=0 确保更新期间不减少可用副本数
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: metaclouds
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: metaclouds
+        component: backend
+        app.kubernetes.io/name: metaclouds-backend
+        app.kubernetes.io/part-of: metaclouds
+        app.kubernetes.io/component: backend
+      annotations:
+        # Prometheus 自动发现 annotations
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+        # 配置变更时触发滚动更新（checksum）
+        # kubectl annotate deployment metaclouds-backend \
+        #   metaclouds.io/config-checksum="$(sha256sum 01-configmap.yaml | cut -d' ' -f1)"
+        metaclouds.io/config-checksum: "PLACEHOLDER"
+    spec:
+      # 使用专用 ServiceAccount（见 10-serviceaccount.yaml），不使用 default
+      serviceAccountName: metaclouds-backend
+      # 安全上下文：Pod 级别
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # 拓扑分布约束：跨节点均匀分布，避免单节点故障导致全部不可用
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: metaclouds
+              component: backend
+        # 跨可用区分布（若集群有 topology.kubernetes.io/zone 标签）
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: metaclouds
+              component: backend
+      # 优雅终止：给在途请求 30 秒完成时间
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: metaclouds-backend
+          # 镜像占位：CI 构建时注入真实 tag（如 git commit SHA）。
+          # 生产禁止使用 latest tag（不可追溯、无法回滚）。
+          image: ghcr.io/customizedvalidation/yunchuang/backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          # 环境变量：从 ConfigMap 注入所有非敏感配置
+          envFrom:
+            - configMapRef:
+                name: metaclouds-backend-config
+          # 敏感凭据：从 Secret 注入（键名映射到环境变量名）
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: jwt-secret
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: database-password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: redis-password
+            - name: DEFAULT_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: default-admin-password
+            - name: CSRF_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: csrf-secret
+          # 资源请求与限制
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          # ---- 健康检查 ----
+          # startupProbe：给慢启动（DB 连接池初始化、迁移）留足时间，
+          # 最多 30 * 5 = 150 秒。成功后才激活 liveness/readiness。
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          # livenessProbe：检测进程是否存活，失败则重启容器
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          # readinessProbe：检测是否可接收流量，失败则从 Service 摘除
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          # 容器安全上下文
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
+          # 只读根文件系统需要可写的临时目录
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /run/metaclouds
+          # 生命周期钩子：优雅关闭
+          lifecycle:
+            preStop:
+              exec:
+                # 等待 5 秒让 Ingress / Service 控制器更新端点，
+                # 避免在终止期间仍有新流量路由到正在关闭的 Pod
+                command: ["/bin/sh", "-c", "sleep 5"]
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: "100Mi"
+        - name: run
+          emptyDir:
+            sizeLimit: "10Mi"
+      # 镜像拉取 Secret（若 GHCR 为私有仓库，需创建 docker-registry secret）
+      # imagePullSecrets:
+      #   - name: ghcr-pull-secret
+      # 节点选择器：优先调度到生产节点池
+      # nodeSelector:
+      #   node-pool: production
+      # 容忍：允许调度到专用节点
+      # tolerations:
+      #   - key: "dedicated"
+      #     operator: "Equal"
+      #     value: "metaclouds"
+      #     effect: "NoSchedule"

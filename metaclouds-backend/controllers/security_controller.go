@@ -10,10 +10,10 @@ import (
 )
 
 type SecurityController struct {
-	securityService *services.SecurityService
+	securityService SecurityServiceInterface
 }
 
-func NewSecurityController(securityService *services.SecurityService) *SecurityController {
+func NewSecurityController(securityService SecurityServiceInterface) *SecurityController {
 	return &SecurityController{
 		securityService: securityService,
 	}

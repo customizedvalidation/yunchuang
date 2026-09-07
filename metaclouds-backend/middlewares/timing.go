@@ -7,19 +7,26 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"metaclouds-backend/pkg/logger"
+	"metaclouds-backend/services"
 )
 
 func TimingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
+		services.HTTPRequestsInFlight.Inc()
+		defer services.HTTPRequestsInFlight.Dec()
 
 		c.Next()
 
 		duration := time.Since(start)
-
 		method := c.Request.Method
 		path := c.Request.URL.Path
 		statusCode := c.Writer.Status()
+
+		// 记录 Prometheus HTTP 指标
+		services.HTTPRequestsTotal.WithLabelValues(method, path, strconv.Itoa(statusCode)).Inc()
+		services.HTTPRequestDurationSeconds.WithLabelValues(method, path).Observe(duration.Seconds())
+
 		clientIP := c.ClientIP()
 
 		if statusCode >= 500 {
@@ -53,6 +60,8 @@ func TimingMiddleware() gin.HandlerFunc {
 func TimingMiddlewareWithThreshold(threshold time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
+		services.HTTPRequestsInFlight.Inc()
+		defer services.HTTPRequestsInFlight.Dec()
 
 		c.Next()
 
@@ -62,6 +71,10 @@ func TimingMiddlewareWithThreshold(threshold time.Duration) gin.HandlerFunc {
 		path := c.Request.URL.Path
 		statusCode := c.Writer.Status()
 		clientIP := c.ClientIP()
+
+		// 记录 Prometheus HTTP 指标
+		services.HTTPRequestsTotal.WithLabelValues(method, path, strconv.Itoa(statusCode)).Inc()
+		services.HTTPRequestDurationSeconds.WithLabelValues(method, path).Observe(duration.Seconds())
 
 		overThreshold := duration > threshold
 
