@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState, useEffect } from 'react';
+﻿import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { Layout, Menu, Tooltip, Badge } from 'antd';
 import type { MenuProps } from 'antd';
 
@@ -288,20 +288,21 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse, mobileOpen }) 
       <div className="logo">
         {!collapsed && (
           <>
-            <h1 className="logo-title">Metaclouds</h1>
+            {/* 品牌 logo 不参与文档大纲，用 div 而非 h1（页面标题才是唯一的 h1） */}
+            <div className="logo-title">Metaclouds</div>
             <span className="logo-subtitle">算力调度平台</span>
           </>
         )}
       </div>
 
-      <div
+      <button
+        type="button"
         className="collapse-btn"
-        onClick={() => {
-          onCollapse(!collapsed);
-        }}
+        onClick={() => onCollapse(!collapsed)}
+        aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
       >
         <LeftOutlined />
-      </div>
+      </button>
 
       <div className="menu-container">
         <Menu
@@ -312,6 +313,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse, mobileOpen }) 
           openKeys={openKeys}
           onOpenChange={(keys) => setOpenKeys(keys as string[])}
           onClick={handleMenuClick}
+          aria-label="主导航"
         />
       </div>
 
@@ -319,10 +321,15 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse, mobileOpen }) 
         title={collapsed ? '退出登录' : ''}
         placement="right"
       >
-        <div className="logout-btn" onClick={logout}>
+        <button
+          type="button"
+          className="logout-btn"
+          onClick={logout}
+          aria-label="退出登录"
+        >
           <LogoutOutlined />
           {!collapsed && <span>退出登录</span>}
-        </div>
+        </button>
       </Tooltip>
     </Sider>
   );

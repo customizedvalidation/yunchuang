@@ -458,3 +458,20 @@
     right: calc(var(--sidebar-collapse-btn-size) / -2 + 1px);
   }
 }
+
+/* 无障碍：将原 div 按钮改为 <button> 后，重置浏览器默认 button 样式，保持外观不变 */
+.metaclouds-sidebar .collapse-btn,
+.metaclouds-sidebar .logout-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  letter-spacing: inherit;
+  border: none;
+}
+.metaclouds-sidebar .collapse-btn:focus-visible,
+.metaclouds-sidebar .logout-btn:focus-visible {
+  outline: 2px solid var(--mc-brand, #2f6bff);
+  outline-offset: 2px;
+}

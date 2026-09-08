@@ -386,9 +386,11 @@ const Dashboard: React.FC = () => {
                 const level = String(item.level ?? 'info');
                 const color = statusColor[level] ?? colors.text3;
                 return (
+                  /* 用语义 div 替代 List.Item.Meta：antd 的 meta-title 固定渲染 h4，
+                     会使标题层级从 h1 跳到 h4（WCAG 1.3.1）；此处内容本就不是标题 */
                   <List.Item style={{ padding: '12px 0' }}>
-                    <List.Item.Meta
-                      title={
+                    <div style={{ width: '100%' }}>
+                      <div style={{ marginBottom: 4 }}>
                         <Space>
                           <span className={`mc-status ${level === 'critical' ? 'failed' : 'pending'}`}>
                             <i className="mc-status-dot" style={{ background: color }} />
@@ -396,13 +398,11 @@ const Dashboard: React.FC = () => {
                           </span>
                           <span>{String(item.message ?? item.title ?? '未知告警')}</span>
                         </Space>
-                      }
-                      description={
-                        <span style={{ fontSize: 12.5, color: 'var(--mc-text-3)' }}>
-                          {String(item.details ?? item.description ?? '暂无详情')}
-                        </span>
-                      }
-                    />
+                      </div>
+                      <div style={{ fontSize: 12.5, color: 'var(--mc-text-3)' }}>
+                        {String(item.details ?? item.description ?? '暂无详情')}
+                      </div>
+                    </div>
                   </List.Item>
                 );
               }}

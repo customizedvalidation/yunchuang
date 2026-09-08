@@ -41,10 +41,12 @@ const LayoutComponent: React.FC<LayoutProps> = ({ children }) => {
         mobileOpen ? 'is-mobile-open' : ''
       }`}
     >
+      {/* Skip to content：键盘用户按 Tab 首个聚焦项，回车直达主内容区（WCAG 2.4.1） */}
+      <a href="#main-content" className="mc-skip-link">跳转到主内容</a>
       <Sidebar collapsed={collapsed} onCollapse={setCollapsed} mobileOpen={mobileOpen} />
       <div className="mc-app-main">
         <Topbar onMenuClick={() => setMobileOpen(true)} />
-        <main className="mc-app-content">{children}</main>
+        <main id="main-content" className="mc-app-content" tabIndex={-1}>{children}</main>
       </div>
       <div
         className="mc-app-overlay"

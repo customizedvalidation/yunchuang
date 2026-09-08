@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useLoginMutation } from '../store/api';
 import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, App, Alert } from 'antd';
-import { LockOutlined, UserOutlined, EyeOutlined } from '@ant-design/icons';
+import { LockOutlined, UserOutlined } from '@ant-design/icons';
 import { useThemeMode } from '../theme/ThemeModeContext';
 import { getNeutral, brand } from '../theme/tokens';
 import './Login.css';
@@ -22,7 +22,7 @@ const Login: React.FC = () => {
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
   const [lockTime, setLockTime] = useState(0);
-  const [, setShowPassword] = useState(false);
+  
 
   const { mode } = useThemeMode();
   const neutral = getNeutral(mode);
@@ -100,6 +100,7 @@ const Login: React.FC = () => {
     >
       <div
         className="float-animation"
+        aria-hidden="true"
         style={{
           position: 'absolute',
           top: -200,
@@ -113,6 +114,7 @@ const Login: React.FC = () => {
       />
       <div
         className="float-animation"
+        aria-hidden="true"
         style={{
           position: 'absolute',
           bottom: -150,
@@ -126,6 +128,7 @@ const Login: React.FC = () => {
       />
       <div
         className="float-animation"
+        aria-hidden="true"
         style={{
           position: 'absolute',
           top: '30%',
@@ -235,12 +238,6 @@ const Login: React.FC = () => {
               placeholder="请输入密码"
               disabled={isLoading || isLocked}
               prefix={<LockOutlined style={{ color: neutral.text3 }} />}
-              iconRender={(visible) => (
-                <EyeOutlined
-                  style={{ color: neutral.text3, cursor: 'pointer' }}
-                  onClick={() => setShowPassword(!visible)}
-                />
-              )}
               style={{
                 background: inputBg,
                 border: `1px solid ${inputBorder}`,

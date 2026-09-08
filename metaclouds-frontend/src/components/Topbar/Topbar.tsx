@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+﻿import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Badge, Dropdown, Tooltip } from 'antd';
 import { useGetAlertsQuery, csrfHeaders } from '../../store/api';
@@ -117,7 +117,7 @@ const Topbar: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
             </span>
           </>
         )}
-        <b className="mc-crumb-page">{page}</b>
+        <b className="mc-crumb-page" aria-current="page">{page}</b>
       </nav>
 
       <button
