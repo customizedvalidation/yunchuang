@@ -1,4 +1,4 @@
-package tests
+﻿package tests
 
 import (
 	"net/http"
@@ -41,6 +41,12 @@ func TestRouter_CSRFEnforcedOnProtectedRoutes(t *testing.T) {
 	accelerationService := services.NewAccelerationService(db, cfg)
 	securityService := services.NewSecurityService(db, cfg)
 	k8sService := services.NewK8SService(db, cfg)
+	gpuService := services.NewGPUService(db, cfg)
+	partitionService := services.NewPartitionService(db, cfg)
+	quotaService := services.NewQuotaService(db, cfg)
+	schedulerService := services.NewSchedulerService(db, cfg)
+	topologyService := services.NewTopologyService(db, cfg)
+
 	jobService := services.NewJobService(db, cfg, k8sService)
 
 	authController := controllers.NewAuthController(authService)
@@ -52,10 +58,17 @@ func TestRouter_CSRFEnforcedOnProtectedRoutes(t *testing.T) {
 	accelerationController := controllers.NewAccelerationController(accelerationService)
 	securityController := controllers.NewSecurityController(securityService)
 	k8sController := controllers.NewK8SController(k8sService)
+	gpuController := controllers.NewGPUController(gpuService)
+	partitionController := controllers.NewPartitionController(partitionService)
+	quotaController := controllers.NewQuotaController(quotaService)
+	schedulerController := controllers.NewSchedulerController(schedulerService)
+	topologyController := controllers.NewTopologyController(topologyService)
+	datasetController := controllers.NewDatasetController(accelerationService)
+	checkpointController := controllers.NewCheckpointController(accelerationService)
 
 	// 与 main.go 完全一致的装配方式。
 	r := api.SetupRouter(cfg)
-	api.RegisterRoutes(r, cfg, authController, clusterController, resourceController, jobController, monitoringController, tenantController, accelerationController, securityController, k8sController)
+	api.RegisterRoutes(r, cfg, authController, clusterController, resourceController, jobController, monitoringController, tenantController, accelerationController, securityController, k8sController, gpuController, partitionController, quotaController, schedulerController, topologyController, datasetController, checkpointController)
 
 	tg := jwttool.NewTokenGenerator(cfg.JWTSecret, 1)
 	token, _, err := tg.GenerateToken(jwttool.TokenClaims{

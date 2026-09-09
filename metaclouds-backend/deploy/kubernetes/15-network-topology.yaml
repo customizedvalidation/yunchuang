@@ -1,0 +1,466 @@
+# ==============================================================================
+# Metaclouds 网络拓扑与 RDMA 配置
+# ==============================================================================
+# 对应 skill.md §4.1「AI 网络资源」与 §4.3「通信优化：RDMA」。
+# 展示 RoCE / InfiniBand 高速网络配置、三网隔离（管理网/存储网/计算网）、
+# RDMA 设备插件、以及 GPU 网络亲和性调度示例。
+#
+# 重要说明：
+#   - NetworkAttachmentDefinition 需要 Multus CNI 插件，本清单为配置示例
+#   - RDMA 设备插件（rdma-shared-device-plugin）需单独部署
+#   - 实际 RDMA 配置依赖真实硬件（支持 RoCEv2 的网卡或 InfiniBand HCA）
+#   - 注释部分为需要外部组件的配置，取消注释前请确保对应组件已安装
+# ==============================================================================
+
+---
+# ============================================================================
+# 1. RoCE 网络配置（NetworkAttachmentDefinition）
+# ============================================================================
+# 需要 Multus CNI 插件：https://github.com/k8snetworkplumbingwg/multus-cni
+# 部署 Multus 后，取消下方注释即可创建 RoCE 网络附件定义。
+# RoCE（RDMA over Converged Ethernet）在以太网上实现 RDMA，
+# 需要网卡支持 RoCEv2，并配置 PFC（优先级流量控制）和 ECN（显式拥塞通知）。
+# ============================================================================
+# apiVersion: k8s.cni.cncf.io/v1
+# kind: NetworkAttachmentDefinition
+# metadata:
+#   name: roce-network
+#   namespace: metaclouds
+#   labels:
+#     app: metaclouds
+#     component: network-topology
+#     network-type: roce
+#   annotations:
+#     metaclouds.io/description: "RoCEv2 高速计算网络，用于分布式训练节点间通信"
+# spec:
+#   config: |
+#     {
+#       "cniVersion": "0.3.1",
+#       "name": "roce-network",
+#       "type": "macvlan",
+#       "master": "eth1",
+#       "mode": "bridge",
+#       "ipam": {
+#         "type": "host-local",
+#         "subnet": "10.100.0.0/16",
+#         "rangeStart": "10.100.1.0",
+#         "rangeEnd": "10.100.254.254",
+#         "gateway": "10.100.0.1"
+#       }
+#     }
+#
+# ---
+# RoCE 网络配置说明：
+#   - master: "eth1" 为 RoCE 网卡设备名，按实际环境修改
+#   - subnet: 10.100.0.0/16 为计算网网段，与管理网/存储网隔离
+#   - PFC/ECN 需在交换机和网卡驱动层面配置，不在 K8s 清单范围内
+#   - NCCL 环境变量配置（见 17-job-templates.yaml）：
+#       NCCL_IB_DISABLE=0
+#       NCCL_IB_GID_INDEX=3
+#       NCCL_SOCKET_IFNAME=eth1
+#       NCCL_NET_GDR_LEVEL=5
+
+---
+# ============================================================================
+# 2. InfiniBand 网络配置（NetworkAttachmentDefinition）
+# ============================================================================
+# 需要 Multus CNI + InfiniBand CNI 插件。
+# InfiniBand 提供更低延迟和更高带宽，适合超大规模分布式训练。
+# ============================================================================
+# apiVersion: k8s.cni.cncf.io/v1
+# kind: NetworkAttachmentDefinition
+# metadata:
+#   name: ib-network
+#   namespace: metaclouds
+#   labels:
+#     app: metaclouds
+#     component: network-topology
+#     network-type: infiniband
+#   annotations:
+#     metaclouds.io/description: "InfiniBand 高速计算网络"
+# spec:
+#   config: |
+#     {
+#       "cniVersion": "0.3.1",
+#       "name": "ib-network",
+#       "type": "ib-sriov",
+#       "deviceID": "mlx5_0",
+#       "isRdma": true,
+#       "ipam": {
+#         "type": "host-local",
+#         "subnet": "10.101.0.0/16",
+#         "gateway": "10.101.0.1"
+#       }
+#     }
+#
+# ---
+# InfiniBand 配置说明：
+#   - deviceID: "mlx5_0" 为 IB HCA 设备名，按实际环境修改
+#   - isRdma: true 启用 RDMA 支持
+#   - 需要 ib-sriov-cni 插件和 RDMA shared device plugin
+#   - NCCL 环境变量：
+#       NCCL_IB_DISABLE=0
+#       NCCL_IB_HCA=mlx5
+#       NCCL_IB_GID_INDEX=3
+
+---
+# ============================================================================
+# 3. 三网隔离 NetworkPolicy（管理网 / 存储网 / 计算网）
+# ============================================================================
+# 通过 NetworkPolicy 实现三类网络流量的逻辑隔离：
+#   - 管理网（management）：集群管理、API 调用、监控采集
+#   - 存储网（storage）：Ceph/NFS 存储访问、数据读写
+#   - 计算网（compute）：分布式训练节点间 RDMA 通信、NCCL 集合通信
+#
+# 物理隔离需多网卡 + 交换机 VLAN 配置，NetworkPolicy 实现逻辑层面的
+# 流量控制，防止训练流量干扰管理流量。
+# ============================================================================
+
+# ---- 管理网 NetworkPolicy：允许监控采集和 API 访问 ----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metaclouds-management-network
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: network-policy
+    network-zone: management
+spec:
+  podSelector:
+    matchLabels:
+      app: metaclouds
+  policyTypes:
+    - Ingress
+  ingress:
+    # 允许 Prometheus 监控采集（管理网）
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080  # backend metrics
+        - protocol: TCP
+          port: 9090  # prometheus
+    # 允许 ingress-nginx 访问（管理网入口）
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 8080
+
+---
+# ---- 存储网 NetworkPolicy：允许存储访问 ----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metaclouds-storage-network
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: network-policy
+    network-zone: storage
+spec:
+  podSelector:
+    matchLabels:
+      app: metaclouds
+      component: backend
+  policyTypes:
+    - Egress
+  egress:
+    # 允许访问 Ceph RBD（存储网）
+    - to:
+        - ipBlock:
+            cidr: 10.200.0.0/16  # 存储网网段，按实际环境修改
+      ports:
+        - protocol: TCP
+          port: 6789  # Ceph MON
+        - protocol: TCP
+          port: 6800  # Ceph OSD 起始端口
+        - protocol: TCP
+          port: 6801
+        - protocol: TCP
+          port: 6802
+    # 允许访问 NFS（存储网）
+    - to:
+        - ipBlock:
+            cidr: 10.200.0.0/16
+      ports:
+        - protocol: TCP
+          port: 2049  # NFS
+        - protocol: TCP
+          port: 111   # rpcbind
+
+---
+# ---- 计算网 NetworkPolicy：允许训练节点间通信 ----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metaclouds-compute-network
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: network-policy
+    network-zone: compute
+spec:
+  podSelector:
+    matchLabels:
+      app: metaclouds
+      component: training-job
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 允许同命名空间内训练节点间通信（计算网）
+    - from:
+        - podSelector:
+            matchLabels:
+              app: metaclouds
+              component: training-job
+      # 放行所有端口，NCCL 使用动态端口
+      # 生产环境建议限制为 NCCL 端口范围（如 20000-30000）
+  egress:
+    # 允许训练节点间出站通信
+    - to:
+        - podSelector:
+            matchLabels:
+              app: metaclouds
+              component: training-job
+    # 允许访问存储（读取训练数据）
+    - to:
+        - ipBlock:
+            cidr: 10.200.0.0/16
+      ports:
+        - protocol: TCP
+          port: 2049
+        - protocol: TCP
+          port: 6789
+
+---
+# ============================================================================
+# 4. RDMA 设备插件 DaemonSet（注释形式）
+# ============================================================================
+# 需要 rdma-shared-device-plugin：
+#   https://github.com/Mellanox/k8s-rdma-shared-dev-plugin
+# 部署后，K8s 节点会暴露 rdma/hca 或 rdma/rdma_shared 资源，
+# Pod 可通过 resources.limits 请求 RDMA 设备。
+#
+# 部署命令：
+#   kubectl apply -f https://raw.githubusercontent.com/Mellanox/k8s-rdma-shared-dev-plugin/master/deployments/rdma-shared-dev-plugin.yml
+#
+# 配置 ConfigMap（指定哪些网卡提供 RDMA 资源）：
+# ============================================================================
+# apiVersion: v1
+# kind: ConfigMap
+# metadata:
+#   name: rdma-devices
+#   namespace: kube-system
+# data:
+#   config.json: |
+#     {
+#       "configList": [
+#         {
+#           "resourceName": "rdma_shared",
+#           "rdmaHcaMax": 1000,
+#           "selectors": {
+#             "vendors": ["15b3"],
+#             "deviceIDs": ["1017"],
+#             "ifNames": ["eth1"]
+#           }
+#         }
+#       ]
+#     }
+#
+# ---
+# apiVersion: apps/v1
+# kind: DaemonSet
+# metadata:
+#   name: rdma-shared-dp-ds
+#   namespace: kube-system
+# spec:
+#   selector:
+#     matchLabels:
+#       name: rdma-shared-dp-ds
+#   template:
+#     metadata:
+#       labels:
+#         name: rdma-shared-dp-ds
+#     spec:
+#       hostNetwork: true
+#       tolerations:
+#         - key: nvidia.com/gpu
+#           operator: Exists
+#           effect: NoSchedule
+#       containers:
+#         - name: k8s-rdma-shared-dp
+#           image: mellanox/k8s-rdma-shared-dev-plugin:latest
+#           imagePullPolicy: IfNotPresent
+#           securityContext:
+#             privileged: true
+#           volumeMounts:
+#             - name: device-plugin
+#               mountPath: /var/lib/kubelet/device-plugins
+#             - name: config
+#               mountPath: /k8s-rdma-shared-dev-plugin
+#       volumes:
+#         - name: device-plugin
+#           hostPath:
+#             path: /var/lib/kubelet/device-plugins
+#         - name: config
+#           configMap:
+#             name: rdma-devices
+#
+# ---
+# Pod 请求 RDMA 资源示例：
+#   resources:
+#     limits:
+#       rdma/rdma_shared: 1
+#       nvidia.com/gpu: 1
+
+---
+# ============================================================================
+# 5. GPU 网络亲和性调度示例（podAffinity）
+# ============================================================================
+# 使用 podAffinity 和 topologySpreadConstraints 实现：
+#   - 同作业的训练 Pod 优先调度到同一网络交换机下（减少跨交换机通信）
+#   - 避免同一作业的 Pod 集中在同一节点（节点级反亲和）
+#   - GPU 节点与 RDMA 网卡的亲和性（GPU 直连 RDMA 网卡的节点优先）
+# ============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-gpu-network-affinity
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: training-job
+    job-name: distributed-training-001
+  annotations:
+    metaclouds.io/job-type: "distributed-training"
+    metaclouds.io/network-requirement: "rdma"
+    metaclouds.io/topology-preference: "same-switch"
+spec:
+  affinity:
+    # Pod 亲和：同作业的 Pod 优先调度到同一网络交换机
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: metaclouds
+                component: training-job
+                job-name: distributed-training-001
+            topologyKey: "network.metaclouds.io/switch-id"
+            namespaces:
+              - team-algorithm
+    # Pod 反亲和：同作业 Pod 不调度到同一节点
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: metaclouds
+              component: training-job
+              job-name: distributed-training-001
+          topologyKey: "kubernetes.io/hostname"
+          namespaces:
+            - team-algorithm
+    # 节点亲和：优先调度到有 RDMA 网卡且 GPU 直连 RDMA 的节点
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: network.metaclouds.io/rdma
+                operator: In
+                values:
+                  - "true"
+        - weight: 80
+          preference:
+            matchExpressions:
+              - key: network.metaclouds.io/gpu-direct-rdma
+                operator: In
+                values:
+                  - "true"
+  # 拓扑分布约束：跨机架均匀分布
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: "topology.kubernetes.io/zone"
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app: metaclouds
+          component: training-job
+          job-name: distributed-training-001
+  nodeSelector:
+    gpu-vendor: nvidia
+    gpu-model: A100
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  containers:
+    - name: training
+      image: nvcr.io/nvidia/pytorch:23.10-py3
+      resources:
+        requests:
+          cpu: "8"
+          memory: "32Gi"
+          nvidia.com/gpu: "2"
+          # rdma/rdma_shared: "1"  # 取消注释以请求 RDMA 设备
+        limits:
+          cpu: "16"
+          memory: "64Gi"
+          nvidia.com/gpu: "2"
+          # rdma/rdma_shared: "1"
+      env:
+        - name: NCCL_IB_DISABLE
+          value: "0"
+        - name: NCCL_IB_GID_INDEX
+          value: "3"
+        - name: NCCL_SOCKET_IFNAME
+          value: "eth1"
+        - name: NCCL_NET_GDR_LEVEL
+          value: "5"
+        - name: NCCL_DEBUG
+          value: "INFO"
+
+---
+# ============================================================================
+# 6. 网络拓扑配置说明（注释）
+# ============================================================================
+# 三网物理拓扑规划：
+#
+#   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+#   │  管理网交换机 │    │  存储网交换机 │    │  计算网交换机 │
+#   │  10.0.0.0/16 │    │ 10.200.0.0/16│   │ 10.100.0.0/16│
+#   │  (1G/10G)    │    │   (25G)      │    │ (100G RoCE/IB)│
+#   └──────┬──────┘    └──────┬──────┘    └──────┬──────┘
+#          │                  │                  │
+#   ┌──────┴──────────────────┴──────────────────┴──────┐
+#   │              GPU 计算节点（多网卡）                  │
+#   │  eth0(管理)  eth1(存储)  eth2(计算/RDMA)  GPU×8    │
+#   └───────────────────────────────────────────────────┘
+#
+# 节点标签建议（集群管理员设置）：
+#   network.metaclouds.io/rdma=true          # 节点有 RDMA 网卡
+#   network.metaclouds.io/gpu-direct-rdma=true  # GPU 与 RDMA 网卡直连（PCIe/NVLink）
+#   network.metaclouds.io/switch-id=switch-01  # 节点连接的交换机 ID
+#   network.metaclouds.io/roce=true           # 支持 RoCEv2
+#   network.metaclouds.io/ib=true             # 支持 InfiniBand
+#
+# NCCL 环境变量速查：
+#   NCCL_IB_DISABLE=0          # 启用 IB/RoCE
+#   NCCL_IB_GID_INDEX=3        # RoCEv2 GID 索引
+#   NCCL_SOCKET_IFNAME=eth1    # NCCL 通信网卡
+#   NCCL_NET_GDR_LEVEL=5       # GPUDirect RDMA 级别
+#   NCCL_DEBUG=INFO            # 调试日志
+#   NCCL_ALGO=Ring             # 集合通信算法
+#   NCCL_PROTO=Simple          # 通信协议
+# ==============================================================================

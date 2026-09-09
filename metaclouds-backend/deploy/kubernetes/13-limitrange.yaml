@@ -1,0 +1,179 @@
+# ==============================================================================
+# Metaclouds 单 Pod 资源范围限制（LimitRange）
+# ==============================================================================
+# 对应 skill.md §4.2「LimitRange：限制单个 Pod 的资源使用范围」。
+# 为每个团队 Namespace 设置 Pod 和 Container 级别的资源上下限与默认值。
+#
+# 限制规则：
+#   最小 CPU: 100m,  最大 CPU: 16
+#   最小内存: 128Mi, 最大内存: 64Gi
+#   最小 GPU: 0,     最大 GPU: 8
+#   默认 CPU request: 500m, 默认 CPU limit: 2
+#   默认内存 request: 512Mi, 默认内存 limit: 4Gi
+#   默认 GPU request: 0, 默认 GPU limit: 1
+#
+# 包含两种类型：
+#   - Container：适用于每个容器，设置默认 request/limit 和最大/最小值
+#   - Pod：适用于整个 Pod（所有容器之和），设置最大资源上限
+#
+# 前置条件：Namespace 已在 00-namespace.yaml 中创建。
+# ==============================================================================
+
+---
+# ============================================================================
+# 1. team-infra LimitRange
+# ============================================================================
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: team-infra-limits
+  namespace: team-infra
+  labels:
+    app: metaclouds
+    component: limit-range
+    team: infra
+    app.kubernetes.io/part-of: metaclouds
+  annotations:
+    metaclouds.io/description: "基础服务团队单 Pod 资源范围限制"
+spec:
+  limits:
+    # ---- Container 级别限制 ----
+    - type: Container
+      # 默认资源请求（用户未指定时自动注入）
+      defaultRequest:
+        cpu: "500m"
+        memory: "512Mi"
+        nvidia.com/gpu: "0"
+      # 默认资源上限（用户未指定时自动注入）
+      default:
+        cpu: "2"
+        memory: "4Gi"
+        nvidia.com/gpu: "1"
+      # 最小资源请求（用户指定的 request 不得低于此值）
+      min:
+        cpu: "100m"
+        memory: "128Mi"
+        nvidia.com/gpu: "0"
+      # 最大资源上限（用户指定的 limit 不得高于此值）
+      max:
+        cpu: "16"
+        memory: "64Gi"
+        nvidia.com/gpu: "8"
+    # ---- Pod 级别限制（所有容器资源之和）----
+    - type: Pod
+      max:
+        cpu: "16"
+        memory: "64Gi"
+        nvidia.com/gpu: "8"
+
+---
+# ============================================================================
+# 2. team-data LimitRange
+# ============================================================================
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: team-data-limits
+  namespace: team-data
+  labels:
+    app: metaclouds
+    component: limit-range
+    team: data
+    app.kubernetes.io/part-of: metaclouds
+  annotations:
+    metaclouds.io/description: "数据分析团队单 Pod 资源范围限制"
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: "500m"
+        memory: "512Mi"
+        nvidia.com/gpu: "0"
+      default:
+        cpu: "2"
+        memory: "4Gi"
+        nvidia.com/gpu: "1"
+      min:
+        cpu: "100m"
+        memory: "128Mi"
+        nvidia.com/gpu: "0"
+      max:
+        cpu: "16"
+        memory: "64Gi"
+        nvidia.com/gpu: "8"
+    - type: Pod
+      max:
+        cpu: "16"
+        memory: "64Gi"
+        nvidia.com/gpu: "8"
+
+---
+# ============================================================================
+# 3. team-algorithm LimitRange
+# ============================================================================
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: team-algorithm-limits
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: limit-range
+    team: algorithm
+    app.kubernetes.io/part-of: metaclouds
+  annotations:
+    metaclouds.io/description: "算法训练团队单 Pod 资源范围限制"
+    metaclouds.io/gpu-note: "分布式训练多机多卡场景下，单 Pod 最多 8 GPU，多 Pod 通过 Job 编排"
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: "500m"
+        memory: "512Mi"
+        nvidia.com/gpu: "0"
+      default:
+        cpu: "2"
+        memory: "4Gi"
+        nvidia.com/gpu: "1"
+      min:
+        cpu: "100m"
+        memory: "128Mi"
+        nvidia.com/gpu: "0"
+      max:
+        cpu: "16"
+        memory: "64Gi"
+        nvidia.com/gpu: "8"
+    - type: Pod
+      max:
+        cpu: "16"
+        memory: "64Gi"
+        nvidia.com/gpu: "8"
+
+---
+# ============================================================================
+# 4. LimitRange 行为说明（注释）
+# ============================================================================
+# 生效规则：
+#   1. 用户提交 Pod 时未指定 resources.requests → 注入 defaultRequest
+#   2. 用户提交 Pod 时未指定 resources.limits   → 注入 default
+#   3. 用户指定的 request < min → 拒绝创建（Forbidden）
+#   4. 用户指定的 limit > max   → 拒绝创建（Forbidden）
+#   5. Pod 级别 max 限制所有容器资源之和，超出则拒绝
+#
+# GPU 细粒度与 LimitRange：
+#   - nvidia.com/gpu 在 K8s 原生为整数资源，LimitRange 的 min/max 为整数
+#   - 1/2 GPU、1/4 GPU 通过 MIG 资源名（如 nvidia.com/mig-1g.5gb）请求，
+#     不受本 LimitRange 的 nvidia.com/gpu 限制，需在 Metaclouds 平台层校验
+#   - Metaclouds GPU 管理服务在提交前会将细粒度请求换算为等效整卡，
+#     并校验是否超出 Namespace ResourceQuota
+#
+# 查看 LimitRange：
+#   kubectl describe limitrange team-infra-limits -n team-infra
+#   kubectl describe limitrange team-data-limits -n team-data
+#   kubectl describe limitrange team-algorithm-limits -n team-algorithm
+#
+# 调整建议：
+#   - 推理服务：可降低 default CPU/memory，提高 GPU limit 上限
+#   - 训练作业：保持较高 default memory，避免 OOM
+#   - 数据预处理：提高 CPU limit，GPU request 设为 0
+# ==============================================================================

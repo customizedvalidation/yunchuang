@@ -15,7 +15,7 @@
 import * as echarts from 'echarts/core';
 
 // 图表类型：仅注册项目实际使用的
-import { PieChart, LineChart } from 'echarts/charts';
+import { PieChart, LineChart, BarChart } from 'echarts/charts';
 
 // 组件：Tooltip（提示框）、Legend（图例）、Title（标题）、Grid（直角坐标系网格）
 import {
@@ -32,6 +32,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 echarts.use([
   PieChart,
   LineChart,
+  BarChart,
   TooltipComponent,
   LegendComponent,
   TitleComponent,

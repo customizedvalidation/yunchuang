@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Card,
   Statistic,
@@ -9,6 +9,7 @@ import {
   Segmented,
   Skeleton,
   Tooltip,
+  Tag,
 } from 'antd';
 import ResponsiveChart from '../components/ResponsiveChart';
 import {
@@ -23,12 +24,16 @@ import {
   useGetResourcesQuery,
   useGetJobsQuery,
   useGetAlertsQuery,
+  useGetGPUDevicesQuery,
+  useGetPartitionsQuery,
+  useGetSchedulerIntegrationsQuery,
 } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { ErrorState, EmptyState } from '../components/States';
 import DraggableGrid, { type GridItem } from '../components/DraggableGrid';
 import { useThemeMode } from '../theme/ThemeModeContext';
 import { chartPalette, getNeutral, statusColor, statusText } from '../theme/tokens';
+import type { GPUVendor } from '../types';
 
 const STORAGE_KEY = 'mc-dashboard-layout-v1';
 
@@ -39,6 +44,9 @@ const DEFAULT_ORDER = [
   'kpi-alerts',
   'chart-resource',
   'chart-job',
+  'chart-gpu-vendor',
+  'kpi-partition',
+  'kpi-scheduler',
   'alerts',
 ];
 
@@ -67,6 +75,20 @@ const readLayout = (): Layout => {
   }
 };
 
+const VENDOR_LABEL: Record<GPUVendor, string> = {
+  nvidia: 'NVIDIA',
+  enflame: '燧原',
+  moore_threads: '摩尔线程',
+  domestic_x: '国产X',
+};
+
+const VENDOR_COLOR: Record<GPUVendor, string> = {
+  nvidia: '#76b900',
+  enflame: '#2f6bff',
+  moore_threads: '#7c5cff',
+  domestic_x: '#fa8c16',
+};
+
 const Dashboard: React.FC = () => {
   const { mode } = useThemeMode();
   const colors = useMemo(() => getNeutral(mode), [mode]);
@@ -79,11 +101,17 @@ const Dashboard: React.FC = () => {
     useGetJobsQuery(undefined);
   const { data: alerts, isLoading: alertsLoading, error: alertsError, refetch: refetchAlerts } =
     useGetAlertsQuery(undefined);
+  const { data: gpuDevices } = useGetGPUDevicesQuery({});
+  const { data: partitions } = useGetPartitionsQuery({});
+  const { data: schedulers } = useGetSchedulerIntegrationsQuery();
 
   const clustersData = extractArrayData(clusters);
   const resourcesData = extractArrayData(resources);
   const jobsData = extractArrayData(jobs);
   const alertsData = extractArrayData(alerts);
+  const gpuDevicesData = gpuDevices ?? [];
+  const partitionsData = partitions ?? [];
+  const schedulersData = schedulers ?? [];
 
   const [layout, setLayout] = useState<Layout>(readLayout);
   const [editable, setEditable] = useState(false);
@@ -113,6 +141,34 @@ const Dashboard: React.FC = () => {
   const pendingJobs = jobsData.filter((j: { status: string }) => j.status === 'pending').length;
   const totalJobs = jobsData.length;
   const alertCount = alertsData.length;
+
+  // 分区统计
+  const partitionStats = useMemo(() => ({
+    total: partitionsData.length,
+    active: partitionsData.filter((p) => p.status === 'active').length,
+    maintenance: partitionsData.filter((p) => p.status === 'maintenance').length,
+  }), [partitionsData]);
+
+  // 调度器统计
+  const schedulerStats = useMemo(() => ({
+    total: schedulersData.length,
+    active: schedulersData.filter((s) => s.status === 'active').length,
+    error: schedulersData.filter((s) => s.status === 'error').length,
+  }), [schedulersData]);
+
+  // GPU 厂商分布
+  const gpuVendorData = useMemo(() => {
+    const groups: Record<string, number> = {};
+    gpuDevicesData.forEach((d) => {
+      const key = d.vendor ?? 'unknown';
+      groups[key] = (groups[key] ?? 0) + 1;
+    });
+    return Object.entries(groups).map(([vendor, value]) => ({
+      value,
+      name: VENDOR_LABEL[vendor as GPUVendor] ?? vendor,
+      itemStyle: { color: VENDOR_COLOR[vendor as GPUVendor] ?? colors.text3 },
+    }));
+  }, [gpuDevicesData, colors.text3]);
 
   const hasError = clustersError || resourcesError || jobsError || alertsError;
   const isLoading = clustersLoading || resourcesLoading || jobsLoading || alertsLoading;
@@ -190,6 +246,31 @@ const Dashboard: React.FC = () => {
       ],
     }),
     [jobStatusData, colors],
+  );
+
+  // GPU 厂商分布饼图 option
+  const gpuVendorOption = useMemo(
+    () => ({
+      tooltip: { trigger: 'item' as const, formatter: '{b}: {c} 张 ({d}%)' },
+      legend: {
+        bottom: 0,
+        itemWidth: 10,
+        itemHeight: 10,
+        textStyle: { color: colors.text3, fontSize: 12 },
+      },
+      series: [
+        {
+          type: 'pie' as const,
+          radius: ['52%', '74%'],
+          center: ['50%', '44%'],
+          avoidLabelOverlap: true,
+          itemStyle: { borderRadius: 8, borderColor: colors.surface, borderWidth: 2 },
+          label: { show: true, color: colors.text3, fontSize: 12, formatter: '{d}%' },
+          data: gpuVendorData,
+        },
+      ],
+    }),
+    [gpuVendorData, colors],
   );
 
   const handleReorder = (ids: string[]) => setLayout((prev) => ({ ...prev, order: ids }));
@@ -374,6 +455,55 @@ const Dashboard: React.FC = () => {
       ),
     },
     {
+      id: 'chart-gpu-vendor',
+      span: { xs: 12, sm: 12, md: 12, lg: 6, xl: 6, '2xl': 6 },
+      title: 'GPU 厂商分布',
+      node: (
+        <Card title="GPU 厂商分布" extra={<span style={{ fontSize: 12, color: 'var(--mc-text-3)' }}>共 {gpuDevicesData.length} 张</span>}>
+          {gpuVendorData.length > 0 ? (
+            <ResponsiveChart option={gpuVendorOption} size="md" />
+          ) : (
+            <EmptyState
+              title="暂无 GPU 设备"
+              description="登记 GPU 设备后，这里会按厂商展示分布。"
+            />
+          )}
+        </Card>
+      ),
+    },
+    {
+      id: 'kpi-partition',
+      span: { xs: 12, sm: 12, md: 6, lg: 6, xl: 3, '2xl': 3 },
+      title: '分区状态',
+      node: (
+        <Card styles={{ body: { padding: 20 } }}>
+          <Statistic title="分区总数" value={partitionStats.total} suffix=" 个" />
+          <div style={{ marginTop: 8 }}>
+            <Space size={8}>
+              <Tag color="green">活跃 {partitionStats.active}</Tag>
+              <Tag color="orange">维护 {partitionStats.maintenance}</Tag>
+            </Space>
+          </div>
+        </Card>
+      ),
+    },
+    {
+      id: 'kpi-scheduler',
+      span: { xs: 12, sm: 12, md: 6, lg: 6, xl: 3, '2xl': 3 },
+      title: '调度器集成',
+      node: (
+        <Card styles={{ body: { padding: 20 } }}>
+          <Statistic title="调度器总数" value={schedulerStats.total} suffix=" 个" />
+          <div style={{ marginTop: 8 }}>
+            <Space size={8}>
+              <Tag color="green">活跃 {schedulerStats.active}</Tag>
+              {schedulerStats.error > 0 && <Tag color="red">异常 {schedulerStats.error}</Tag>}
+            </Space>
+          </div>
+        </Card>
+      ),
+    },
+    {
       id: 'alerts',
       span: { xs: 12, sm: 12, md: 12, lg: 12, xl: 12, '2xl': 12 },
       title: '最近告警',
@@ -386,8 +516,6 @@ const Dashboard: React.FC = () => {
                 const level = String(item.level ?? 'info');
                 const color = statusColor[level] ?? colors.text3;
                 return (
-                  /* 用语义 div 替代 List.Item.Meta：antd 的 meta-title 固定渲染 h4，
-                     会使标题层级从 h1 跳到 h4（WCAG 1.3.1）；此处内容本就不是标题 */
                   <List.Item style={{ padding: '12px 0' }}>
                     <div style={{ width: '100%' }}>
                       <div style={{ marginBottom: 4 }}>
@@ -423,7 +551,7 @@ const Dashboard: React.FC = () => {
       .filter((c): c is GridItem => Boolean(c));
     return editable ? ordered : ordered.filter((c) => !layout.hidden.includes(c.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout, editable, clusterCount, utilization, runningJobs, alertCount, totalJobs, pendingJobs, gpuUsed, gpuTotal, jobStatusData, resourceOption, jobOption, alertsData]);
+  }, [layout, editable, clusterCount, utilization, runningJobs, alertCount, totalJobs, pendingJobs, gpuUsed, gpuTotal, jobStatusData, resourceOption, jobOption, gpuVendorOption, alertsData, partitionStats, schedulerStats, gpuDevicesData.length]);
 
   const skeletonCards = (
     <div className="dg">

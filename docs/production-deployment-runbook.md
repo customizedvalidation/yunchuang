@@ -1,9 +1,9 @@
 # Metaclouds 生产部署 Runbook
 
-> **版本**：v1.0（2026-09-07）
+> **版本**：v1.1（2026-09-09）
 > **适用环境**：Kubernetes 生产集群
 > **部署方式**：Kustomize（`kubectl apply -k`）
-> **关联文档**：[生产落地复盘（2026-09-03）](./production-review-2026-09-03.md)
+> **关联文档**：[生产落地复盘（2026-09-03）](./production-review-2026-09-03.md)、[优化报告](./optimization-report.md)
 
 ---
 
@@ -20,6 +20,13 @@
 9. [日志查看](#9-日志查看)
 10. [监控接入](#10-监控接入)
 11. [备份与恢复](#11-备份与恢复)
+12. [高级功能配置](#12-高级功能配置2026-09-09-新增)
+    - [12.1 多租户资源配额](#121-多租户资源配额resourcequota--limitrange)
+    - [12.2 多 GPU 厂商节点池](#122-多-gpu-厂商节点池配置)
+    - [12.3 网络拓扑与 RDMA](#123-网络拓扑与-rdma-配置)
+    - [12.4 Fluid 数据加速](#124-fluid-数据加速集成)
+    - [12.5 Slurm/LSF/SGE 集成](#125-slurm--lsf--sge-集成配置)
+    - [12.6 数据库迁移 000004](#126-数据库迁移-000004-执行说明)
 
 ---
 
@@ -229,7 +236,23 @@ kubectl apply -f 09-networkpolicy.yaml
 # 10. PDB
 kubectl apply -f 11-pdb.yaml
 
-# 11. 备份 CronJob（保留原有文件）
+# 11. 多租户资源配额（新增，对应 skill.md §4.2）
+kubectl apply -f 12-resourcequota.yaml
+kubectl apply -f 13-limitrange.yaml
+
+# 12. 多 GPU 厂商节点池配置（新增，对应 skill.md §4.1）
+kubectl apply -f 14-gpu-node-pools.yaml
+
+# 13. 网络拓扑与 RDMA 配置（新增，对应 skill.md §4.1/§4.3）
+kubectl apply -f 15-network-topology.yaml
+
+# 14. Fluid 数据加速集成（新增，对应 skill.md §4.4，需先安装 Fluid）
+kubectl apply -f 16-fluid-integration.yaml
+
+# 15. 作业模板与调度策略（新增，对应 skill.md §4.3/§4.4）
+kubectl apply -f 17-job-templates.yaml
+
+# 16. 备份 CronJob（保留原有文件）
 kubectl apply -f backup-cronjob.yaml
 ```
 
@@ -743,6 +766,357 @@ curl -f https://app.metaclouds.example.com/api/v1/health
 
 ---
 
+## 12. 高级功能配置（2026-09-09 新增）
+
+### 12.1 多租户资源配额（ResourceQuota / LimitRange）
+
+对应 `12-resourcequota.yaml` 和 `13-limitrange.yaml`，为三个团队 Namespace 设置资源配额。
+
+#### 部署前提
+
+三个团队 Namespace 已由 `00-namespace.yaml` 创建：
+- `team-infra`：基础服务团队（2 GPU, 4 CPU, 8Gi memory）
+- `team-data`：数据分析团队（4 GPU, 8 CPU, 16Gi memory）
+- `team-algorithm`：算法训练团队（8 GPU, 16 CPU, 32Gi memory）
+
+#### 部署步骤
+
+```bash
+# 部署 ResourceQuota（GPU/CPU/内存/PVC/Pod 总量限制）
+kubectl apply -f 12-resourcequota.yaml
+
+# 部署 LimitRange（单 Pod/Container 资源上下限与默认值）
+kubectl apply -f 13-limitrange.yaml
+```
+
+#### 验证
+
+```bash
+# 查看各 Namespace 配额使用情况
+kubectl describe resourcequota -n team-infra
+kubectl describe resourcequota -n team-data
+kubectl describe resourcequota -n team-algorithm
+
+# 查看 LimitRange
+kubectl describe limitrange -n team-infra
+kubectl describe limitrange -n team-data
+kubectl describe limitrange -n team-algorithm
+```
+
+#### GPU 细粒度说明
+
+- 1/2 GPU、1/4 GPU 通过 NVIDIA MIG（A100）或 vGPU（T4）实现
+- ResourceQuota 的 `requests.nvidia.com/gpu` 按等效整卡计数
+- 细粒度分配由 Metaclouds GPU 管理服务换算，K8s 层通过 MIG 资源名（如 `nvidia.com/mig-1g.5gb`）调度
+- 显存超发（oversubscription）在 Metaclouds 平台层配置，K8s ResourceQuota 不直接限制显存
+
+#### 调整配额
+
+```bash
+# 临时调整（不推荐，应修改 yaml 文件后重新 apply）
+kubectl patch resourcequota team-algorithm-quota -n team-algorithm \
+  -p '{"spec":{"hard":{"requests.nvidia.com/gpu":"16"}}}'
+
+# 推荐：修改 12-resourcequota.yaml 后重新 apply
+kubectl apply -f 12-resourcequota.yaml
+```
+
+### 12.2 多 GPU 厂商节点池配置
+
+对应 `14-gpu-node-pools.yaml`，支持 NVIDIA（A100/T4）、燧原、摩尔线程、国产 X 五类 GPU 节点池。
+
+#### 节点标签与污点设置
+
+集群管理员需为 GPU 节点设置标签和污点：
+
+```bash
+# NVIDIA A100 节点池
+kubectl label nodes <a100-node> gpu-vendor=nvidia gpu-model=A100
+kubectl taint nodes <a100-node> nvidia.com/gpu=true:NoSchedule
+
+# NVIDIA T4 节点池（无污点，可同时运行 CPU 任务）
+kubectl label nodes <t4-node> gpu-vendor=nvidia gpu-model=T4
+
+# 燧原节点池
+kubectl label nodes <enflame-node> gpu-vendor=enflame gpu-model=ENflame-T20
+kubectl taint nodes <enflame-node> enflame.com/gpu=true:NoSchedule
+
+# 摩尔线程节点池
+kubectl label nodes <mt-node> gpu-vendor=moore_threads gpu-model=MTT-S80
+kubectl taint nodes <mt-node> moorethreads.com/gpu=true:NoSchedule
+
+# 国产 X 节点池
+kubectl label nodes <dx-node> gpu-vendor=domestic_x
+kubectl taint nodes <dx-node> domestic-x.com/gpu=true:NoSchedule
+```
+
+#### 部署节点池配置
+
+```bash
+# 部署节点池配置 ConfigMap（供 Metaclouds 平台读取元数据）
+kubectl apply -f 14-gpu-node-pools.yaml
+```
+
+#### 验证
+
+```bash
+# 查看节点标签
+kubectl get nodes -L gpu-vendor,gpu-model
+
+# 查看节点污点
+kubectl describe nodes | grep -A5 Taints
+
+# 测试调度到特定厂商节点
+kubectl run test-a100 --image=nvcr.io/nvidia/pytorch:23.10-py3 \
+  --overrides='{"spec":{"nodeSelector":{"gpu-vendor":"nvidia","gpu-model":"A100"},"tolerations":[{"key":"nvidia.com/gpu","operator":"Equal","value":"true","effect":"NoSchedule"}]}}' \
+  -- nvidia-smi
+```
+
+#### 国产 GPU 驱动部署
+
+- **燧原**：需部署燧原驱动和 enflame-device-plugin，资源名 `enflame.com/gpu`
+- **摩尔线程**：需部署 MUSA 驱动和设备插件，资源名 `moorethreads.com/gpu`
+- **国产 X**：按实际厂商文档部署驱动和设备插件，替换资源名
+
+### 12.3 网络拓扑与 RDMA 配置
+
+对应 `15-network-topology.yaml`，配置 RoCE/InfiniBand 高速网络和三网隔离。
+
+#### 部署前提
+
+- 集群节点配备支持 RoCEv2 或 InfiniBand 的网卡
+- 交换机配置 PFC（优先级流量控制）和 ECN（显式拥塞通知）
+- Multus CNI 已部署（如需 NetworkAttachmentDefinition）
+
+#### 部署步骤
+
+```bash
+# 部署三网隔离 NetworkPolicy（管理网/存储网/计算网）
+kubectl apply -f 15-network-topology.yaml
+```
+
+#### RDMA 设备插件部署（可选）
+
+```bash
+# 部署 Mellanox RDMA shared device plugin
+kubectl apply -f https://raw.githubusercontent.com/Mellanox/k8s-rdma-shared-dev-plugin/master/deployments/rdma-shared-dev-plugin.yml
+
+# 配置 RDMA 设备（修改 ConfigMap 中的网卡名）
+kubectl edit configmap rdma-devices -n kube-system
+```
+
+#### RoCE 网络附件定义（需 Multus）
+
+`15-network-topology.yaml` 中的 NetworkAttachmentDefinition 为注释形式，取消注释前需：
+
+```bash
+# 部署 Multus CNI
+kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset.yml
+
+# 确认 Multus 运行
+kubectl get pods -n kube-system | grep multus
+```
+
+#### 节点网络标签
+
+```bash
+# 为有 RDMA 网卡的节点打标
+kubectl label nodes <rdma-node> network.metaclouds.io/rdma=true
+kubectl label nodes <rdma-node> network.metaclouds.io/gpu-direct-rdma=true
+kubectl label nodes <rdma-node> network.metaclouds.io/switch-id=switch-01
+```
+
+### 12.4 Fluid 数据加速集成
+
+对应 `16-fluid-integration.yaml`，配置 Fluid 分布式缓存系统。
+
+#### 部署前提
+
+- Fluid 已安装（最低版本 0.9.0+）
+- 数据源可访问（CephFS / NFS / S3 / GlusterFS）
+- GPU 计算节点有足够的内存和磁盘空间用于缓存
+
+#### Fluid 安装
+
+```bash
+# 添加 Fluid Helm 仓库
+helm repo add fluid https://fluid-cloudnative.github.io/charts
+helm repo update
+
+# 安装 Fluid
+helm install fluid fluid/fluid --namespace fluid-system --create-namespace
+
+# 验证安装
+kubectl get pods -n fluid-system
+kubectl get crd | grep fluid
+# 预期：datasets.data.fluid.io, alluxioruntimes.data.fluid.io, dataloads.data.fluid.io
+```
+
+#### 部署 Fluid 配置
+
+```bash
+# 部署 Dataset + AlluxioRuntime + DataLoad 示例
+kubectl apply -f 16-fluid-integration.yaml
+```
+
+#### 验证
+
+```bash
+# 查看 Dataset 状态
+kubectl get dataset -n team-algorithm
+kubectl describe dataset metaclouds-training-data-ceph -n team-algorithm
+
+# 查看 AlluxioRuntime（缓存集群）
+kubectl get alluxioruntime -n team-algorithm
+kubectl get pods -n team-algorithm -l role=alluxio-worker
+
+# 查看数据预取状态
+kubectl get dataload -n team-algorithm
+kubectl describe dataload metaclouds-training-data-prefetch -n team-algorithm
+
+# 验证缓存 PVC 已创建
+kubectl get pvc metaclouds-training-data-ceph -n team-algorithm
+```
+
+#### 缓存配置说明
+
+- **缓存介质**：内存（MEM）+ 磁盘（HDD）分层，热数据自动留在内存
+- **副本数**：默认 3，多机训练建议与 GPU 节点数一致
+- **压缩**：默认 GZIP，训练数据已压缩时可关闭以减少 CPU 开销
+- **元数据加速**：RocksDB 存储元数据，支持百万级文件
+- **数据预取**：训练前创建 DataLoad CR 预热数据，避免冷启动 I/O 等待
+
+### 12.5 Slurm / LSF / SGE 集成配置
+
+对应 `17-job-templates.yaml` 中的 Slurm 集成模板，通过 SlurmAdapter 将 Metaclouds 作业提交到外部调度器。
+
+#### 部署前提
+
+- Slurm 集群 23.02+（或 LSF 10.2+ / SGE 8.1.9+）
+- Metaclouds 后端可通过 SSH 访问 Slurm 控制节点
+- Slurm 控制节点已创建 metaclouds 用户和 SSH 密钥
+
+#### 配置步骤
+
+1. **创建 SSH 密钥 Secret**：
+
+```bash
+kubectl create secret generic slurm-ssh-key -n metaclouds \
+  --from-file=private-key=/path/to/slurm-ssh-key \
+  --from-literal=username=metaclouds
+```
+
+2. **通过 API 注册调度器集成**：
+
+```bash
+curl -X POST https://api.metaclouds.com/api/v1/schedulers \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "slurm",
+    "name": "slurm-cluster-01",
+    "endpoint": "slurmctl.example.com",
+    "auth_config": {
+      "type": "ssh",
+      "username": "metaclouds",
+      "private_key_secret": "slurm-ssh-key"
+    },
+    "version": "23.02",
+    "partitions": [
+      {"name": "gpu-a100", "gpu_model": "A100", "max_nodes": 32, "max_gpus_per_node": 8}
+    ]
+  }'
+```
+
+3. **验证连通性**：
+
+```bash
+curl https://api.metaclouds.com/api/v1/schedulers/1/health \
+  -H "Authorization: Bearer <token>"
+```
+
+4. **同步队列和节点信息**：
+
+```bash
+curl -X POST https://api.metaclouds.com/api/v1/schedulers/1/sync \
+  -H "Authorization: Bearer <token>"
+```
+
+#### 作业提交流程
+
+1. 用户在 Metaclouds 平台提交作业，选择调度器类型为 `slurm`
+2. SlurmAdapter 生成 sbatch 脚本（含 NCCL、DeepSpeed 配置）
+3. 通过 SSH 提交到 Slurm 集群，获取 Slurm Job ID
+4. 定期同步作业状态（squeue/sacct）
+5. 作业完成后同步结果和日志
+
+### 12.6 数据库迁移 000004 执行说明
+
+本次新增数据模型需要执行数据库迁移 `000004_gpu_fine_grained.up.sql`。
+
+#### 迁移内容
+
+- 新增 `gpu_devices` 表（GPU 设备信息）
+- 新增 `gpu_allocations` 表（GPU 细粒度分配记录）
+- 新增 `partitions` 表（分区管理）
+- 新增 `partition_permissions` 表（分区权限）
+- 新增 `partition_resource_shares` 表（分区资源共享）
+- 新增 `resource_quotas` 表（多维度配额）
+- 新增 `scheduler_integrations` 表（调度器集成）
+- 新增 `vendor_driver_configs` 表（厂商驱动配置）
+- 新增 `node_topologies` 表（节点拓扑）
+- 新增 `scheduling_profiles` 表（调度策略）
+- 新增 `job_elastic_events` 表（弹性训练事件）
+- 新增 `checkpoints` 表（Checkpoint 管理）
+- 新增 `datasets` 表（数据集管理）
+- 新增 `fluid_caches` 表（Fluid 缓存配置）
+- 新增 `distributed_training_configs` 表（分布式训练配置）
+- 新增 `inference_configs` 表（推理配置）
+- 扩展 `jobs` 表（新增 gpu_fraction、gpu_memory_gb、partition_id 等字段）
+- 扩展 `resources` 表（新增 vram_total_mb、vram_used_mb 等字段）
+- 扩展 `tenants` 表（新增 gpu_vendor 偏好等字段）
+
+#### 执行步骤
+
+```bash
+# 方式 1：通过 K8s Job 执行（推荐）
+kubectl apply -f metaclouds-backend/deploy/migrations/configmap.yaml
+kubectl apply -f metaclouds-backend/deploy/migrations/migration-job.yaml
+
+# 查看迁移 Job 状态
+kubectl -n metaclouds get jobs -l app=metaclouds
+kubectl -n metaclouds logs job/metaclouds-db-migration
+
+# 方式 2：手动执行（需端口转发）
+kubectl -n metaclouds port-forward svc/postgresql 5432:5432 &
+psql -h localhost -U metaclouds_user -d metaclouds \
+  -f metaclouds-backend/deploy/migrations/000004_gpu_fine_grained.up.sql
+```
+
+#### 验证
+
+```bash
+# 确认新表已创建
+kubectl -n metaclouds exec -it <postgresql-pod> -- \
+  psql -U metaclouds_user -d metaclouds -c "\dt" | grep -E "gpu_|partition|quota|scheduler|topology|checkpoint|dataset|fluid|distributed|inference"
+
+# 确认迁移记录
+kubectl -n metaclouds exec -it <postgresql-pod> -- \
+  psql -U metaclouds_user -d metaclouds -c "SELECT * FROM schema_migrations ORDER BY version DESC LIMIT 5;"
+```
+
+#### 回滚
+
+```bash
+# 执行回滚迁移
+psql -h localhost -U metaclouds_user -d metaclouds \
+  -f metaclouds-backend/deploy/migrations/000004_gpu_fine_grained.down.sql
+```
+
+> **注意**：迁移使用 `IF NOT EXISTS`，可安全重复执行。生产环境建议在低峰期执行，并先备份数据库。
+
+---
+
 ## 附录 A：快速命令速查
 
 ```bash
@@ -783,4 +1157,4 @@ kubectl -n metaclouds exec <backend-pod> -- env | grep -E "SERVER_|DATABASE_|RED
 
 ---
 
-*本文档由 Metaclouds 团队维护，最后更新：2026-09-07*
+*本文档由 Metaclouds 团队维护，最后更新：2026-09-09*

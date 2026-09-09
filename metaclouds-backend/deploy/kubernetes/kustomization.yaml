@@ -8,7 +8,9 @@
 #
 # 资源按编号顺序 apply，确保依赖关系正确：
 #   namespace → configmap → secrets → serviceaccount → deployment → service →
-#   ingress → hpa → networkpolicy → pdb → backup-cronjob
+#   ingress → hpa → networkpolicy → pdb → resourcequota → limitrange →
+#   gpu-node-pools → network-topology → fluid-integration → job-templates →
+#   backup-cronjob
 # ==============================================================================
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -32,6 +34,17 @@ resources:
   - 08-hpa.yaml
   - 09-networkpolicy.yaml
   - 11-pdb.yaml
+  # ---- 多租户资源配额与限制（对应 skill.md §4.2）----
+  - 12-resourcequota.yaml
+  - 13-limitrange.yaml
+  # ---- 多 GPU 厂商节点池（对应 skill.md §4.1）----
+  - 14-gpu-node-pools.yaml
+  # ---- 网络拓扑与 RDMA（对应 skill.md §4.1, §4.3）----
+  - 15-network-topology.yaml
+  # ---- Fluid 数据加速集成（对应 skill.md §4.4）----
+  - 16-fluid-integration.yaml
+  # ---- 作业模板与调度策略（对应 skill.md §4.3, §4.4）----
+  - 17-job-templates.yaml
   # 备份 CronJob（保留原有文件，不做修改）
   - backup-cronjob.yaml
 

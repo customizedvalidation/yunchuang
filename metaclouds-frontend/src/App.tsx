@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo } from 'react';
+﻿import { lazy, Suspense, useEffect, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
@@ -20,6 +20,11 @@ const MultiTenantManagement = lazy(() => import('./pages/MultiTenantManagement')
 const AccelerationSuiteManagement = lazy(() => import('./pages/AccelerationSuiteManagement'));
 const SecurityManagement = lazy(() => import('./pages/SecurityManagement'));
 const K8SManagement = lazy(() => import('./pages/K8SManagement'));
+const GPUManagement = lazy(() => import('./pages/GPUManagement'));
+const PartitionManagement = lazy(() => import('./pages/PartitionManagement'));
+const SchedulerManagement = lazy(() => import('./pages/SchedulerManagement'));
+const TopologyManagement = lazy(() => import('./pages/TopologyManagement'));
+const DatasetManagement = lazy(() => import('./pages/DatasetManagement'));
 
 // 导入PrivateRoute组件
 const PrivateRoute = lazy(() => import('./components/PrivateRoute'));
@@ -166,6 +171,11 @@ const ThemedApp = () => {
                   <Route path="/k8s/nodes" element={<K8SManagement />} />
                   <Route path="/k8s/pods" element={<K8SManagement />} />
                   <Route path="/k8s/services" element={<K8SManagement />} />
+                  <Route path="/gpus" element={<GPUManagement />} />
+                  <Route path="/partitions" element={<PartitionManagement />} />
+                  <Route path="/schedulers" element={<SchedulerManagement />} />
+                  <Route path="/topology" element={<TopologyManagement />} />
+                  <Route path="/datasets" element={<DatasetManagement />} />
                 </Route>
               </Route>
               <Route path="/" element={<Navigate to="/login" replace />} />

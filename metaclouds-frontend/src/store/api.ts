@@ -6,6 +6,19 @@ import {
   type FetchBaseQueryError,
 } from '@reduxjs/toolkit/query/react';
 
+import type {
+  GPUDevice,
+  GPUAllocation,
+  Partition,
+  PartitionPermission,
+  ResourceQuota,
+  SchedulerIntegration,
+  NodeTopology,
+  Dataset,
+  FluidCache,
+  Checkpoint,
+} from '../types';
+
 // CSRF 双提交令牌：同源部署下从 csrf_token Cookie 读取；跨域部署下由 GET /auth/csrf
 // 拉取后存入缓存。后端 NewCSRFProtect 校验「X-CSRF-Token 头 == csrf_token Cookie」一致。
 let csrfTokenCache: string | null = null;
@@ -311,6 +324,344 @@ export const apiSlice = createApi({
     getK8SGPUResources: builder.query({
       query: () => '/resources/gpu',
     }),
+
+    // ===== P0-1/P0-2: GPU 细粒度管理 =====
+    getGPUDevices: builder.query<GPUDevice[], { cluster_id?: number; vendor?: string; status?: string }>({
+      query: (params) => ({
+        url: '/gpu/devices',
+        params,
+      }),
+    }),
+    getGPUDevice: builder.query<GPUDevice, number>({
+      query: (id) => `/gpu/devices/${id}`,
+    }),
+    createGPUDevice: builder.mutation<GPUDevice, Partial<GPUDevice>>({
+      query: (data) => ({
+        url: '/gpu/devices',
+        method: 'POST',
+        body: data,
+      }),
+    }),
+    updateGPUDevice: builder.mutation<GPUDevice, { id: number; data: Partial<GPUDevice> }>({
+      query: ({ id, data }) => ({
+        url: `/gpu/devices/${id}`,
+        method: 'PUT',
+        body: data,
+      }),
+    }),
+    deleteGPUDevice: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/gpu/devices/${id}`,
+        method: 'DELETE',
+      }),
+    }),
+    getGPUAllocations: builder.query<GPUAllocation[], { job_id?: number }>({
+      query: (params) => ({
+        url: '/gpu/allocations',
+        params,
+      }),
+    }),
+    allocateGPU: builder.mutation<GPUAllocation, Partial<GPUAllocation>>({
+      query: (data) => ({
+        url: '/gpu/allocations',
+        method: 'POST',
+        body: data,
+      }),
+    }),
+    releaseGPU: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/gpu/allocations/${id}/release`,
+        method: 'POST',
+      }),
+    }),
+    getGPUUtilization: builder.query<Record<string, unknown>, { cluster_id?: number }>({
+      query: (params) => ({
+        url: '/gpu/utilization',
+        params,
+      }),
+    }),
+
+    // ===== P0-4: 分区管理 =====
+    getPartitions: builder.query<Partition[], { cluster_id?: number; status?: string }>({
+      query: (params) => ({
+        url: '/partitions',
+        params,
+      }),
+    }),
+    getPartition: builder.query<Partition, number>({
+      query: (id) => `/partitions/${id}`,
+    }),
+    createPartition: builder.mutation<Partition, Partial<Partition>>({
+      query: (data) => ({
+        url: '/partitions',
+        method: 'POST',
+        body: data,
+      }),
+    }),
+    updatePartition: builder.mutation<Partition, { id: number; data: Partial<Partition> }>({
+      query: ({ id, data }) => ({
+        url: `/partitions/${id}`,
+        method: 'PUT',
+        body: data,
+      }),
+    }),
+    deletePartition: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/partitions/${id}`,
+        method: 'DELETE',
+      }),
+    }),
+    updatePartitionPriority: builder.mutation<Partition, { id: number; priority: number }>({
+      query: ({ id, priority }) => ({
+        url: `/partitions/${id}/priority`,
+        method: 'PUT',
+        body: { priority },
+      }),
+    }),
+    updatePartitionMaxRuntime: builder.mutation<Partition, { id: number; max_runtime_minutes: number }>({
+      query: ({ id, max_runtime_minutes }) => ({
+        url: `/partitions/${id}/max-runtime`,
+        method: 'PUT',
+        body: { max_runtime_minutes },
+      }),
+    }),
+    getPartitionPermissions: builder.query<PartitionPermission[], number>({
+      query: (partitionId) => `/partitions/${partitionId}/permissions`,
+    }),
+    setPartitionPermission: builder.mutation<PartitionPermission, { partition_id: number; data: Partial<PartitionPermission> }>({
+      query: ({ partition_id, data }) => ({
+        url: `/partitions/${partition_id}/permissions`,
+        method: 'POST',
+        body: data,
+      }),
+    }),
+    removePartitionPermission: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/partitions/permissions/${id}`,
+        method: 'DELETE',
+      }),
+    }),
+
+    // ===== P0-5: 资源配额 =====
+    getQuotas: builder.query<ResourceQuota[], { scope_type?: string; scope_id?: number }>({
+      query: (params) => ({
+        url: '/quotas',
+        params,
+      }),
+    }),
+    getQuota: builder.query<ResourceQuota, number>({
+      query: (id) => `/quotas/${id}`,
+    }),
+    createQuota: builder.mutation<ResourceQuota, Partial<ResourceQuota>>({
+      query: (data) => ({
+        url: '/quotas',
+        method: 'POST',
+        body: data,
+      }),
+    }),
+    updateQuota: builder.mutation<ResourceQuota, { id: number; data: Partial<ResourceQuota> }>({
+      query: ({ id, data }) => ({
+        url: `/quotas/${id}`,
+        method: 'PUT',
+        body: data,
+      }),
+    }),
+    deleteQuota: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/quotas/${id}`,
+        method: 'DELETE',
+      }),
+    }),
+    getQuotaUsage: builder.query<Record<string, unknown>, { scope_type: string; scope_id: number }>({
+      query: (params) => ({
+        url: '/quotas/usage',
+        params,
+      }),
+    }),
+    checkQuota: builder.mutation<{ allowed: boolean; remaining: number }, Record<string, unknown>>({
+      query: (data) => ({
+        url: '/quotas/check',
+        method: 'POST',
+        body: data,
+      }),
+    }),
+
+    // ===== P0-3: 调度器集成 =====
+    getSchedulerIntegrations: builder.query<SchedulerIntegration[], void>({
+      query: () => '/schedulers',
+    }),
+    getSchedulerIntegration: builder.query<SchedulerIntegration, number>({
+      query: (id) => `/schedulers/${id}`,
+    }),
+    createSchedulerIntegration: builder.mutation<SchedulerIntegration, Partial<SchedulerIntegration>>({
+      query: (data) => ({
+        url: '/schedulers',
+        method: 'POST',
+        body: data,
+      }),
+    }),
+    updateSchedulerIntegration: builder.mutation<SchedulerIntegration, { id: number; data: Partial<SchedulerIntegration> }>({
+      query: ({ id, data }) => ({
+        url: `/schedulers/${id}`,
+        method: 'PUT',
+        body: data,
+      }),
+    }),
+    deleteSchedulerIntegration: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/schedulers/${id}`,
+        method: 'DELETE',
+      }),
+    }),
+    getSchedulerQueues: builder.query<Record<string, unknown>[], number>({
+      query: (id) => `/schedulers/${id}/queues`,
+    }),
+    getSchedulerNodes: builder.query<Record<string, unknown>[], number>({
+      query: (id) => `/schedulers/${id}/nodes`,
+    }),
+    syncSchedulerJobs: builder.mutation<Record<string, unknown>, number>({
+      query: (id) => ({
+        url: `/schedulers/${id}/sync`,
+        method: 'POST',
+      }),
+    }),
+    getSchedulerHealth: builder.query<{ healthy: boolean }, number>({
+      query: (id) => `/schedulers/${id}/health`,
+    }),
+
+    // ===== P1-1: 节点拓扑 =====
+    getNodeTopologies: builder.query<NodeTopology[], { cluster_id?: number }>({
+      query: (params) => ({
+        url: '/topology/nodes',
+        params,
+      }),
+    }),
+    getNodeTopology: builder.query<NodeTopology, number>({
+      query: (id) => `/topology/nodes/${id}`,
+    }),
+    createNodeTopology: builder.mutation<NodeTopology, Partial<NodeTopology>>({
+      query: (data) => ({
+        url: '/topology/nodes',
+        method: 'POST',
+        body: data,
+      }),
+    }),
+    updateNodeTopology: builder.mutation<NodeTopology, { id: number; data: Partial<NodeTopology> }>({
+      query: ({ id, data }) => ({
+        url: `/topology/nodes/${id}`,
+        method: 'PUT',
+        body: data,
+      }),
+    }),
+    deleteNodeTopology: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/topology/nodes/${id}`,
+        method: 'DELETE',
+      }),
+    }),
+    calculateTopologyScore: builder.mutation<Record<string, number>, Record<string, unknown>>({
+      query: (data) => ({
+        url: '/topology/score',
+        method: 'POST',
+        body: data,
+      }),
+    }),
+
+    // ===== P1-5: 数据集与 Fluid 缓存 =====
+    getDatasets: builder.query<Dataset[], void>({
+      query: () => '/datasets',
+    }),
+    getDataset: builder.query<Dataset, number>({
+      query: (id) => `/datasets/${id}`,
+    }),
+    createDataset: builder.mutation<Dataset, Partial<Dataset>>({
+      query: (data) => ({
+        url: '/datasets',
+        method: 'POST',
+        body: data,
+      }),
+    }),
+    updateDataset: builder.mutation<Dataset, { id: number; data: Partial<Dataset> }>({
+      query: ({ id, data }) => ({
+        url: `/datasets/${id}`,
+        method: 'PUT',
+        body: data,
+      }),
+    }),
+    deleteDataset: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/datasets/${id}`,
+        method: 'DELETE',
+      }),
+    }),
+    getFluidCaches: builder.query<FluidCache[], number>({
+      query: (datasetId) => `/datasets/${datasetId}/fluid-caches`,
+    }),
+    createFluidCache: builder.mutation<FluidCache, { dataset_id: number; data: Partial<FluidCache> }>({
+      query: ({ dataset_id, data }) => ({
+        url: `/datasets/${dataset_id}/fluid-caches`,
+        method: 'POST',
+        body: data,
+      }),
+    }),
+    updateFluidCache: builder.mutation<FluidCache, { cacheId: number; data: Partial<FluidCache> }>({
+      query: ({ cacheId, data }) => ({
+        url: `/fluid-caches/${cacheId}`,
+        method: 'PUT',
+        body: data,
+      }),
+    }),
+    deleteFluidCache: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/fluid-caches/${id}`,
+        method: 'DELETE',
+      }),
+    }),
+    enableFluidCache: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/fluid-caches/${id}/enable`,
+        method: 'POST',
+      }),
+    }),
+    disableFluidCache: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/fluid-caches/${id}/disable`,
+        method: 'POST',
+      }),
+    }),
+    triggerPrefetch: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/fluid-caches/${id}/prefetch`,
+        method: 'POST',
+      }),
+    }),
+
+    // ===== P1-4: Checkpoint =====
+    getCheckpoints: builder.query<Checkpoint[], { job_id?: number }>({
+      query: (params) => ({
+        url: '/checkpoints',
+        params,
+      }),
+    }),
+    getCheckpoint: builder.query<Checkpoint, number>({
+      query: (id) => `/checkpoints/${id}`,
+    }),
+    createCheckpoint: builder.mutation<Checkpoint, Partial<Checkpoint>>({
+      query: (data) => ({
+        url: '/checkpoints',
+        method: 'POST',
+        body: data,
+      }),
+    }),
+    deleteCheckpoint: builder.mutation<void, number>({
+      query: (id) => ({
+        url: `/checkpoints/${id}`,
+        method: 'DELETE',
+      }),
+    }),
+    getLatestCheckpoint: builder.query<Checkpoint, number>({
+      query: (jobId) => `/checkpoints/latest/${jobId}`,
+    }),
   }),
 });
 
@@ -344,4 +695,69 @@ export const {
   useGetK8SJobStatusQuery,
   useCancelK8SJobMutation,
   useGetK8SGPUResourcesQuery,
+  // GPU
+  useGetGPUDevicesQuery,
+  useGetGPUDeviceQuery,
+  useCreateGPUDeviceMutation,
+  useUpdateGPUDeviceMutation,
+  useDeleteGPUDeviceMutation,
+  useGetGPUAllocationsQuery,
+  useAllocateGPUMutation,
+  useReleaseGPUMutation,
+  useGetGPUUtilizationQuery,
+  // 分区
+  useGetPartitionsQuery,
+  useGetPartitionQuery,
+  useCreatePartitionMutation,
+  useUpdatePartitionMutation,
+  useDeletePartitionMutation,
+  useUpdatePartitionPriorityMutation,
+  useUpdatePartitionMaxRuntimeMutation,
+  useGetPartitionPermissionsQuery,
+  useSetPartitionPermissionMutation,
+  useRemovePartitionPermissionMutation,
+  // 配额
+  useGetQuotasQuery,
+  useGetQuotaQuery,
+  useCreateQuotaMutation,
+  useUpdateQuotaMutation,
+  useDeleteQuotaMutation,
+  useGetQuotaUsageQuery,
+  useCheckQuotaMutation,
+  // 调度器
+  useGetSchedulerIntegrationsQuery,
+  useGetSchedulerIntegrationQuery,
+  useCreateSchedulerIntegrationMutation,
+  useUpdateSchedulerIntegrationMutation,
+  useDeleteSchedulerIntegrationMutation,
+  useGetSchedulerQueuesQuery,
+  useGetSchedulerNodesQuery,
+  useSyncSchedulerJobsMutation,
+  useGetSchedulerHealthQuery,
+  // 拓扑
+  useGetNodeTopologiesQuery,
+  useGetNodeTopologyQuery,
+  useCreateNodeTopologyMutation,
+  useUpdateNodeTopologyMutation,
+  useDeleteNodeTopologyMutation,
+  useCalculateTopologyScoreMutation,
+  // 数据集
+  useGetDatasetsQuery,
+  useGetDatasetQuery,
+  useCreateDatasetMutation,
+  useUpdateDatasetMutation,
+  useDeleteDatasetMutation,
+  useGetFluidCachesQuery,
+  useCreateFluidCacheMutation,
+  useUpdateFluidCacheMutation,
+  useDeleteFluidCacheMutation,
+  useEnableFluidCacheMutation,
+  useDisableFluidCacheMutation,
+  useTriggerPrefetchMutation,
+  // Checkpoint
+  useGetCheckpointsQuery,
+  useGetCheckpointQuery,
+  useCreateCheckpointMutation,
+  useDeleteCheckpointMutation,
+  useGetLatestCheckpointQuery,
 } = apiSlice;

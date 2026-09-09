@@ -56,13 +56,18 @@ export type Permission =
   | 'monitoring:read' | 'monitoring:write'
   | 'acceleration:read' | 'acceleration:write'
   | 'security:read' | 'security:write'
+  | 'gpu:read' | 'gpu:write'
+  | 'partition:read' | 'partition:write'
+  | 'scheduler:read' | 'scheduler:write'
+  | 'topology:read' | 'topology:write'
+  | 'dataset:read' | 'dataset:write'
   | 'admin';
 
 // 镜像后端 rolePermissions（pkg/authz/authz.go）。后端调整权限矩阵时此处必须同步。
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
-  admin: ['admin', 'cluster:read', 'cluster:write', 'resource:read', 'resource:write', 'job:read', 'job:write', 'job:submit', 'tenant:read', 'tenant:write', 'monitoring:read', 'monitoring:write', 'acceleration:read', 'acceleration:write', 'security:read', 'security:write'],
-  manager: ['cluster:read', 'cluster:write', 'resource:read', 'resource:write', 'job:read', 'job:write', 'job:submit', 'tenant:read', 'tenant:write', 'monitoring:read', 'monitoring:write', 'acceleration:read', 'acceleration:write', 'security:read'],
-  user: ['cluster:read', 'resource:read', 'job:read', 'monitoring:read', 'acceleration:read', 'security:read'],
+  admin: ['admin', 'cluster:read', 'cluster:write', 'resource:read', 'resource:write', 'job:read', 'job:write', 'job:submit', 'tenant:read', 'tenant:write', 'monitoring:read', 'monitoring:write', 'acceleration:read', 'acceleration:write', 'security:read', 'security:write', 'gpu:read', 'gpu:write', 'partition:read', 'partition:write', 'scheduler:read', 'scheduler:write', 'topology:read', 'topology:write', 'dataset:read', 'dataset:write'],
+  manager: ['cluster:read', 'cluster:write', 'resource:read', 'resource:write', 'job:read', 'job:write', 'job:submit', 'tenant:read', 'tenant:write', 'monitoring:read', 'monitoring:write', 'acceleration:read', 'acceleration:write', 'security:read', 'gpu:read', 'gpu:write', 'partition:read', 'partition:write', 'scheduler:read', 'scheduler:write', 'topology:read', 'topology:write', 'dataset:read', 'dataset:write'],
+  user: ['cluster:read', 'resource:read', 'job:read', 'monitoring:read', 'acceleration:read', 'security:read', 'gpu:read', 'partition:read', 'scheduler:read', 'topology:read', 'dataset:read'],
 };
 
 /**

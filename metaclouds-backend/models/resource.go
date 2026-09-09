@@ -22,4 +22,12 @@ type Resource struct {
 	Available   int            `json:"available"`
 	Utilization float64        `json:"utilization"`
 	Details     string         `gorm:"size:1000" json:"details"`
+
+	// P0 多 GPU 厂商与显存管理新增字段
+	Vendor                    string  `gorm:"size:50" json:"vendor"`
+	GPUModel                  string  `gorm:"size:100" json:"gpu_model"`
+	VRAMTotalMB               int     `gorm:"default:0" json:"vram_total_mb"`
+	VRAMUsedMB                int     `gorm:"default:0" json:"vram_used_mb"`
+	VRAMOversubscriptionRatio float64 `gorm:"default:1.0" json:"vram_oversubscription_ratio"`
+	MIGEnabled                bool    `gorm:"default:false" json:"mig_enabled"`
 }

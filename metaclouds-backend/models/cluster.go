@@ -24,4 +24,10 @@ type Cluster struct {
 	Location    string         `gorm:"size:255" json:"location"`
 	Resources   []Resource     `gorm:"foreignKey:ClusterID" json:"resources,omitempty"`
 	Jobs        []Job          `gorm:"foreignKey:ClusterID" json:"jobs,omitempty"`
+
+	// P0 多 GPU 厂商与多集群新增字段
+	GPUVendors          string `gorm:"size:500" json:"gpu_vendors"`       // JSON array of vendors
+	SchedulerTypes      string `gorm:"size:500" json:"scheduler_types"`   // JSON array
+	MultiClusterEnabled bool   `gorm:"default:false" json:"multi_cluster_enabled"`
+	FederationID        string `gorm:"size:100" json:"federation_id"`
 }

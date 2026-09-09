@@ -86,6 +86,20 @@ Authorization: Bearer <your-jwt-token>
 | `tenant_write` | 租户的创建/更新/删除（仅管理员） |
 | `accel_write` | 加速套件的创建/更新/删除 |
 | `security_write` | 安全策略的创建/更新/删除 |
+| `gpu_read` | GPU 设备和分配的读取（2026-09-09 新增） |
+| `gpu_write` | GPU 设备和分配的管理（2026-09-09 新增） |
+| `partition_read` | 分区的读取（2026-09-09 新增） |
+| `partition_write` | 分区的创建/更新/删除/权限分配（2026-09-09 新增） |
+| `quota_read` | 配额的读取（2026-09-09 新增） |
+| `quota_write` | 配额的创建/更新/删除（2026-09-09 新增） |
+| `scheduler_read` | 调度器集成的读取（2026-09-09 新增） |
+| `scheduler_write` | 调度器集成的管理（2026-09-09 新增） |
+| `topology_read` | 拓扑信息的读取（2026-09-09 新增） |
+| `topology_write` | 拓扑信息的管理（2026-09-09 新增） |
+| `dataset_read` | 数据集和缓存的读取（2026-09-09 新增） |
+| `dataset_write` | 数据集和缓存的管理（2026-09-09 新增） |
+| `checkpoint_read` | Checkpoint 的读取（2026-09-09 新增） |
+| `checkpoint_write` | Checkpoint 的创建/删除（2026-09-09 新增） |
 
 ---
 
@@ -261,6 +275,111 @@ GET /api/v1/jobs?page=2&page_size=20&status=running
 | `/security/policies/{id}` | GET | 获取安全策略详情 | 认证 |
 | `/security/policies/{id}` | PUT | 更新安全策略 | security_write |
 | `/security/policies/{id}` | DELETE | 删除安全策略 | security_write |
+
+### gpu（GPU 细粒度管理）
+
+> 2026-09-09 新增，对应 P0-1 GPU 细粒度分配与显存管理。
+
+| 端点 | 方法 | 说明 | 权限 |
+|------|------|------|------|
+| `/gpus` | GET | 获取 GPU 设备列表（支持厂商/型号/状态筛选） | gpu_read |
+| `/gpus` | POST | 注册 GPU 设备 | gpu_write |
+| `/gpus/{id}` | PUT | 更新 GPU 设备信息 | gpu_write |
+| `/gpus/{id}` | DELETE | 删除 GPU 设备 | gpu_write |
+| `/gpus/allocations` | GET | 获取 GPU 分配记录（支持细粒度 0.25/0.5/1.0） | gpu_read |
+| `/gpus/allocations` | POST | 创建 GPU 分配（支持 MIG/vGPU 细粒度） | gpu_write |
+| `/gpus/allocations/{id}` | DELETE | 释放 GPU 分配 | gpu_write |
+| `/gpus/utilization` | GET | 获取 GPU 利用率统计（时间序列聚合） | gpu_read |
+
+### partition（分区管理）
+
+> 2026-09-09 新增，对应 P0-4 分区管理。
+
+| 端点 | 方法 | 说明 | 权限 |
+|------|------|------|------|
+| `/partitions` | GET | 获取分区列表 | partition_read |
+| `/partitions` | POST | 创建分区 | partition_write |
+| `/partitions/{id}` | GET | 获取分区详情 | partition_read |
+| `/partitions/{id}` | PUT | 更新分区 | partition_write |
+| `/partitions/{id}` | DELETE | 删除分区 | partition_write |
+| `/partitions/{id}/priority` | PUT | 调整分区优先级 | partition_write |
+| `/partitions/{id}/max-runtime` | PUT | 修改分区最大运行时长 | partition_write |
+| `/partitions/{id}/permissions` | GET | 获取分区权限列表 | partition_read |
+| `/partitions/{id}/permissions` | POST | 分配分区权限（view/submit/admin） | partition_write |
+| `/partitions/{id}/permissions/{permId}` | DELETE | 移除分区权限 | partition_write |
+
+### quota（多维度配额管理）
+
+> 2026-09-09 新增，对应 P0-5 多维度资源配额。
+
+| 端点 | 方法 | 说明 | 权限 |
+|------|------|------|------|
+| `/quotas` | GET | 获取配额列表（支持 tenant/user/partition/node 维度） | quota_read |
+| `/quotas` | POST | 创建配额 | quota_write |
+| `/quotas/{id}` | GET | 获取配额详情 | quota_read |
+| `/quotas/{id}` | PUT | 更新配额 | quota_write |
+| `/quotas/{id}` | DELETE | 删除配额 | quota_write |
+| `/quotas/usage` | GET | 获取配额使用情况（已用/剩余/百分比） | quota_read |
+| `/quotas/check` | POST | 校验配额是否充足（作业提交前调用） | 认证 |
+
+### scheduler（调度器集成）
+
+> 2026-09-09 新增，对应 P0-3 Slurm/LSF/SGE 集成。
+
+| 端点 | 方法 | 说明 | 权限 |
+|------|------|------|------|
+| `/schedulers` | GET | 获取调度器集成列表 | scheduler_read |
+| `/schedulers` | POST | 创建调度器集成（slurm/lsf/sge/k8s_native） | scheduler_write |
+| `/schedulers/{id}` | GET | 获取调度器详情 | scheduler_read |
+| `/schedulers/{id}` | PUT | 更新调度器配置 | scheduler_write |
+| `/schedulers/{id}` | DELETE | 删除调度器集成 | scheduler_write |
+| `/schedulers/{id}/queues` | GET | 获取调度器队列/分区信息 | scheduler_read |
+| `/schedulers/{id}/nodes` | GET | 获取调度器节点信息 | scheduler_read |
+| `/schedulers/{id}/sync` | POST | 同步调度器作业状态 | scheduler_write |
+| `/schedulers/{id}/health` | GET | 调度器健康检查 | scheduler_read |
+
+### topology（拓扑感知调度）
+
+> 2026-09-09 新增，对应 P1-1 拓扑感知调度。
+
+| 端点 | 方法 | 说明 | 权限 |
+|------|------|------|------|
+| `/topology` | GET | 获取拓扑信息列表（NUMA/NVLink/机架/交换机） | topology_read |
+| `/topology` | POST | 注册拓扑信息 | topology_write |
+| `/topology/{id}` | GET | 获取拓扑详情 | topology_read |
+| `/topology/{id}` | PUT | 更新拓扑信息 | topology_write |
+| `/topology/{id}` | DELETE | 删除拓扑信息 | topology_write |
+| `/topology/score` | POST | 计算拓扑调度评分（候选节点排序） | topology_read |
+
+### dataset（数据集与 Fluid 缓存）
+
+> 2026-09-09 新增，对应 P1-5 Fluid 数据加速集成。
+
+| 端点 | 方法 | 说明 | 权限 |
+|------|------|------|------|
+| `/datasets` | GET | 获取数据集列表（ceph/nfs/s3/glusterfs） | dataset_read |
+| `/datasets` | POST | 创建数据集 | dataset_write |
+| `/datasets/{id}` | GET | 获取数据集详情 | dataset_read |
+| `/datasets/{id}` | PUT | 更新数据集 | dataset_write |
+| `/datasets/{id}` | DELETE | 删除数据集 | dataset_write |
+| `/datasets/{id}/caches` | GET | 获取数据集缓存配置列表 | dataset_read |
+| `/datasets/{id}/caches` | POST | 创建缓存配置（Alluxio/JindoFS） | dataset_write |
+| `/datasets/{id}/caches/{cacheId}` | PUT | 更新缓存配置 | dataset_write |
+| `/datasets/{id}/caches/{cacheId}` | DELETE | 删除缓存配置 | dataset_write |
+| `/datasets/caches/{cacheId}/enable` | POST | 启用 Fluid 缓存 | dataset_write |
+| `/datasets/caches/{cacheId}/disable` | POST | 停用 Fluid 缓存 | dataset_write |
+| `/datasets/caches/{cacheId}/prefetch` | POST | 触发数据预取（DataLoad） | dataset_write |
+
+### checkpoint（Checkpoint 管理）
+
+> 2026-09-09 新增，对应 P1-4 容错训练。
+
+| 端点 | 方法 | 说明 | 权限 |
+|------|------|------|------|
+| `/checkpoints` | GET | 获取 Checkpoint 列表 | checkpoint_read |
+| `/checkpoints` | POST | 创建 Checkpoint 记录 | checkpoint_write |
+| `/checkpoints/{id}` | DELETE | 删除 Checkpoint | checkpoint_write |
+| `/checkpoints/latest/{jobId}` | GET | 获取作业最新 Checkpoint（故障恢复用） | checkpoint_read |
 
 ---
 

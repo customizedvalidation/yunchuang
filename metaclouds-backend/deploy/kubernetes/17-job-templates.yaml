@@ -1,0 +1,768 @@
+# ==============================================================================
+# Metaclouds 作业模板与调度策略
+# ==============================================================================
+# 对应 skill.md §4.3「资源调度管理」与 §4.4「加速套件层」。
+# 提供五类作业模板：分布式训练、推理服务、弹性训练、容错训练、Slurm 集成。
+#
+# 每个模板包含：
+#   - nodeSelector / affinity / tolerations（厂商感知调度）
+#   - resources requests/limits（含 GPU 细粒度配置）
+#   - 环境变量（NCCL_*, CUDA_*, DeepSpeed 等）
+#   - topologySpreadConstraints（拓扑分布约束）
+#   - 注释说明与 skill.md 的对应关系
+#
+# GPU 细粒度说明：
+#   - 整数 GPU：nvidia.com/gpu: "N"
+#   - MIG 细粒度：nvidia.com/mig-1g.5gb: "1"（1/7 A100）
+#   - vGPU 细粒度：通过 vGPU Manager 时间分片，K8s 层仍请求整数 GPU
+#   - Metaclouds 平台层将 0.25/0.5 GPU 换算为对应 MIG profile 或 vGPU 配置
+# ==============================================================================
+
+---
+# ============================================================================
+# 1. 分布式训练作业模板
+# ============================================================================
+# 对应 skill.md §4.4「分布式训练加速：NCCL / DeepSpeed / 模型并行 / 流水线并行」。
+# 多机多卡训练，包含 NCCL 通信优化、DeepSpeed 配置、拓扑亲和调度。
+#
+# 适用场景：大模型预训练、大规模分布式训练（LLM、CV 大模型）
+# GPU 配置：每节点 8 卡 A100，多节点通过 RoCE/IB 互联
+# ============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: template-distributed-training
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: training-job
+    job-template: distributed-training
+  annotations:
+    metaclouds.io/job-type: "distributed-training"
+    metaclouds.io/parallel-strategy: "data+tensor+pipeline"
+    metaclouds.io/description: "分布式训练作业模板（NCCL + DeepSpeed，多机多卡）"
+spec:
+  # 不自动重试（训练失败由容错训练模板处理）
+  backoffLimit: 0
+  completions: 4  # 4 个节点（worker）
+  parallelism: 4
+  completionMode: Indexed  # 索引完成模式，每个 Pod 有唯一 JOB_COMPLETION_INDEX
+  template:
+    metadata:
+      labels:
+        app: metaclouds
+        component: training-job
+        job-name: template-distributed-training
+      annotations:
+        metaclouds.io/world-size: "32"  # 4 节点 × 8 GPU = 32 卡
+    spec:
+      # 节点选择器：A100 节点池
+      nodeSelector:
+        gpu-vendor: nvidia
+        gpu-model: A100
+      # 容忍 GPU 节点污点
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      # 亲和性配置
+      affinity:
+        # Pod 反亲和：同作业 Pod 分布到不同节点
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: metaclouds
+                  component: training-job
+                  job-name: template-distributed-training
+              topologyKey: "kubernetes.io/hostname"
+        # 节点亲和：优先有 RDMA 的节点
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: network.metaclouds.io/rdma
+                    operator: In
+                    values:
+                      - "true"
+      # 拓扑分布约束：跨交换机均匀分布
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: "network.metaclouds.io/switch-id"
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: metaclouds
+              component: training-job
+              job-name: template-distributed-training
+      # 非 root 用户运行
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: trainer
+          image: nvcr.io/nvidia/pytorch:23.10-py3
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: "16"
+              memory: "128Gi"
+              nvidia.com/gpu: "8"
+              # rdma/rdma_shared: "1"  # 取消注释启用 RDMA
+            limits:
+              cpu: "32"
+              memory: "256Gi"
+              nvidia.com/gpu: "8"
+              # rdma/rdma_shared: "1"
+          env:
+            # ---- NCCL 通信优化 ----
+            - name: NCCL_DEBUG
+              value: "INFO"
+            - name: NCCL_IB_DISABLE
+              value: "0"          # 启用 IB/RoCE
+            - name: NCCL_IB_GID_INDEX
+              value: "3"          # RoCEv2 GID 索引
+            - name: NCCL_SOCKET_IFNAME
+              value: "eth1"       # NCCL 通信网卡
+            - name: NCCL_NET_GDR_LEVEL
+              value: "5"          # GPUDirect RDMA
+            - name: NCCL_ALGO
+              value: "Ring"       # 集合通信算法
+            - name: NCCL_PROTO
+              value: "Simple"     # 通信协议
+            - name: NCCL_NSOCKS_PERTHREAD
+              value: "4"
+            - name: NCCL_SOCKET_NTHREADS
+              value: "2"
+            # ---- CUDA 配置 ----
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0,1,2,3,4,5,6,7"
+            - name: CUDA_LAUNCH_BLOCKING
+              value: "0"
+            # ---- DeepSpeed 配置 ----
+            - name: DEEPSPEED_ENABLED
+              value: "true"
+            - name: DEEPSPEED_CONFIG
+              value: "/config/deepspeed.json"
+            # ---- 分布式训练环境变量 ----
+            - name: WORLD_SIZE
+              value: "32"
+            - name: NODE_RANK
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+            - name: MASTER_ADDR
+              value: "template-distributed-training-0.template-distributed-training.team-algorithm.svc.cluster.local"
+            - name: MASTER_PORT
+              value: "29500"
+            # ---- 训练数据（Fluid 缓存）----
+            - name: DATA_DIR
+              value: "/data/training"
+            - name: CHECKPOINT_DIR
+              value: "/checkpoints"
+          volumeMounts:
+            - name: training-data
+              mountPath: /data/training
+              readOnly: true
+            - name: checkpoints
+              mountPath: /checkpoints
+            - name: deepspeed-config
+              mountPath: /config
+          # 健康检查
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import torch; print(torch.cuda.is_available())"]
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: training-data
+          persistentVolumeClaim:
+            claimName: metaclouds-training-data-ceph  # Fluid Dataset PVC
+        - name: checkpoints
+          persistentVolumeClaim:
+            claimName: training-checkpoints-pvc
+        - name: deepspeed-config
+          configMap:
+            name: deepspeed-config
+      restartPolicy: Never
+
+---
+# ============================================================================
+# 2. 推理服务模板
+# ============================================================================
+# 对应 skill.md §4.4「推理加速：TensorRT / ONNX Runtime / 模型量化 / 批处理优化」。
+# 高性能推理服务，包含 TensorRT 引擎、动态批处理、模型量化配置。
+#
+# 适用场景：在线推理服务、高吞吐低延迟推理
+# GPU 配置：T4 单卡（推理性价比高），支持 1/2 GPU 细粒度
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: template-inference-service
+  namespace: team-data
+  labels:
+    app: metaclouds
+    component: inference-service
+    job-template: inference
+  annotations:
+    metaclouds.io/job-type: "inference"
+    metaclouds.io/inference-backend: "tensorrt"
+    metaclouds.io/description: "推理服务模板（TensorRT + 动态批处理 + 模型量化）"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: metaclouds
+      component: inference-service
+  template:
+    metadata:
+      labels:
+        app: metaclouds
+        component: inference-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # 作业模板使用专用 ServiceAccount（生产环境需提前创建或调整为实际名称）
+      serviceAccountName: metaclouds-job
+      nodeSelector:
+        gpu-vendor: nvidia
+        gpu-model: T4
+      # T4 节点无污点，无需 toleration
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: metaclouds
+                    component: inference-service
+                topologyKey: "kubernetes.io/hostname"
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: "kubernetes.io/hostname"
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: metaclouds
+              component: inference-service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: inference
+          image: nvcr.io/nvidia/tritonserver:23.10-py3
+          imagePullPolicy: IfNotPresent
+          args:
+            - "tritonserver"
+            - "--model-repository=/models"
+            - "--strict-model-config=false"
+            - "--log-verbose=0"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+              # GPU 细粒度：T4 不支持 MIG，使用 vGPU 时间分片
+              # Metaclouds 平台层将 0.5 GPU 映射为 vGPU 配置
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+              nvidia.com/gpu: "1"
+          env:
+            # ---- TensorRT 配置 ----
+            - name: TENSORRT_ENGINE_PATH
+              value: "/models/engine.plan"
+            - name: TENSORRT_FP16_ENABLED
+              value: "true"           # FP16 推理（2 倍加速）
+            - name: TENSORRT_INT8_ENABLED
+              value: "false"          # INT8 量化（4 倍加速，需校准）
+            # ---- ONNX Runtime 配置（备选后端）----
+            - name: ONNX_RUNTIME_PROVIDER
+              value: "TensorrtExecutionProvider"
+            - name: ONNX_RUNTIME_USE_IO_BINDING
+              value: "true"
+            # ---- 动态批处理优化 ----
+            - name: DYNAMIC_BATCHING_ENABLED
+              value: "true"
+            - name: MAX_BATCH_SIZE
+              value: "32"
+            - name: PREFERRED_BATCH_SIZE
+              value: "16"
+            - name: BATCH_QUEUE_TIMEOUT_MS
+              value: "10"             # 批处理等待超时（低延迟场景调小）
+            # ---- 模型量化配置 ----
+            - name: QUANTIZATION_ENABLED
+              value: "true"
+            - name: QUANTIZATION_PRECISION
+              value: "fp16"           # fp32 / fp16 / int8 / int4
+            - name: CALIBRATION_DATASET
+              value: "/data/calibration"
+            # ---- CUDA 配置 ----
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0"
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+            - name: grpc
+              containerPort: 8001
+              protocol: TCP
+            - name: metrics
+              containerPort: 8002
+              protocol: TCP
+          volumeMounts:
+            - name: model-storage
+              mountPath: /models
+              readOnly: true
+          # 三探针
+          startupProbe:
+            httpGet:
+              path: /v2/health/ready
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /v2/health/live
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /v2/health/ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: inference-models-pvc
+
+---
+# ============================================================================
+# 3. 弹性训练作业模板
+# ============================================================================
+# 对应 skill.md §4.3「弹性训练：训练过程中的资源动态调整」。
+# 支持训练过程中动态扩缩容，适应资源变化和业务需求。
+#
+# 适用场景：资源紧张时的训练任务、可中断的训练、Spot 实例训练
+# 配置：最小 2 节点 / 最大 8 节点，支持动态扩缩容
+# ============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: template-elastic-training
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: training-job
+    job-template: elastic-training
+  annotations:
+    metaclouds.io/job-type: "elastic-training"
+    metaclouds.io/elastic-enabled: "true"
+    metaclouds.io/min-replicas: "2"
+    metaclouds.io/max-replicas: "8"
+    metaclouds.io/description: "弹性训练作业模板（动态扩缩容，最小 2 节点最大 8 节点）"
+spec:
+  backoffLimit: 0
+  completions: 8  # 最大节点数
+  parallelism: 2  # 初始并行度（最小节点数）
+  completionMode: Indexed
+  template:
+    metadata:
+      labels:
+        app: metaclouds
+        component: training-job
+        job-name: template-elastic-training
+    spec:
+      nodeSelector:
+        gpu-vendor: nvidia
+        gpu-model: A100
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: metaclouds
+                  component: training-job
+                  job-name: template-elastic-training
+              topologyKey: "kubernetes.io/hostname"
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: "network.metaclouds.io/switch-id"
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: metaclouds
+              component: training-job
+              job-name: template-elastic-training
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: elastic-trainer
+          image: nvcr.io/nvidia/pytorch:23.10-py3
+          resources:
+            requests:
+              cpu: "8"
+              memory: "64Gi"
+              nvidia.com/gpu: "4"  # 每节点 4 卡（弹性训练减少单节点资源）
+            limits:
+              cpu: "16"
+              memory: "128Gi"
+              nvidia.com/gpu: "4"
+          env:
+            # ---- 弹性训练配置 ----
+            - name: ELASTIC_ENABLED
+              value: "true"
+            - name: MIN_NODES
+              value: "2"
+            - name: MAX_NODES
+              value: "8"
+            - name: ELASTIC_POLICY
+              value: "cost-optimized"  # cost-optimized / performance-optimized
+            - name: SCALE_UP_THRESHOLD
+              value: "0.8"   # GPU 利用率 > 80% 时扩容
+            - name: SCALE_DOWN_THRESHOLD
+              value: "0.3"   # GPU 利用率 < 30% 持续 5 分钟时缩容
+            - name: SCALE_COOLDOWN_SECONDS
+              value: "300"
+            # ---- NCCL 弹性配置 ----
+            - name: NCCL_DEBUG
+              value: "WARN"
+            - name: NCCL_IB_DISABLE
+              value: "0"
+            - name: NCCL_SOCKET_IFNAME
+              value: "eth1"
+            # ---- Checkpoint（弹性训练必须）----
+            - name: CHECKPOINT_ENABLED
+              value: "true"
+            - name: CHECKPOINT_INTERVAL
+              value: "100"   # 每 100 step 保存
+            - name: CHECKPOINT_DIR
+              value: "/checkpoints"
+            - name: RESUME_FROM_CHECKPOINT
+              value: "true"
+            # ---- CUDA ----
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0,1,2,3"
+          volumeMounts:
+            - name: checkpoints
+              mountPath: /checkpoints
+            - name: training-data
+              mountPath: /data/training
+              readOnly: true
+      volumes:
+        - name: checkpoints
+          persistentVolumeClaim:
+            claimName: elastic-training-checkpoints-pvc
+        - name: training-data
+          persistentVolumeClaim:
+            claimName: metaclouds-training-data-ceph
+      restartPolicy: Never
+
+---
+# ============================================================================
+# 4. 容错训练作业模板
+# ============================================================================
+# 对应 skill.md §4.3「容错训练：节点故障时保证训练任务持续运行」。
+# 包含 checkpoint 自动保存、故障域反亲和、失败自动重试恢复。
+#
+# 适用场景：长时间训练任务（数天/数周）、关键训练任务
+# 配置：自动 checkpoint、故障域感知、从最新 checkpoint 恢复
+# ============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: template-fault-tolerant-training
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: training-job
+    job-template: fault-tolerant-training
+  annotations:
+    metaclouds.io/job-type: "fault-tolerant-training"
+    metaclouds.io/fault-tolerance-level: "high"
+    metaclouds.io/max-retries: "5"
+    metaclouds.io/description: "容错训练作业模板（checkpoint + 故障域反亲和 + 自动恢复）"
+spec:
+  backoffLimit: 5  # 最多重试 5 次
+  completions: 1
+  parallelism: 1
+  template:
+    metadata:
+      labels:
+        app: metaclouds
+        component: training-job
+        job-name: template-fault-tolerant-training
+    spec:
+      nodeSelector:
+        gpu-vendor: nvidia
+        gpu-model: A100
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      affinity:
+        # 故障域反亲和：避免调度到最近发生过故障的节点/机架
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            # 避免同机架（机架级故障域）
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: metaclouds
+                    component: training-job
+                topologyKey: "topology.kubernetes.io/zone"
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            # 优先调度到稳定性高的节点（由 Metaclouds 监控打标）
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: node.metaclouds.io/stability
+                    operator: In
+                    values:
+                      - "high"
+            # 避免调度到最近有硬件错误的节点
+            - weight: -100
+              preference:
+                matchExpressions:
+                  - key: node.metaclouds.io/hardware-error
+                    operator: In
+                    values:
+                      - "true"
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: "topology.kubernetes.io/zone"
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: metaclouds
+              component: training-job
+              job-name: template-fault-tolerant-training
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: ft-trainer
+          image: nvcr.io/nvidia/pytorch:23.10-py3
+          resources:
+            requests:
+              cpu: "8"
+              memory: "64Gi"
+              nvidia.com/gpu: "4"
+            limits:
+              cpu: "16"
+              memory: "128Gi"
+              nvidia.com/gpu: "4"
+          env:
+            # ---- 容错训练配置 ----
+            - name: FAULT_TOLERANCE_ENABLED
+              value: "true"
+            - name: MAX_RETRIES
+              value: "5"
+            - name: RETRY_DELAY_SECONDS
+              value: "60"
+            # ---- Checkpoint 配置 ----
+            - name: CHECKPOINT_ENABLED
+              value: "true"
+            - name: CHECKPOINT_INTERVAL_MINUTES
+              value: "15"     # 每 15 分钟保存一次
+            - name: CHECKPOINT_MAX_KEEP
+              value: "5"      # 保留最近 5 个 checkpoint
+            - name: CHECKPOINT_DIR
+              value: "/checkpoints"
+            - name: RESUME_FROM_LATEST_CHECKPOINT
+              value: "true"
+            - name: CHECKPOINT_VALIDATION_ENABLED
+              value: "true"   # 保存后验证 checkpoint 完整性
+            # ---- 故障检测 ----
+            - name: NODE_HEARTBEAT_INTERVAL
+              value: "30"
+            - name: NODE_HEARTBEAT_TIMEOUT
+              value: "120"    # 120 秒无心跳判定节点故障
+            # ---- NCCL ----
+            - name: NCCL_DEBUG
+              value: "WARN"
+            - name: NCCL_IB_DISABLE
+              value: "0"
+            - name: NCCL_SOCKET_IFNAME
+              value: "eth1"
+            # ---- CUDA ----
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0,1,2,3"
+          volumeMounts:
+            - name: checkpoints
+              mountPath: /checkpoints
+            - name: training-data
+              mountPath: /data/training
+              readOnly: true
+          # 存活探针：检测训练进程是否正常
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "pgrep -f 'python.*train' || exit 1"
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: checkpoints
+          persistentVolumeClaim:
+            claimName: ft-training-checkpoints-pvc
+        - name: training-data
+          persistentVolumeClaim:
+            claimName: metaclouds-training-data-ceph
+      restartPolicy: OnFailure  # 失败时重启容器（从 checkpoint 恢复）
+
+---
+# ============================================================================
+# 5. Slurm 集成作业模板（注释形式）
+# ============================================================================
+# 对应 skill.md §4.3「作业调度系统集成：Slurm / LSF / SGE」。
+# 通过 SlurmAdapter 将 Metaclouds 作业提交到 Slurm 集群。
+#
+# 重要说明：
+#   - 本模板为配置示例，实际作业通过 Metaclouds 平台的 SlurmAdapter 提交
+#   - SlurmAdapter 负责：sbatch 命令生成、squeue 状态同步、scancel 取消
+#   - 需要 Slurm 集群 23.02+，且 Metaclouds 后端可访问 Slurm 控制节点
+#   - 下方为 Slurm 作业脚本示例（sbatch 格式），由平台自动生成
+# ============================================================================
+# #!/bin/bash
+# #SBATCH --job-name=metaclouds-training
+# #SBATCH --partition=gpu-a100
+# #SBATCH --nodes=4
+# #SBATCH --ntasks-per-node=8
+# #SBATCH --gres=gpu:8
+# #SBATCH --cpus-per-task=4
+# #SBATCH --mem=128G
+# #SBATCH --time=24:00:00
+# #SBATCH --qos=normal
+# #SBATCH --output=logs/%x-%j.out
+# #SBATCH --error=logs/%x-%j.err
+# #SBATCH --mail-type=END,FAIL
+#
+# # 模块加载
+# module load cuda/12.1
+# module load nccl/2.18
+# module load pytorch/2.1.0
+#
+# # NCCL 配置
+# export NCCL_DEBUG=INFO
+# export NCCL_IB_DISABLE=0
+# export NCCL_SOCKET_IFNAME=eth1
+# export NCCL_NET_GDR_LEVEL=5
+#
+# # 分布式训练启动
+# srun python train.py \
+#   --config configs/distributed.yaml \
+#   --deepspeed \
+#   --deepspeed_config configs/deepspeed.json
+#
+# ---
+# Slurm 集成配置（Metaclouds 平台层）：
+#
+# SchedulerIntegration 模型字段：
+#   type: slurm                    # 调度器类型（slurm/lsf/sge/k8s_native）
+#   endpoint: slurmctl.example.com # Slurm 控制节点地址
+#   auth_config:                   # 认证配置（SSH key / token）
+#     type: ssh
+#     username: metaclouds
+#     private_key_secret: slurm-ssh-key
+#   version: "23.02"
+#   status: active
+#   partitions:                    # 可用分区列表
+#     - name: gpu-a100
+#       gpu_model: A100
+#       max_nodes: 32
+#       max_gpus_per_node: 8
+#     - name: gpu-t4
+#       gpu_model: T4
+#       max_nodes: 16
+#       max_gpus_per_node: 2
+#
+# SlurmAdapter 接口方法：
+#   SubmitJob(job)    → 生成 sbatch 脚本并提交，返回 Slurm Job ID
+#   CancelJob(id)     → 执行 scancel 取消作业
+#   GetJobStatus(id)  → 执行 squeue/sacct 查询作业状态
+#   GetQueueInfo()    → 执行 sinfo/squeue 查询分区和队列信息
+#   GetNodeInfo()     → 执行 sinfo 查询节点状态
+#
+# Metaclouds API 端点：
+#   GET/POST/PUT/DELETE /api/v1/schedulers       # 调度器集成 CRUD
+#   GET /api/v1/schedulers/:id/queues            # 查询队列信息
+#   GET /api/v1/schedulers/:id/nodes             # 查询节点信息
+#   POST /api/v1/schedulers/:id/sync             # 同步作业状态
+#   GET /api/v1/schedulers/:id/health            # 调度器健康检查
+
+---
+# ============================================================================
+# 6. 作业模板与 skill.md 对应关系（注释）
+# ============================================================================
+#
+# 模板名称              | skill.md 章节              | 核心技术
+# ---------------------|---------------------------|--------------------------
+# 分布式训练            | §4.4 分布式训练加速         | NCCL, DeepSpeed, 多机多卡
+# 推理服务              | §4.4 推理加速              | TensorRT, ONNX Runtime, 量化
+# 弹性训练              | §4.3 弹性训练              | 动态扩缩容, checkpoint
+# 容错训练              | §4.3 容错训练              | checkpoint, 故障域反亲和
+# Slurm 集成            | §4.3 作业调度系统集成       | SlurmAdapter, sbatch/squeue
+#
+# GPU 细粒度分配映射：
+#   请求 GPU 数 | A100 MIG profile   | T4 vGPU      | 等效整卡
+#   -----------|-------------------|-------------|--------
+#   0.25       | mig-1g.5gb (1/7)  | vGPU 1/4    | 0.25
+#   0.5        | mig-2g.10gb (2/7) | vGPU 1/2    | 0.5
+#   1.0        | 整卡               | 整卡         | 1.0
+#   N          | N 张整卡           | N 张整卡     | N
+#
+# 调度策略选择指南：
+#   - 大模型预训练 → 分布式训练模板 + A100 节点池 + RoCE/IB
+#   - 在线推理     → 推理服务模板 + T4 节点池 + HPA 自动扩缩
+#   - 资源紧张训练 → 弹性训练模板 + 动态扩缩容
+#   - 长时间训练   → 容错训练模板 + 高频 checkpoint
+#   - HPC 作业     → Slurm 集成模板 + SlurmAdapter
+# ==============================================================================

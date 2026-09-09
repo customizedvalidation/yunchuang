@@ -27,14 +27,30 @@ const (
 	PermissionSecurityRead     Permission = "security:read"
 	PermissionSecurityWrite    Permission = "security:write"
 	PermissionAdmin            Permission = "admin"
+
+	// P0/P1 差距对齐新增权限
+	PermissionGPURead         Permission = "gpu:read"
+	PermissionGPUWrite        Permission = "gpu:write"
+	PermissionPartitionRead   Permission = "partition:read"
+	PermissionPartitionWrite  Permission = "partition:write"
+	PermissionQuotaRead       Permission = "quota:read"
+	PermissionQuotaWrite      Permission = "quota:write"
+	PermissionSchedulerRead   Permission = "scheduler:read"
+	PermissionSchedulerWrite  Permission = "scheduler:write"
+	PermissionTopologyRead    Permission = "topology:read"
+	PermissionTopologyWrite   Permission = "topology:write"
+	PermissionDatasetRead     Permission = "dataset:read"
+	PermissionDatasetWrite    Permission = "dataset:write"
+	PermissionCheckpointRead  Permission = "checkpoint:read"
+	PermissionCheckpointWrite Permission = "checkpoint:write"
 )
 
 type Role string
 
 const (
-	RoleAdmin     Role = "admin"
-	RoleManager   Role = "manager"
-	RoleUser      Role = "user"
+	RoleAdmin   Role = "admin"
+	RoleManager Role = "manager"
+	RoleUser    Role = "user"
 )
 
 var rolePermissions = map[Role][]Permission{
@@ -48,6 +64,20 @@ var rolePermissions = map[Role][]Permission{
 		PermissionTenantRead,
 		PermissionTenantWrite,
 		PermissionAdmin,
+		PermissionGPURead,
+		PermissionGPUWrite,
+		PermissionPartitionRead,
+		PermissionPartitionWrite,
+		PermissionQuotaRead,
+		PermissionQuotaWrite,
+		PermissionSchedulerRead,
+		PermissionSchedulerWrite,
+		PermissionTopologyRead,
+		PermissionTopologyWrite,
+		PermissionDatasetRead,
+		PermissionDatasetWrite,
+		PermissionCheckpointRead,
+		PermissionCheckpointWrite,
 	},
 	RoleManager: {
 		PermissionClusterRead,
@@ -63,6 +93,20 @@ var rolePermissions = map[Role][]Permission{
 		PermissionAccelRead,
 		PermissionAccelWrite,
 		PermissionSecurityRead,
+		PermissionGPURead,
+		PermissionGPUWrite,
+		PermissionPartitionRead,
+		PermissionPartitionWrite,
+		PermissionQuotaRead,
+		PermissionQuotaWrite,
+		PermissionSchedulerRead,
+		PermissionSchedulerWrite,
+		PermissionTopologyRead,
+		PermissionTopologyWrite,
+		PermissionDatasetRead,
+		PermissionDatasetWrite,
+		PermissionCheckpointRead,
+		PermissionCheckpointWrite,
 	},
 	RoleUser: {
 		PermissionClusterRead,
@@ -71,6 +115,13 @@ var rolePermissions = map[Role][]Permission{
 		PermissionMonitoringRead,
 		PermissionAccelRead,
 		PermissionSecurityRead,
+		PermissionGPURead,
+		PermissionPartitionRead,
+		PermissionQuotaRead,
+		PermissionSchedulerRead,
+		PermissionTopologyRead,
+		PermissionDatasetRead,
+		PermissionCheckpointRead,
 	},
 }
 
@@ -110,10 +161,6 @@ func roleFromContext(c *gin.Context) (Role, bool) {
 }
 
 // abortWithError 统一错误响应契约。
-//
-// 此前直接 c.AbortWithStatusJSON(status, appErr) 会把 AppError 结构体整体序列化为
-// {"Code":..,"Message":..,"Err":..,"Details":..}，与全局 Response{Success,Message,Code,Timestamp}
-// 契约不一致，前端按统一结构解析错误时会取不到 message。改用 response.Error 保证一致。
 func abortWithError(c *gin.Context, err *errors.AppError) {
 	response.Error(c, err)
 	c.Abort()

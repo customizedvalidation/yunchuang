@@ -1,0 +1,479 @@
+# ==============================================================================
+# Metaclouds 多 GPU 厂商节点池配置
+# ==============================================================================
+# 对应 skill.md §4.1「AI 计算资源池」与 §2.3「兼容性：支持多种 GPU 类型和厂商」。
+# 展示 NVIDIA（A100/T4）、燧原（Enflame）、摩尔线程（Moore Threads）、国产 X
+# 五类 GPU 节点池的标签、污点与 Pod 调度配置示例。
+#
+# 本文件为配置示例，不直接创建 Node 对象（Node 由集群管理员通过 kubectl label
+# / kubectl taint 或云厂商自动标签机制管理）。每个节点池包含：
+#   1. 节点标签定义（注释形式，说明应打在 Node 上的 label）
+#   2. 节点污点定义（注释形式，说明应打在 Node 上的 taint）
+#   3. Pod 级别的 Toleration + nodeSelector 示例（可直接使用的模板）
+#   4. 与分区管理的对应关系说明
+#
+# 节点标签与污点设置命令（集群管理员执行）：
+#   kubectl label nodes <node-name> gpu-vendor=nvidia gpu-model=A100
+#   kubectl taint nodes <node-name> nvidia.com/gpu=true:NoSchedule
+# ==============================================================================
+
+---
+# ============================================================================
+# 节点池配置总览（ConfigMap，供 Metaclouds 平台读取节点池元数据）
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-node-pool-config
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: gpu-node-pool
+    app.kubernetes.io/part-of: metaclouds
+data:
+  # 节点池定义：Metaclouds 调度器据此做厂商感知调度
+  node-pools.yaml: |
+    pools:
+      - name: nvidia-a100
+        vendor: nvidia
+        model: A100
+        labels:
+          gpu-vendor: nvidia
+          gpu-model: A100
+        taints:
+          - key: nvidia.com/gpu
+            value: "true"
+            effect: NoSchedule
+        mig_supported: true
+        mig_profiles: ["1g.5gb", "2g.10gb", "3g.20gb", "4g.20gb", "7g.40gb"]
+        rdma_supported: true
+        partition: algorithm-training
+      - name: nvidia-t4
+        vendor: nvidia
+        model: T4
+        labels:
+          gpu-vendor: nvidia
+          gpu-model: T4
+        taints: []
+        mig_supported: false
+        vgpu_supported: true
+        rdma_supported: false
+        partition: data-analytics
+      - name: enflame-t20
+        vendor: enflame
+        model: ENflame-T20
+        labels:
+          gpu-vendor: enflame
+          gpu-model: ENflame-T20
+        taints:
+          - key: enflame.com/gpu
+            value: "true"
+            effect: NoSchedule
+        mig_supported: false
+        rdma_supported: true
+        partition: domestic-ai
+      - name: moore-threads-s80
+        vendor: moore_threads
+        model: MTT-S80
+        labels:
+          gpu-vendor: moore_threads
+          gpu-model: MTT-S80
+        taints:
+          - key: moorethreads.com/gpu
+            value: "true"
+            effect: NoSchedule
+        mig_supported: false
+        rdma_supported: false
+        partition: domestic-ai
+      - name: domestic-x
+        vendor: domestic_x
+        model: generic
+        labels:
+          gpu-vendor: domestic_x
+        taints:
+          - key: domestic-x.com/gpu
+            value: "true"
+            effect: NoSchedule
+        mig_supported: false
+        rdma_supported: false
+        partition: domestic-ai
+
+---
+# ============================================================================
+# 1. NVIDIA A100 节点池
+# ============================================================================
+# 节点标签（集群管理员设置）：
+#   gpu-vendor=nvidia
+#   gpu-model=A100
+#   nvidia.com/gpu.product=NVIDIA-A100-SXM4-40GB  （GPU Operator 自动添加）
+#
+# 节点污点（集群管理员设置）：
+#   nvidia.com/gpu=true:NoSchedule
+#   （仅容忍该污点的 Pod 可调度到此节点，防止普通 CPU 任务占用 GPU 节点）
+#
+# 与分区管理对应：algorithm-training 分区
+#   - team-algorithm Namespace 的作业默认调度到此节点池
+#   - 支持 MIG 切分，可运行 1/7 ~ 整卡的细粒度 GPU 任务
+# ============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-nvidia-a100-job
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: training-job
+    gpu-vendor: nvidia
+    gpu-model: A100
+  annotations:
+    metaclouds.io/job-type: "distributed-training"
+    metaclouds.io/gpu-fraction: "1.0"
+    metaclouds.io/partition: "algorithm-training"
+spec:
+  # 节点选择器：精确匹配 A100 节点池
+  nodeSelector:
+    gpu-vendor: nvidia
+    gpu-model: A100
+  # 容忍 A100 节点的 GPU 污点
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  containers:
+    - name: training
+      image: nvcr.io/nvidia/pytorch:23.10-py3
+      resources:
+        requests:
+          cpu: "4"
+          memory: "16Gi"
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "8"
+          memory: "32Gi"
+          nvidia.com/gpu: "1"
+      env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        - name: NCCL_DEBUG
+          value: "INFO"
+
+---
+# ============================================================================
+# 2. NVIDIA T4 节点池
+# ============================================================================
+# 节点标签：
+#   gpu-vendor=nvidia
+#   gpu-model=T4
+#   nvidia.com/gpu.product=Tesla-T4  （GPU Operator 自动添加）
+#
+# 节点污点：无（T4 节点可同时运行 CPU 任务，但建议通过 nodeSelector 隔离）
+#
+# 与分区管理对应：data-analytics 分区
+#   - team-data Namespace 的作业默认调度到此节点池
+#   - T4 不支持 MIG，细粒度通过 vGPU 时间分片实现
+#   - 适合推理服务、数据预处理、轻量级训练
+# ============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-nvidia-t4-inference
+  namespace: team-data
+  labels:
+    app: metaclouds
+    component: inference-service
+    gpu-vendor: nvidia
+    gpu-model: T4
+  annotations:
+    metaclouds.io/job-type: "inference"
+    metaclouds.io/gpu-fraction: "0.5"
+    metaclouds.io/partition: "data-analytics"
+spec:
+  nodeSelector:
+    gpu-vendor: nvidia
+    gpu-model: T4
+  # T4 节点无污点，无需 toleration
+  containers:
+    - name: inference
+      image: nvcr.io/nvidia/tritonserver:23.10-py3
+      resources:
+        requests:
+          cpu: "2"
+          memory: "4Gi"
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "4"
+          memory: "8Gi"
+          nvidia.com/gpu: "1"
+      env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+
+---
+# ============================================================================
+# 3. 燧原（Enflame）节点池
+# ============================================================================
+# 节点标签：
+#   gpu-vendor=enflame
+#   gpu-model=ENflame-T20
+#
+# 节点污点：
+#   enflame.com/gpu=true:NoSchedule
+#
+# 与分区管理对应：domestic-ai 分区
+#   - 国产 AI 加速卡，使用燧原自研加速库（ENFLAME SDK）
+#   - 需要燧原驱动和设备插件（enflame-device-plugin）
+#   - 资源名通常为 enflame.com/gpu 或 vendor 特定资源名
+# ============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-enflame-training
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: training-job
+    gpu-vendor: enflame
+    gpu-model: ENflame-T20
+  annotations:
+    metaclouds.io/job-type: "training"
+    metaclouds.io/gpu-vendor: "enflame"
+    metaclouds.io/partition: "domestic-ai"
+spec:
+  nodeSelector:
+    gpu-vendor: enflame
+    gpu-model: ENflame-T20
+  tolerations:
+    - key: "enflame.com/gpu"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  containers:
+    - name: training
+      # 燧原 SDK 镜像（需从燧原官方仓库获取）
+      image: enflame-registry.example.com/pytorch-enflame:latest
+      resources:
+        requests:
+          cpu: "4"
+          memory: "16Gi"
+          # 燧原 GPU 资源名（以实际设备插件注册的资源名为准）
+          enflame.com/gpu: "1"
+        limits:
+          cpu: "8"
+          memory: "32Gi"
+          enflame.com/gpu: "1"
+      env:
+        - name: ENFLAME_VISIBLE_DEVICES
+          value: "0"
+
+---
+# ============================================================================
+# 4. 摩尔线程（Moore Threads）节点池
+# ============================================================================
+# 节点标签：
+#   gpu-vendor=moore_threads
+#   gpu-model=MTT-S80
+#
+# 节点污点：
+#   moorethreads.com/gpu=true:NoSchedule
+#
+# 与分区管理对应：domestic-ai 分区
+#   - 国产 GPU，支持 MUSA（Moore Threads Unified System Architecture）
+#   - 需要摩尔线程驱动和设备插件
+#   - 资源名通常为 moorethreads.com/gpu
+# ============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-moore-threads-inference
+  namespace: team-data
+  labels:
+    app: metaclouds
+    component: inference-service
+    gpu-vendor: moore_threads
+    gpu-model: MTT-S80
+  annotations:
+    metaclouds.io/job-type: "inference"
+    metaclouds.io/gpu-vendor: "moore_threads"
+    metaclouds.io/partition: "domestic-ai"
+spec:
+  nodeSelector:
+    gpu-vendor: moore_threads
+    gpu-model: MTT-S80
+  tolerations:
+    - key: "moorethreads.com/gpu"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  containers:
+    - name: inference
+      # 摩尔线程 MUSA 镜像（需从摩尔线程官方仓库获取）
+      image: moorethreads-registry.example.com/musa-inference:latest
+      resources:
+        requests:
+          cpu: "2"
+          memory: "8Gi"
+          moorethreads.com/gpu: "1"
+        limits:
+          cpu: "4"
+          memory: "16Gi"
+          moorethreads.com/gpu: "1"
+
+---
+# ============================================================================
+# 5. 国产 X 节点池（通用国产 GPU 占位）
+# ============================================================================
+# 节点标签：
+#   gpu-vendor=domestic_x
+#
+# 节点污点：
+#   domestic-x.com/gpu=true:NoSchedule
+#
+# 与分区管理对应：domestic-ai 分区
+#   - 预留其他国产 GPU 厂商接入位
+#   - 实际部署时替换为具体厂商的资源名和驱动配置
+# ============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-domestic-x-job
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: training-job
+    gpu-vendor: domestic_x
+  annotations:
+    metaclouds.io/job-type: "training"
+    metaclouds.io/gpu-vendor: "domestic_x"
+    metaclouds.io/partition: "domestic-ai"
+    metaclouds.io/note: "国产 X GPU 占位配置，实际部署时替换资源名和镜像"
+spec:
+  nodeSelector:
+    gpu-vendor: domestic_x
+  tolerations:
+    - key: "domestic-x.com/gpu"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  containers:
+    - name: training
+      image: domestic-x-registry.example.com/ai-runtime:latest
+      resources:
+        requests:
+          cpu: "4"
+          memory: "16Gi"
+          domestic-x.com/gpu: "1"
+        limits:
+          cpu: "8"
+          memory: "32Gi"
+          domestic-x.com/gpu: "1"
+
+---
+# ============================================================================
+# 6. 厂商无关的 GPU 亲和调度示例（nodeAffinity）
+# ============================================================================
+# 使用 nodeAffinity 实现更灵活的厂商选择：
+#   - preferredDuringSchedulingIgnoredDuringExecution：优先选择 NVIDIA，
+#     但不强制（适合可跨厂商运行的框架，如 PyTorch + ONNX Runtime）
+#   - requiredDuringSchedulingIgnoredDuringExecution：强制选择特定厂商
+# ============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-gpu-affinity-job
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: training-job
+  annotations:
+    metaclouds.io/job-type: "training"
+    metaclouds.io/scheduling-strategy: "prefer-nvidia-fallback-domestic"
+spec:
+  affinity:
+    nodeAffinity:
+      # 优先调度到 NVIDIA GPU 节点
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: gpu-vendor
+                operator: In
+                values:
+                  - nvidia
+        # 次优：国产 GPU 节点（作为 fallback）
+        - weight: 50
+          preference:
+            matchExpressions:
+              - key: gpu-vendor
+                operator: In
+                values:
+                  - enflame
+                  - moore_threads
+                  - domestic_x
+  tolerations:
+    # 容忍所有 GPU 厂商的污点，使 Pod 可调度到任意 GPU 节点
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "enflame.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "moorethreads.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "domestic-x.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+  containers:
+    - name: training
+      image: pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+      resources:
+        requests:
+          cpu: "4"
+          memory: "16Gi"
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "8"
+          memory: "32Gi"
+          nvidia.com/gpu: "1"
+
+---
+# ============================================================================
+# 7. 节点池与分区管理对应关系（注释）
+# ============================================================================
+# Metaclouds 分区管理（Partition）与 K8s 节点池的映射：
+#
+#   Partition 名称       | 对应节点池              | 关联 Namespace      | GPU 配额
+#   --------------------|------------------------|-------------------|--------
+#   algorithm-training  | nvidia-a100            | team-algorithm    | 8 GPU
+#   data-analytics      | nvidia-t4              | team-data         | 4 GPU
+#   domestic-ai         | enflame-t20 / moore-threads-s80 / domestic-x | team-algorithm | 按实际
+#   infrastructure      | （无 GPU 节点）          | team-infra        | 2 GPU（预留）
+#
+# 分区管理功能（Metaclouds 平台层）：
+#   - 分区 CRUD：通过 /api/v1/partitions 管理
+#   - 分区优先级：影响作业调度顺序（高优先级分区作业优先调度）
+#   - 最大运行时长：防止作业长期占用资源（/api/v1/partitions/:id/max-runtime）
+#   - 权限分配：分区与用户/用户组绑定（/api/v1/partitions/:id/permissions）
+#   - 资源共享：分区间计算资源共享与跨级别迁移
+#
+# 节点标签设置命令汇总：
+#   # A100 节点池
+#   kubectl label nodes <a100-node> gpu-vendor=nvidia gpu-model=A100
+#   kubectl taint nodes <a100-node> nvidia.com/gpu=true:NoSchedule
+#
+#   # T4 节点池
+#   kubectl label nodes <t4-node> gpu-vendor=nvidia gpu-model=T4
+#
+#   # 燧原节点池
+#   kubectl label nodes <enflame-node> gpu-vendor=enflame gpu-model=ENflame-T20
+#   kubectl taint nodes <enflame-node> enflame.com/gpu=true:NoSchedule
+#
+#   # 摩尔线程节点池
+#   kubectl label nodes <mt-node> gpu-vendor=moore_threads gpu-model=MTT-S80
+#   kubectl taint nodes <mt-node> moorethreads.com/gpu=true:NoSchedule
+#
+#   # 国产 X 节点池
+#   kubectl label nodes <dx-node> gpu-vendor=domestic_x
+#   kubectl taint nodes <dx-node> domestic-x.com/gpu=true:NoSchedule
+# ==============================================================================

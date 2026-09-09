@@ -1,20 +1,79 @@
-import React, { useMemo } from 'react';
-import { Card, Progress, Tag } from 'antd';
+import React, { useMemo, useState } from 'react';
+import { Card, Progress, Tag, Select, Space } from 'antd';
 import ResponsiveTable from '../components/ResponsiveTable';
 import { useGetResourcesQuery } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
+import type { Resource, GPUVendor } from '../types';
+
+const VENDOR_OPTIONS: { label: string; value: GPUVendor }[] = [
+  { label: 'NVIDIA', value: 'nvidia' },
+  { label: '燧原', value: 'enflame' },
+  { label: '摩尔线程', value: 'moore_threads' },
+  { label: '国产 X', value: 'domestic_x' },
+];
+
+const VENDOR_COLOR: Record<GPUVendor, string> = {
+  nvidia: 'green',
+  enflame: 'blue',
+  moore_threads: 'purple',
+  domestic_x: 'orange',
+};
 
 const ResourceManagement: React.FC = () => {
+  const [vendorFilter, setVendorFilter] = useState<string | undefined>(undefined);
+
   const { data: resources, isLoading, error, refetch } = useGetResourcesQuery(undefined);
-  const resourcesData = extractArrayData(resources);
+  const resourcesData = extractArrayData<Resource>(resources);
+
+  // 按厂商筛选
+  const filteredData = useMemo(() => {
+    if (!vendorFilter) return resourcesData;
+    return resourcesData.filter((r) => r.vendor === vendorFilter);
+  }, [resourcesData, vendorFilter]);
 
   // 列配置用 useMemo 缓存：不随渲染变化，避免 Table 因 columns 引用变化而深比较重渲染
   const columns = useMemo(() => [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80, render: (v: React.ReactNode) => <span className="mc-mono">{v}</span> },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '类型', dataIndex: 'type', key: 'type', render: (type: string) => <Tag>{type}</Tag> },
+    {
+      title: '厂商',
+      dataIndex: 'vendor',
+      key: 'vendor',
+      width: 100,
+      render: (v: GPUVendor) => (v ? <Tag color={VENDOR_COLOR[v]}>{v}</Tag> : '-'),
+    },
+    { title: 'GPU型号', dataIndex: 'gpu_model', key: 'gpu_model', width: 120 },
+    {
+      title: '显存总量(MB)',
+      dataIndex: 'vram_total_mb',
+      key: 'vram_total_mb',
+      width: 120,
+      render: (v: React.ReactNode) => <span className="mc-num">{v ?? '-'}</span>,
+    },
+    {
+      title: '显存已用(MB)',
+      dataIndex: 'vram_used_mb',
+      key: 'vram_used_mb',
+      width: 120,
+      render: (v: React.ReactNode) => <span className="mc-num">{v ?? '-'}</span>,
+    },
+    {
+      title: '超发比率',
+      dataIndex: 'vram_oversubscription_ratio',
+      key: 'vram_oversubscription_ratio',
+      width: 100,
+      render: (v: number) => (v != null ? <span className="mc-num">{v}x</span> : '-'),
+    },
+    {
+      title: 'MIG',
+      dataIndex: 'mig_enabled',
+      key: 'mig_enabled',
+      width: 80,
+      render: (v: boolean) => (v ? <Tag color="blue">开启</Tag> : <Tag>关闭</Tag>),
+    },
     { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: (status: string) => <StatusCell status={status} /> },
     { title: '总量', dataIndex: 'total', key: 'total', width: 90, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
     { title: '已用', dataIndex: 'used', key: 'used', width: 90, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
@@ -25,7 +84,7 @@ const ResourceManagement: React.FC = () => {
   const state = renderState({
     isLoading,
     error,
-    isEmpty: resourcesData.length === 0,
+    isEmpty: filteredData.length === 0,
     onRetry: refetch,
     skeletonRows: 6,
     skeletonColumns: 8,
@@ -43,14 +102,27 @@ const ResourceManagement: React.FC = () => {
         </div>
       </div>
 
+      <Card style={{ marginBottom: 16 }}>
+        <Space>
+          <Select
+            placeholder="厂商筛选"
+            allowClear
+            style={{ width: 180 }}
+            value={vendorFilter}
+            onChange={(v) => setVendorFilter(v)}
+            options={VENDOR_OPTIONS}
+          />
+        </Space>
+      </Card>
+
       <Card>
         {state ?? (
           <ResponsiveTable
             columns={columns}
-            dataSource={resourcesData}
+            dataSource={filteredData}
             rowKey="id"
             pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-            scroll={{ x: 900, y: 520 }}
+            scroll={{ x: 1500, y: 520 }}
             // 资源列表可能包含大量 GPU/CPU 节点，启用虚拟滚动
             virtual
           />

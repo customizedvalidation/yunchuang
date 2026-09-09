@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"errors"
@@ -447,7 +447,14 @@ func RegisterRoutes(r *gin.Engine,
 	tenantController *controllers.TenantController,
 	accelerationController *controllers.AccelerationController,
 	securityController *controllers.SecurityController,
-	k8sController *controllers.K8SController) {
+	k8sController *controllers.K8SController,
+	gpuController *controllers.GPUController,
+	partitionController *controllers.PartitionController,
+	quotaController *controllers.QuotaController,
+	schedulerController *controllers.SchedulerController,
+	topologyController *controllers.TopologyController,
+	datasetController *controllers.DatasetController,
+	checkpointController *controllers.CheckpointController) {
 
 	isProduction := cfg.Environment == "production"
 
@@ -593,6 +600,92 @@ func RegisterRoutes(r *gin.Engine,
 			security.GET("/policies/:id", securityController.GetSecurityPolicy)
 			security.PUT("/policies/:id", authz.RequirePermission(authz.PermissionSecurityWrite), securityController.UpdateSecurityPolicy)
 			security.DELETE("/policies/:id", authz.RequirePermission(authz.PermissionSecurityWrite), securityController.DeleteSecurityPolicy)
+		}
+
+		gpus := authorized.Group("/gpus")
+		{
+			gpus.GET("", gpuController.GetGPUDevices)
+			gpus.POST("", authz.RequirePermission(authz.PermissionGPUWrite), gpuController.CreateGPUDevice)
+			gpus.GET("/:id", gpuController.GetGPUDevice)
+			gpus.PUT("/:id", authz.RequirePermission(authz.PermissionGPUWrite), gpuController.UpdateGPUDevice)
+			gpus.DELETE("/:id", authz.RequirePermission(authz.PermissionGPUWrite), gpuController.DeleteGPUDevice)
+			gpus.GET("/allocations", gpuController.GetGPUAllocations)
+			gpus.POST("/allocations", authz.RequirePermission(authz.PermissionJobWrite), gpuController.AllocateGPU)
+			gpus.DELETE("/allocations/:id", authz.RequirePermission(authz.PermissionJobWrite), gpuController.ReleaseGPU)
+			gpus.GET("/utilization", gpuController.GetGPUUtilization)
+		}
+
+		partitions := authorized.Group("/partitions")
+		{
+			partitions.GET("", partitionController.GetPartitions)
+			partitions.POST("", authz.RequirePermission(authz.PermissionPartitionWrite), partitionController.CreatePartition)
+			partitions.GET("/:id", partitionController.GetPartition)
+			partitions.PUT("/:id", authz.RequirePermission(authz.PermissionPartitionWrite), partitionController.UpdatePartition)
+			partitions.DELETE("/:id", authz.RequirePermission(authz.PermissionPartitionWrite), partitionController.DeletePartition)
+			partitions.PUT("/:id/priority", authz.RequirePermission(authz.PermissionPartitionWrite), partitionController.UpdatePriority)
+			partitions.PUT("/:id/max-runtime", authz.RequirePermission(authz.PermissionPartitionWrite), partitionController.UpdateMaxRuntime)
+			partitions.GET("/:id/permissions", partitionController.GetPermissions)
+			partitions.POST("/:id/permissions", authz.RequirePermission(authz.PermissionPartitionWrite), partitionController.SetPermission)
+			partitions.DELETE("/permissions/:permId", authz.RequirePermission(authz.PermissionPartitionWrite), partitionController.RemovePermission)
+		}
+
+		quotas := authorized.Group("/quotas")
+		{
+			quotas.GET("", quotaController.GetQuotas)
+			quotas.POST("", authz.RequirePermission(authz.PermissionQuotaWrite), quotaController.CreateQuota)
+			quotas.GET("/:id", quotaController.GetQuota)
+			quotas.PUT("/:id", authz.RequirePermission(authz.PermissionQuotaWrite), quotaController.UpdateQuota)
+			quotas.DELETE("/:id", authz.RequirePermission(authz.PermissionQuotaWrite), quotaController.DeleteQuota)
+			quotas.GET("/usage", quotaController.GetQuotaUsage)
+			quotas.POST("/check", quotaController.CheckQuota)
+		}
+
+		schedulers := authorized.Group("/schedulers")
+		{
+			schedulers.GET("", schedulerController.GetSchedulerIntegrations)
+			schedulers.POST("", authz.RequirePermission(authz.PermissionSchedulerWrite), schedulerController.CreateSchedulerIntegration)
+			schedulers.GET("/:id", schedulerController.GetSchedulerIntegration)
+			schedulers.PUT("/:id", authz.RequirePermission(authz.PermissionSchedulerWrite), schedulerController.UpdateSchedulerIntegration)
+			schedulers.DELETE("/:id", authz.RequirePermission(authz.PermissionSchedulerWrite), schedulerController.DeleteSchedulerIntegration)
+			schedulers.GET("/:id/queues", schedulerController.GetQueues)
+			schedulers.GET("/:id/nodes", schedulerController.GetNodes)
+			schedulers.POST("/:id/sync", authz.RequirePermission(authz.PermissionSchedulerWrite), schedulerController.SyncJobs)
+			schedulers.GET("/:id/health", schedulerController.HealthCheck)
+		}
+
+		topology := authorized.Group("/topology")
+		{
+			topology.GET("", topologyController.GetNodeTopologies)
+			topology.POST("", authz.RequirePermission(authz.PermissionTopologyWrite), topologyController.CreateNodeTopology)
+			topology.GET("/:id", topologyController.GetNodeTopology)
+			topology.PUT("/:id", authz.RequirePermission(authz.PermissionTopologyWrite), topologyController.UpdateNodeTopology)
+			topology.DELETE("/:id", authz.RequirePermission(authz.PermissionTopologyWrite), topologyController.DeleteNodeTopology)
+			topology.POST("/score", topologyController.CalculateTopologyScore)
+		}
+
+		datasets := authorized.Group("/datasets")
+		{
+			datasets.GET("", datasetController.GetDatasets)
+			datasets.POST("", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.CreateDataset)
+			datasets.GET("/:id", datasetController.GetDataset)
+			datasets.PUT("/:id", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.UpdateDataset)
+			datasets.DELETE("/:id", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.DeleteDataset)
+			datasets.GET("/:id/caches", datasetController.GetFluidCaches)
+			datasets.POST("/:id/caches", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.CreateFluidCache)
+			datasets.PUT("/caches/:cacheId", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.UpdateFluidCache)
+			datasets.DELETE("/caches/:cacheId", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.DeleteFluidCache)
+			datasets.POST("/caches/:cacheId/enable", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.EnableFluidCache)
+			datasets.POST("/caches/:cacheId/disable", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.DisableFluidCache)
+			datasets.POST("/caches/:cacheId/prefetch", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.TriggerPrefetch)
+		}
+
+		checkpoints := authorized.Group("/checkpoints")
+		{
+			checkpoints.GET("", checkpointController.GetCheckpoints)
+			checkpoints.POST("", authz.RequirePermission(authz.PermissionCheckpointWrite), checkpointController.CreateCheckpoint)
+			checkpoints.GET("/:id", checkpointController.GetCheckpoint)
+			checkpoints.DELETE("/:id", authz.RequirePermission(authz.PermissionCheckpointWrite), checkpointController.DeleteCheckpoint)
+			checkpoints.GET("/latest/:jobId", checkpointController.GetLatestCheckpoint)
 		}
 	}
 

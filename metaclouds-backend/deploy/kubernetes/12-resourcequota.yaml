@@ -1,0 +1,149 @@
+# ==============================================================================
+# Metaclouds 多租户资源配额（ResourceQuota）
+# ==============================================================================
+# 对应 skill.md §4.2「K8s 多租户 GPU 隔离与配额管理」。
+# 为三个团队 Namespace 设置 GPU / CPU / 内存 / PVC / Pod 数量的总量限制。
+#
+# 配额矩阵：
+#   team-infra     : 2 GPU,  4 CPU,  8Gi  memory  （基础服务团队，无 GPU 节点）
+#   team-data      : 4 GPU,  8 CPU,  16Gi memory  （数据分析团队，T4 节点）
+#   team-algorithm : 8 GPU, 16 CPU,  32Gi memory  （算法训练团队，A100 节点）
+#
+# GPU 细粒度说明：
+#   - 1/2 GPU、1/4 GPU 通过 NVIDIA MIG（Multi-Instance GPU）或 vGPU 实现
+#   - MIG 模式下，A100 可切分为最多 7 个 1g.5gb 实例（约 1/7 GPU）
+#   - vGPU 模式下，通过 NVIDIA vGPU Manager 按显存切分
+#   - 本配额按「等效整卡」计数，细粒度分配由 Metaclouds GPU 管理服务换算
+#   - 例：team-infra 申请 1/2 GPU 时，配额扣除 0.5，实际通过 MIG profile 调度
+#
+# 前置条件：
+#   - 三个 Namespace 已在 00-namespace.yaml 中创建
+#   - NVIDIA GPU Operator 已部署，nvidia.com/gpu 资源可被调度器识别
+# ==============================================================================
+
+---
+# ============================================================================
+# 1. team-infra 资源配额
+# ============================================================================
+# 基础服务团队：负责基础设施维护，GPU 配额较低，主要使用 CPU 资源。
+# 调度亲和性：无 GPU 节点（见 14-gpu-node-pools.yaml）。
+# ============================================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-infra-quota
+  namespace: team-infra
+  labels:
+    app: metaclouds
+    component: resource-quota
+    team: infra
+    app.kubernetes.io/part-of: metaclouds
+  annotations:
+    # GPU 细粒度配额说明
+    metaclouds.io/gpu-fine-grained: "支持 1/2 GPU、1/4 GPU 分配，通过 MIG/vGPU 实现"
+    metaclouds.io/gpu-oversubscription: "显存超发比率默认 1.0，可由管理员调整"
+    metaclouds.io/quota-scope: "tenant"
+    metaclouds.io/description: "基础服务团队资源配额"
+spec:
+  hard:
+    # ---- GPU 资源（按等效整卡计数）----
+    requests.nvidia.com/gpu: "2"
+    # ---- CPU 资源 ----
+    requests.cpu: "4"
+    limits.cpu: "8"
+    # ---- 内存资源 ----
+    requests.memory: "8Gi"
+    limits.memory: "16Gi"
+    # ---- 持久卷声明数量 ----
+    persistentvolumeclaims: "10"
+    # ---- Pod 总数限制 ----
+    count/pods: "50"
+
+---
+# ============================================================================
+# 2. team-data 资源配额
+# ============================================================================
+# 数据分析团队：负责数据处理和分析，中等 GPU 配额，使用 T4 节点。
+# 调度亲和性：T4 节点（见 14-gpu-node-pools.yaml）。
+# ============================================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-data-quota
+  namespace: team-data
+  labels:
+    app: metaclouds
+    component: resource-quota
+    team: data
+    app.kubernetes.io/part-of: metaclouds
+  annotations:
+    metaclouds.io/gpu-fine-grained: "支持 1/2 GPU、1/4 GPU 分配，T4 不支持 MIG，使用 vGPU 时间分片"
+    metaclouds.io/gpu-oversubscription: "T4 显存超发比率最高 2.0（推理场景）"
+    metaclouds.io/quota-scope: "tenant"
+    metaclouds.io/description: "数据分析团队资源配额"
+spec:
+  hard:
+    requests.nvidia.com/gpu: "4"
+    requests.cpu: "8"
+    limits.cpu: "16"
+    requests.memory: "16Gi"
+    limits.memory: "32Gi"
+    persistentvolumeclaims: "20"
+    count/pods: "100"
+
+---
+# ============================================================================
+# 3. team-algorithm 资源配额
+# ============================================================================
+# 算法训练团队：负责模型训练和优化，最高 GPU 配额，使用 A100 节点。
+# 调度亲和性：A100 节点（见 14-gpu-node-pools.yaml）。
+# A100 支持 MIG，可切分为 1g.5gb / 2g.10gb / 3g.20gb / 4g.20gb / 7g.40gb 等 profile。
+# ============================================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: team-algorithm-quota
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: resource-quota
+    team: algorithm
+    app.kubernetes.io/part-of: metaclouds
+  annotations:
+    metaclouds.io/gpu-fine-grained: "A100 支持 MIG 切分：1g.5gb(1/7)、2g.10gb(2/7)、3g.20gb(3/7)、7g.40gb(整卡)"
+    metaclouds.io/gpu-mig-profiles: "1g.5gb,2g.10gb,3g.20gb,4g.20gb,7g.40gb"
+    metaclouds.io/gpu-oversubscription: "训练场景不建议超发，推理场景可超发至 1.5"
+    metaclouds.io/quota-scope: "tenant"
+    metaclouds.io/description: "算法训练团队资源配额"
+spec:
+  hard:
+    requests.nvidia.com/gpu: "8"
+    requests.cpu: "16"
+    limits.cpu: "32"
+    requests.memory: "32Gi"
+    limits.memory: "64Gi"
+    persistentvolumeclaims: "30"
+    count/pods: "150"
+
+---
+# ============================================================================
+# 4. 配额使用说明（注释）
+# ============================================================================
+# 查看配额使用情况：
+#   kubectl describe resourcequota team-infra-quota -n team-infra
+#   kubectl describe resourcequota team-data-quota -n team-data
+#   kubectl describe resourcequota team-algorithm-quota -n team-algorithm
+#
+# GPU 细粒度分配流程（Metaclouds 平台管理）：
+#   1. 用户在平台提交作业，选择 GPU 数量（支持 0.25 / 0.5 / 1 / N）
+#   2. 平台校验对应 Namespace 的 ResourceQuota 剩余额度
+#   3. 平台根据 GPU 型号选择 MIG profile 或 vGPU 切分策略
+#   4. 生成 Pod spec，注入 nvidia.com/mig.config 或 vGPU 相关 annotation
+#   5. K8s 调度器根据 nvidia.com/gpu 资源量（等效整卡）调度
+#
+# 注意：nvidia.com/gpu 资源在 K8s 层面为整数，细粒度通过以下方式实现：
+#   - MIG：节点预先配置 MIG 实例，Pod 请求 nvidia.com/mig-1g.5gb 等资源
+#   - vGPU：通过 vGPU Manager 时间分片，Pod 请求 nvidia.com/gpu=1 但实际共享
+#   - 本配额文件的 requests.nvidia.com/gpu 为等效整卡上限，实际细粒度由
+#     Metaclouds GPU 管理服务在调度时换算并记录到 GPUAllocation 模型
+# ==============================================================================

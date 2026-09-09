@@ -1,4 +1,4 @@
-package tests
+﻿package tests
 
 import (
 	"bytes"
@@ -37,6 +37,11 @@ func setupFullTestServer(t *testing.T) (router *gin.Engine, token string) {
 	accelerationService := services.NewAccelerationService(db, cfg)
 	securityService := services.NewSecurityService(db, cfg)
 	k8sService := services.NewK8SService(db, cfg)
+	gpuService := services.NewGPUService(db, cfg)
+	partitionService := services.NewPartitionService(db, cfg)
+	quotaService := services.NewQuotaService(db, cfg)
+	schedulerService := services.NewSchedulerService(db, cfg)
+	topologyService := services.NewTopologyService(db, cfg)
 	jobService := services.NewJobService(db, cfg, k8sService)
 
 	authController := controllers.NewAuthController(authService)
@@ -48,9 +53,16 @@ func setupFullTestServer(t *testing.T) (router *gin.Engine, token string) {
 	accelerationController := controllers.NewAccelerationController(accelerationService)
 	securityController := controllers.NewSecurityController(securityService)
 	k8sController := controllers.NewK8SController(k8sService)
+	gpuController := controllers.NewGPUController(gpuService)
+	partitionController := controllers.NewPartitionController(partitionService)
+	quotaController := controllers.NewQuotaController(quotaService)
+	schedulerController := controllers.NewSchedulerController(schedulerService)
+	topologyController := controllers.NewTopologyController(topologyService)
+	datasetController := controllers.NewDatasetController(accelerationService)
+	checkpointController := controllers.NewCheckpointController(accelerationService)
 
 	r := api.SetupRouter(cfg)
-	api.RegisterRoutes(r, cfg, authController, clusterController, resourceController, jobController, monitoringController, tenantController, accelerationController, securityController, k8sController)
+	api.RegisterRoutes(r, cfg, authController, clusterController, resourceController, jobController, monitoringController, tenantController, accelerationController, securityController, k8sController, gpuController, partitionController, quotaController, schedulerController, topologyController, datasetController, checkpointController)
 
 	reqBody := adminLoginBody()
 	req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(reqBody))

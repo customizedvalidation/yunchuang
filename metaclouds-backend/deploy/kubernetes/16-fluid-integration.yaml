@@ -1,0 +1,348 @@
+# ==============================================================================
+# Metaclouds Fluid 数据加速集成
+# ==============================================================================
+# 对应 skill.md §4.4「数据加速：Fluid 分布式缓存系统」。
+# 展示 Fluid Dataset / AlluxioRuntime / DataLoad 自定义资源配置示例，
+# 实现分布式缓存、数据预取、元数据加速、数据压缩等功能。
+#
+# 重要说明：
+#   - Fluid 需要单独安装：https://github.com/fluid-cloudnative/fluid
+#   - 安装命令：helm install fluid fluid/fluid --namespace fluid-system --create-namespace
+#   - 本清单为配置示例，CRD 由 Fluid 安装时提供
+#   - 训练效率提升目标：5-10 倍（通过分布式缓存减少存储 I/O 瓶颈）
+#
+# Fluid 架构：
+#   Dataset CR       → 定义数据源（Ceph/NFS/S3/GlusterFS）
+#   AlluxioRuntime CR → 定义分布式缓存运行时（Alluxio/JindoFS/GooseFS）
+#   DataLoad CR      → 触发数据预取（将数据预热到缓存层）
+#   Pod 通过 PVC 挂载 Dataset，自动经过缓存层访问数据
+# ==============================================================================
+
+---
+# ============================================================================
+# 1. Fluid Dataset CR（Ceph 数据源示例）
+# ============================================================================
+# 定义指向 CephFS 的数据集，Fluid 会自动创建对应的 PVC，
+# 训练 Pod 挂载该 PVC 即可通过 Alluxio 缓存层访问数据。
+# ============================================================================
+apiVersion: data.fluid.io/v1alpha1
+kind: Dataset
+metadata:
+  name: metaclouds-training-data-ceph
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: fluid-dataset
+    data-source: ceph
+  annotations:
+    metaclouds.io/dataset-type: "training-data"
+    metaclouds.io/description: "分布式训练数据集（CephFS 数据源）"
+spec:
+  mounts:
+    # CephFS 挂载点
+    - mountPoint: cephfs://ceph-mon.ceph.svc.cluster.local:6789/
+      name: ceph-training-data
+      path: /data/training
+      options:
+        # CephFS 认证（生产环境使用 Secret 引用，此处为示例）
+        mon_addr: "ceph-mon.ceph.svc.cluster.local:6789"
+        # 实际部署时通过 encryptOptions 引用 Secret
+      # 加密选项（生产环境使用）
+      # encryptOptions:
+      #   - name: id
+      #     valueFrom:
+      #       secretKeyRef:
+      #         name: ceph-secret
+      #         key: ceph-username
+      #   - name: key
+      #     valueFrom:
+      #       secretKeyRef:
+      #         name: ceph-secret
+      #         key: ceph-key
+  # 数据访问模式：ReadOnlyMany（多 Pod 只读共享）
+  accessModes:
+    - ReadOnlyMany
+  # 数据保留策略：删除 Dataset 时保留缓存数据
+  dataRestoreLocation:
+    path: /backup/fluid-cache
+
+---
+# ============================================================================
+# 2. Fluid Dataset CR（NFS 数据源示例）
+# ============================================================================
+apiVersion: data.fluid.io/v1alpha1
+kind: Dataset
+metadata:
+  name: metaclouds-training-data-nfs
+  namespace: team-data
+  labels:
+    app: metaclouds
+    component: fluid-dataset
+    data-source: nfs
+  annotations:
+    metaclouds.io/dataset-type: "analytics-data"
+    metaclouds.io/description: "数据分析数据集（NFS 数据源）"
+spec:
+  mounts:
+    - mountPoint: nfs://nfs-server.storage.svc.cluster.local/
+      name: nfs-analytics-data
+      path: /export/analytics
+      options:
+        nfsvers: "4.2"
+        hard: "true"
+        noatime: "true"
+  accessModes:
+    - ReadOnlyMany
+
+---
+# ============================================================================
+# 3. Fluid AlluxioRuntime CR（分布式缓存运行时）
+# ============================================================================
+# 定义 Alluxio 分布式缓存集群的配置，包括：
+#   - 缓存介质：内存 + 磁盘（分层存储）
+#   - 缓存容量：每节点 50Gi 内存 + 200Gi 磁盘
+#   - 副本数：3（缓存高可用）
+#   - 压缩：启用（减少存储和传输开销）
+#   - 元数据加速：启用（Alluxio Master 缓存文件元数据）
+# ============================================================================
+apiVersion: data.fluid.io/v1alpha1
+kind: AlluxioRuntime
+metadata:
+  name: metaclouds-training-data-ceph
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: fluid-runtime
+    runtime-type: alluxio
+  annotations:
+    metaclouds.io/cache-medium: "memory+disk"
+    metaclouds.io/description: "Alluxio 分布式缓存运行时（Ceph 数据集）"
+spec:
+  # 缓存副本数（Alluxio Worker 数量）
+  replicas: 3
+  # 分层存储配置
+  tieredstore:
+    levels:
+      # 第一层：内存缓存（最高性能）
+      - level: 0
+        mediumtype: MEM
+        path: /dev/shm
+        quota: 50Gi
+        high: "0.95"
+        low: "0.7"
+      # 第二层：磁盘缓存（大容量）
+      - level: 1
+        mediumtype: HDD
+        path: /mnt/fluid-cache
+        quota: 200Gi
+        high: "0.95"
+        low: "0.7"
+  # Alluxio Master 配置（元数据加速）
+  master:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "2"
+        memory: "4Gi"
+      limits:
+        cpu: "4"
+        memory: "8Gi"
+    # 元数据缓存配置
+    options:
+      alluxio.master.metastore: ROCKS
+      alluxio.master.metastore.dir: /metadata
+      alluxio.master.journal.folder: /journal
+  # Alluxio Worker 配置（数据缓存节点）
+  worker:
+    resources:
+      requests:
+        cpu: "4"
+        memory: "8Gi"
+      limits:
+        cpu: "8"
+        memory: "16Gi"
+    # 数据压缩配置
+    options:
+      alluxio.user.file.writetype.default: MUST_CACHE
+      alluxio.user.ufs.block.read.location.policy: alluxio.client.block.policy.LocalFirstAvoidEvictionPolicy
+  # Fuse 配置（Pod 通过 FUSE 挂载访问缓存）
+  fuse:
+    args:
+      - fuse
+      - --fuse-opts=kernel_cache,ro,max_read=131072,attr_timeout=7200,entry_timeout=7200,nonempty
+    resources:
+      requests:
+        cpu: "1"
+        memory: "2Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+  # 运行时属性（全局配置）
+  properties:
+    # 数据压缩
+    alluxio.user.file.compression.type: GZIP
+    alluxio.user.compression.enabled: "true"
+    # 元数据加速
+    alluxio.user.metadata.cache.enabled: "true"
+    alluxio.user.metadata.cache.expiration.time: 1h
+    # 短路读取（Worker 本地数据直接读，不经网络）
+    alluxio.user.short.circuit.enabled: "true"
+    # 异步缓存
+    alluxio.user.ufs.block.read.async.cache.enabled: "true"
+  # 调度策略：缓存节点优先调度到 GPU 节点（数据局部性）
+  schedulePolicy: CSINodeAffinity
+  # 节点亲和：Alluxio Worker 调度到 GPU 计算节点
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: gpu-vendor
+              operator: In
+              values:
+                - nvidia
+                - enflame
+                - moore_threads
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "enflame.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+---
+# ============================================================================
+# 4. Fluid DataLoad CR（数据预取）
+# ============================================================================
+# 触发数据预取，将指定路径的数据提前加载到 Alluxio 缓存层，
+# 避免训练开始时因冷启动导致的 I/O 等待。
+# 训练前执行 DataLoad，可显著提升首 epoch 训练速度。
+# ============================================================================
+apiVersion: data.fluid.io/v1alpha1
+kind: DataLoad
+metadata:
+  name: metaclouds-training-data-prefetch
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: fluid-dataload
+  annotations:
+    metaclouds.io/description: "训练数据集预取（训练前执行）"
+spec:
+  # 目标 Dataset
+  datasetName: metaclouds-training-data-ceph
+  # 预取路径（相对于 Dataset mount 路径）
+  target:
+    - path: /
+      # 递归预取所有子目录
+      recursive: true
+  # 预取选项
+  options:
+    # 并发预取线程数
+    alluxio.worker.data.server.prefetch.threads: "16"
+    # 预取队列大小
+    alluxio.worker.data.server.prefetch.buffer.size: "64"
+  # 是否同步等待预取完成
+  loadMetadata: true
+  # 数据加密（可选）
+  # encryption:
+  #   algorithm: AES-256
+
+---
+# ============================================================================
+# 5. 训练 Pod 使用 Fluid 缓存示例
+# ============================================================================
+# 训练 Pod 通过 PVC 挂载 Fluid Dataset，自动经过 Alluxio 缓存层。
+# Fluid 会自动创建名为 <dataset-name> 的 PVC。
+# ============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-training-with-fluid-cache
+  namespace: team-algorithm
+  labels:
+    app: metaclouds
+    component: training-job
+  annotations:
+    metaclouds.io/job-type: "distributed-training"
+    metaclouds.io/data-cache: "fluid-alluxio"
+spec:
+  nodeSelector:
+    gpu-vendor: nvidia
+    gpu-model: A100
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+  containers:
+    - name: training
+      image: nvcr.io/nvidia/pytorch:23.10-py3
+      resources:
+        requests:
+          cpu: "8"
+          memory: "32Gi"
+          nvidia.com/gpu: "2"
+        limits:
+          cpu: "16"
+          memory: "64Gi"
+          nvidia.com/gpu: "2"
+      volumeMounts:
+        # 挂载 Fluid 缓存数据集
+        - name: training-data
+          mountPath: /data/training
+          readOnly: true
+      env:
+        - name: DATA_DIR
+          value: "/data/training"
+        - name: NCCL_DEBUG
+          value: "INFO"
+  volumes:
+    # Fluid 自动创建的 PVC（名称与 Dataset 相同）
+    - name: training-data
+      persistentVolumeClaim:
+        claimName: metaclouds-training-data-ceph
+
+---
+# ============================================================================
+# 6. Fluid 缓存配置说明（注释）
+# ============================================================================
+# 缓存介质选择：
+#   - MEM（内存）：最高性能，容量有限，适合热数据
+#   - SSD（固态硬盘）：高性能，中等容量，适合温数据
+#   - HDD（机械硬盘）：大容量，较低性能，适合冷数据
+#   - 推荐配置：MEM + HDD 分层，热数据自动留在内存
+#
+# 副本数选择：
+#   - 单节点训练：replicas=1（本地缓存即可）
+#   - 多机训练：replicas=3~5（缓存高可用 + 数据局部性）
+#   - 超大规模：replicas=GPU 节点数（每节点一个 Worker）
+#
+# 压缩配置：
+#   - GZIP：通用压缩，压缩比高，CPU 开销中等
+#   - SNAPPY：低延迟压缩，压缩比低，CPU 开销小
+#   - LZ4：极速压缩，压缩比低，适合对延迟敏感的场景
+#   - 训练数据通常已压缩（如 TFRecord），可关闭压缩减少 CPU 开销
+#
+# 元数据加速：
+#   - alluxio.master.metastore=ROCKS：使用 RocksDB 存储元数据，支持百万级文件
+#   - alluxio.user.metadata.cache.enabled=true：客户端缓存元数据，减少 Master 压力
+#   - 小文件场景（>100 万文件）必须启用元数据加速
+#
+# 数据预取最佳实践：
+#   1. 训练前创建 DataLoad CR，预热数据集
+#   2. 监控 DataLoad 状态：kubectl describe dataload <name>
+#   3. 预取完成后再启动训练作业
+#   4. 数据集更新后重新触发 DataLoad
+#
+# Fluid 与 Metaclouds 平台集成：
+#   - Dataset 管理：/api/v1/datasets（CRUD）
+#   - 缓存管理：/api/v1/datasets/:id/caches（启停缓存）
+#   - 数据预取：/api/v1/datasets/caches/:cacheId/prefetch
+#   - 平台自动创建 Dataset + AlluxioRuntime + DataLoad
+#
+# Fluid 安装验证：
+#   kubectl get pods -n fluid-system
+#   kubectl get crd | grep fluid
+#   # 预期：datasets.data.fluid.io, alluxioruntimes.data.fluid.io, dataloads.data.fluid.io
+# ==============================================================================

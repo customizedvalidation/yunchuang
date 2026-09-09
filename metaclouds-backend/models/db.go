@@ -1,4 +1,4 @@
-package models
+﻿package models
 
 import (
 	"fmt"
@@ -45,7 +45,19 @@ type MemoryStore struct {
 	Tenants            map[uint]*Tenant
 	AccelerationSuites map[uint]*AccelerationSuite
 	SecurityPolicies   map[uint]*SecurityPolicy
-	Alerts             map[uint]*Alert
+	Alerts                      map[uint]*Alert
+	GPUDevices                  map[uint]*GPUDevice
+	GPUAllocations              map[uint]*GPUAllocation
+	Partitions                  map[uint]*Partition
+	PartitionPermissions        map[uint]*PartitionPermission
+	ResourceQuotas              map[uint]*ResourceQuota
+	SchedulerIntegrations       map[uint]*SchedulerIntegration
+	NodeTopologies              map[uint]*NodeTopology
+	Datasets                    map[uint]*Dataset
+	FluidCaches                 map[uint]*FluidCache
+	DistributedTrainingConfigs  map[uint]*DistributedTrainingConfig
+	InferenceConfigs            map[uint]*InferenceConfig
+	Checkpoints                 map[uint]*Checkpoint
 
 	UserSeq              uint
 	ClusterSeq           uint
@@ -54,7 +66,19 @@ type MemoryStore struct {
 	TenantSeq            uint
 	AccelerationSuiteSeq uint
 	SecurityPolicySeq    uint
-	AlertSeq             uint
+	AlertSeq                    uint
+	GPUDeviceSeq                uint
+	GPUAllocationSeq            uint
+	PartitionSeq                uint
+	PartitionPermissionSeq      uint
+	ResourceQuotaSeq            uint
+	SchedulerIntegrationSeq     uint
+	NodeTopologySeq             uint
+	DatasetSeq                  uint
+	FluidCacheSeq               uint
+	DistributedTrainingConfigSeq uint
+	InferenceConfigSeq          uint
+	CheckpointSeq               uint
 
 	PriorityChanged chan uint
 }
@@ -89,7 +113,19 @@ func NewMemoryStore() (*MemoryStore, error) {
 		Tenants:            make(map[uint]*Tenant),
 		AccelerationSuites: make(map[uint]*AccelerationSuite),
 		SecurityPolicies:   make(map[uint]*SecurityPolicy),
-		Alerts:             make(map[uint]*Alert),
+		Alerts:                      make(map[uint]*Alert),
+		GPUDevices:                  make(map[uint]*GPUDevice),
+		GPUAllocations:              make(map[uint]*GPUAllocation),
+		Partitions:                  make(map[uint]*Partition),
+		PartitionPermissions:        make(map[uint]*PartitionPermission),
+		ResourceQuotas:              make(map[uint]*ResourceQuota),
+		SchedulerIntegrations:       make(map[uint]*SchedulerIntegration),
+		NodeTopologies:              make(map[uint]*NodeTopology),
+		Datasets:                    make(map[uint]*Dataset),
+		FluidCaches:                 make(map[uint]*FluidCache),
+		DistributedTrainingConfigs:  make(map[uint]*DistributedTrainingConfig),
+		InferenceConfigs:            make(map[uint]*InferenceConfig),
+		Checkpoints:                 make(map[uint]*Checkpoint),
 		PriorityChanged:    make(chan uint, 100),
 	}
 
@@ -347,6 +383,18 @@ func initSQLite(cfg *config.Config) (*gorm.DB, error) {
 		&AccelerationSuite{},
 		&SecurityPolicy{},
 		&Alert{},
+		&GPUDevice{},
+		&GPUAllocation{},
+		&Partition{},
+		&PartitionPermission{},
+		&ResourceQuota{},
+		&SchedulerIntegration{},
+		&NodeTopology{},
+		&Dataset{},
+		&FluidCache{},
+		&DistributedTrainingConfig{},
+		&InferenceConfig{},
+		&Checkpoint{},
 	); err != nil {
 		logger.ErrorWithCtx(nil, "SQLite initialization failed - migration error", err,
 			"migration_duration", time.Since(migrateStart),
@@ -433,6 +481,18 @@ func initPostgreSQL(cfg *config.Config) (*gorm.DB, error) {
 		&AccelerationSuite{},
 		&SecurityPolicy{},
 		&Alert{},
+		&GPUDevice{},
+		&GPUAllocation{},
+		&Partition{},
+		&PartitionPermission{},
+		&ResourceQuota{},
+		&SchedulerIntegration{},
+		&NodeTopology{},
+		&Dataset{},
+		&FluidCache{},
+		&DistributedTrainingConfig{},
+		&InferenceConfig{},
+		&Checkpoint{},
 	); err != nil {
 		logger.ErrorWithCtx(nil, "PostgreSQL initialization failed - migration error", err,
 			"migration_duration", time.Since(migrateStart),

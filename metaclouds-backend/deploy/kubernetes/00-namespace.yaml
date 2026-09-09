@@ -3,6 +3,12 @@
 # ==============================================================================
 # 所有 Metaclouds 工作负载均部署在此命名空间下。
 # 通过 labels 标识应用归属，便于 NetworkPolicy / 监控 / 成本分摊。
+#
+# 命名空间规划（对应 skill.md §4.2 多租户隔离）：
+#   metaclouds     : 平台核心服务（后端 API、前端、中间件）
+#   team-infra     : 基础服务团队（2 GPU, 4 CPU, 8Gi memory）
+#   team-data      : 数据分析团队（4 GPU, 8 CPU, 16Gi memory）
+#   team-algorithm : 算法训练团队（8 GPU, 16 CPU, 32Gi memory）
 # ==============================================================================
 apiVersion: v1
 kind: Namespace
@@ -16,3 +22,83 @@ metadata:
     environment: production
     # 允许 Prometheus 在命名空间级别发现 scrape 目标
     prometheus.io/scrape: "true"
+
+---
+# ============================================================================
+# team-infra：基础服务团队命名空间
+# ============================================================================
+# 负责基础设施维护，GPU 配额较低，主要使用 CPU 资源。
+# 调度亲和性：无 GPU 节点（见 14-gpu-node-pools.yaml）。
+# 资源配额：见 12-resourcequota.yaml / 13-limitrange.yaml。
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-infra
+  labels:
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/managed-by: kustomize
+    environment: production
+    team: infra
+    metaclouds.io/tenant-type: team
+    prometheus.io/scrape: "true"
+  annotations:
+    metaclouds.io/description: "基础服务团队命名空间"
+    metaclouds.io/gpu-quota: "2"
+    metaclouds.io/cpu-quota: "4"
+    metaclouds.io/memory-quota: "8Gi"
+    metaclouds.io/default-node-pool: "cpu-only"
+
+---
+# ============================================================================
+# team-data：数据分析团队命名空间
+# ============================================================================
+# 负责数据处理和分析，中等 GPU 配额，使用 T4 节点。
+# 调度亲和性：T4 节点（见 14-gpu-node-pools.yaml）。
+# 资源配额：见 12-resourcequota.yaml / 13-limitrange.yaml。
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-data
+  labels:
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/managed-by: kustomize
+    environment: production
+    team: data
+    metaclouds.io/tenant-type: team
+    prometheus.io/scrape: "true"
+  annotations:
+    metaclouds.io/description: "数据分析团队命名空间"
+    metaclouds.io/gpu-quota: "4"
+    metaclouds.io/cpu-quota: "8"
+    metaclouds.io/memory-quota: "16Gi"
+    metaclouds.io/default-node-pool: "nvidia-t4"
+
+---
+# ============================================================================
+# team-algorithm：算法训练团队命名空间
+# ============================================================================
+# 负责模型训练和优化，最高 GPU 配额，使用 A100 节点。
+# 调度亲和性：A100 节点（见 14-gpu-node-pools.yaml）。
+# 支持 MIG 细粒度 GPU 切分（1/7 ~ 整卡）。
+# 资源配额：见 12-resourcequota.yaml / 13-limitrange.yaml。
+# ============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-algorithm
+  labels:
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/managed-by: kustomize
+    environment: production
+    team: algorithm
+    metaclouds.io/tenant-type: team
+    prometheus.io/scrape: "true"
+  annotations:
+    metaclouds.io/description: "算法训练团队命名空间"
+    metaclouds.io/gpu-quota: "8"
+    metaclouds.io/cpu-quota: "16"
+    metaclouds.io/memory-quota: "32Gi"
+    metaclouds.io/default-node-pool: "nvidia-a100"
+    metaclouds.io/mig-supported: "true"

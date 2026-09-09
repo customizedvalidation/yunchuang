@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"context"
@@ -137,6 +137,31 @@ func run() error {
 		return fmt.Errorf("failed to initialize K8SService")
 	}
 
+
+	gpuService := services.NewGPUService(db, cfg)
+	if gpuService == nil {
+		return fmt.Errorf("failed to initialize GPUService")
+	}
+
+	partitionService := services.NewPartitionService(db, cfg)
+	if partitionService == nil {
+		return fmt.Errorf("failed to initialize PartitionService")
+	}
+
+	quotaService := services.NewQuotaService(db, cfg)
+	if quotaService == nil {
+		return fmt.Errorf("failed to initialize QuotaService")
+	}
+
+	schedulerService := services.NewSchedulerService(db, cfg)
+	if schedulerService == nil {
+		return fmt.Errorf("failed to initialize SchedulerService")
+	}
+
+	topologyService := services.NewTopologyService(db, cfg)
+	if topologyService == nil {
+		return fmt.Errorf("failed to initialize TopologyService")
+	}
 	jobService := services.NewJobService(db, cfg, k8sService)
 	if jobService == nil {
 		return fmt.Errorf("failed to initialize JobService")
@@ -153,6 +178,13 @@ func run() error {
 	accelerationController := controllers.NewAccelerationController(accelerationService)
 	securityController := controllers.NewSecurityController(securityService)
 	k8sController := controllers.NewK8SController(k8sService)
+	gpuController := controllers.NewGPUController(gpuService)
+	partitionController := controllers.NewPartitionController(partitionService)
+	quotaController := controllers.NewQuotaController(quotaService)
+	schedulerController := controllers.NewSchedulerController(schedulerService)
+	topologyController := controllers.NewTopologyController(topologyService)
+	datasetController := controllers.NewDatasetController(accelerationService)
+	checkpointController := controllers.NewCheckpointController(accelerationService)
 
 	logger.InfoWithCtx(context.Background(), "Initializing metrics collector...")
 	metricsCollector := services.NewMetricsCollector(monitoringService, jobService)
@@ -188,7 +220,7 @@ func run() error {
 
 	r.Static("/swagger", "./api/swagger-ui")
 
-	api.RegisterRoutes(r, cfg, authController, clusterController, resourceController, jobController, monitoringController, tenantController, accelerationController, securityController, k8sController)
+	api.RegisterRoutes(r, cfg, authController, clusterController, resourceController, jobController, monitoringController, tenantController, accelerationController, securityController, k8sController, gpuController, partitionController, quotaController, schedulerController, topologyController, datasetController, checkpointController)
 
 	addr := fmt.Sprintf("%s:%s", cfg.ServerHost, cfg.ServerPort)
 
