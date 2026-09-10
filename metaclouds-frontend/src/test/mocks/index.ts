@@ -18,15 +18,13 @@
 
 import type { ApiEnvelope } from '../../store/api';
 
-/** 构造 RTK Query 成功响应信封 */
-export function mockEnvelope<T>(data: T): ApiEnvelope<T> {
-  return {
-    success: true,
-    data,
-    message: 'ok',
-    code: 'SUCCESS',
-    timestamp: Date.now(),
-  };
+/**
+ * 构造 RTK Query 成功响应（已模拟 baseQueryWithReauth 解包后端信封后的 data）。
+ * 历史上此函数返回完整信封 { success, data, ... }，现统一返回解包后的数据，
+ * 与运行时 baseQueryWithReauth 的行为保持一致。
+ */
+export function mockEnvelope<T>(data: T): T {
+  return data;
 }
 
 /** 构造 RTK Query 失败响应（fetchBaseQuery 错误结构） */
@@ -111,7 +109,7 @@ export function mockMutationHook(options: MockMutationResult = {}) {
 
 /** 空列表查询（data: []） */
 export function mockEmptyQuery() {
-  return mockQueryHook({ data: mockEnvelope([]) });
+  return mockQueryHook({ data: [] });
 }
 
 /** 加载中查询 */

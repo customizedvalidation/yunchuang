@@ -95,7 +95,7 @@ const Login: React.FC = () => {
 
     try {
       const result = await login(values).unwrap();
-      const { user, expires_at } = result.data;
+      const { user, expires_at } = result;
       localStorage.setItem(
         'user',
         JSON.stringify({

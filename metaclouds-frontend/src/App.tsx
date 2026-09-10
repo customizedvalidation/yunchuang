@@ -89,7 +89,7 @@ function useSilentTokenRefresh(): void {
 
       try {
         const result = await refreshToken().unwrap();
-        const { user, expires_at } = result.data;
+        const { user, expires_at } = result;
         localStorage.setItem(
           'user',
           JSON.stringify({
@@ -119,8 +119,8 @@ const ThemedApp = () => {
     skip: !localStorage.getItem('auth_expiry'),
   });
   useEffect(() => {
-    if (csrfData?.data?.csrf_token) {
-      setCsrfTokenCache(csrfData.data.csrf_token);
+    if (csrfData?.csrf_token) {
+      setCsrfTokenCache(csrfData.csrf_token);
     }
   }, [csrfData]);
 

@@ -91,6 +91,14 @@ const baseQueryWithReauth: BaseQueryFn<
     }
   }
 
+  // 统一解包后端响应信封 { success, data, message, code, timestamp }：
+  // 业务端点直接拿到 data（数组/对象），避免 partitionsData.filter is not a function 等错误。
+  // 仅当 data 是含 success 字段的纯对象时解包；错误响应（result.error）不处理。
+  if (result.data && typeof result.data === 'object' && 'success' in result.data) {
+    const envelope = result.data as ApiEnvelope<unknown>;
+    result.data = envelope.data;
+  }
+
   return result;
 };
 
@@ -151,7 +159,7 @@ export const apiSlice = createApi({
   refetchOnReconnect: true,
   endpoints: (builder) => ({
     // 认证相关
-    login: builder.mutation<ApiEnvelope<LoginResponseData>, { username: string; password: string }>({
+    login: builder.mutation<LoginResponseData, { username: string; password: string }>({
       query: (credentials) => ({
         url: '/auth/login',
         method: 'POST',
@@ -168,14 +176,14 @@ export const apiSlice = createApi({
       },
     }),
     // 登出：清除后端 httpOnly access_token Cookie（幂等）。前端在 401 兜底与退出按钮处调用。
-    logout: builder.mutation<ApiEnvelope<void>, void>({
+    logout: builder.mutation<void, void>({
       query: () => ({
         url: '/auth/logout',
         method: 'POST',
       }),
     }),
     // 取 CSRF 双提交令牌：跨域部署下前端 JS 无法读 Cookie 时，带凭据 GET 取得后回传 X-CSRF-Token 头。
-    getCsrfToken: builder.query<ApiEnvelope<{ csrf_token: string }>, void>({
+    getCsrfToken: builder.query<{ csrf_token: string }, void>({
       query: () => '/auth/csrf',
     }),
     register: builder.mutation({
@@ -192,7 +200,7 @@ export const apiSlice = createApi({
      * 不存在"过期自救"路径。它的唯一用途是让活跃用户免于被 24h 有效期强制登出。
      * 落在 AUTH_ENDPOINT_PATTERN 内，因此失败产生的 401 不会触发整页跳登录。
      */
-    refreshToken: builder.mutation<ApiEnvelope<RefreshTokenData>, void>({
+    refreshToken: builder.mutation<RefreshTokenData, void>({
       query: () => ({
         url: '/auth/refresh',
         method: 'POST',
