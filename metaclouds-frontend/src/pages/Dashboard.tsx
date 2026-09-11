@@ -18,6 +18,8 @@ import {
   ClockCircleOutlined,
   BellOutlined,
   ReloadOutlined,
+  AppstoreOutlined,
+  ApiOutlined,
 } from '@ant-design/icons';
 import {
   useGetClustersQuery,
@@ -354,7 +356,7 @@ const Dashboard: React.FC = () => {
       title: '集群数量',
       node: statCard(
         <DatabaseOutlined />,
-        'linear-gradient(135deg, #2f6bff, #5b8bff)',
+        'linear-gradient(135deg, #1677ff, #4096ff)',
         '集群数量',
         clusterCount,
         <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--mc-text-3)' }}> 个</span>,
@@ -367,7 +369,7 @@ const Dashboard: React.FC = () => {
       title: 'GPU 利用率',
       node: statCard(
         <CloudOutlined />,
-        'linear-gradient(135deg, #00b8a9, #22d3c5)',
+        'linear-gradient(135deg, #0958d9, #1677ff)',
         'GPU 利用率',
         utilization,
         '%',
@@ -375,7 +377,7 @@ const Dashboard: React.FC = () => {
           percent={utilization}
           size="small"
           status={utilization > 80 ? 'exception' : 'normal'}
-          strokeColor={utilization > 80 ? statusColor.failed : chartPalette.teal}
+          strokeColor={utilization > 80 ? statusColor.failed : '#1677ff'}
           showInfo={false}
         />,
       ),
@@ -386,7 +388,7 @@ const Dashboard: React.FC = () => {
       title: '运行中作业',
       node: statCard(
         <ClockCircleOutlined />,
-        'linear-gradient(135deg, #7c5cff, #9b84ff)',
+        'linear-gradient(135deg, #4096ff, #69b1ff)',
         '运行中作业',
         runningJobs,
         <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--mc-text-3)' }}>
@@ -405,15 +407,15 @@ const Dashboard: React.FC = () => {
       node: statCard(
         <BellOutlined />,
         alertCount > 0
-          ? 'linear-gradient(135deg, #ff5c7a, #ff616e)'
-          : 'linear-gradient(135deg, #16c784, #2bd9a6)',
+          ? 'linear-gradient(135deg, #ff4d4f, #ff7875)'
+          : 'linear-gradient(135deg, #1677ff, #4096ff)',
         '活跃告警',
         alertCount,
         ' 条',
         <span
           style={{
             fontSize: 12.5,
-            color: alertCount > 0 ? 'var(--mc-danger)' : 'var(--mc-success)',
+            color: alertCount > 0 ? 'var(--mc-danger)' : '#1677ff',
           }}
         >
           {alertCount > 0 ? '需要关注' : '运行正常'}
@@ -475,32 +477,32 @@ const Dashboard: React.FC = () => {
       id: 'kpi-partition',
       span: { xs: 12, sm: 12, md: 6, lg: 6, xl: 3, '2xl': 3 },
       title: '分区状态',
-      node: (
-        <Card styles={{ body: { padding: 20 } }}>
-          <Statistic title="分区总数" value={partitionStats.total} suffix=" 个" />
-          <div style={{ marginTop: 8 }}>
-            <Space size={8}>
-              <Tag color="green">活跃 {partitionStats.active}</Tag>
-              <Tag color="orange">维护 {partitionStats.maintenance}</Tag>
-            </Space>
-          </div>
-        </Card>
+      node: statCard(
+        <AppstoreOutlined />,
+        'linear-gradient(135deg, #1677ff, #4096ff)',
+        '分区总数',
+        partitionStats.total,
+        <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--mc-text-3)' }}> 个</span>,
+        <Space size={8}>
+          <Tag color="blue">活跃 {partitionStats.active}</Tag>
+          <Tag color="orange">维护 {partitionStats.maintenance}</Tag>
+        </Space>,
       ),
     },
     {
       id: 'kpi-scheduler',
       span: { xs: 12, sm: 12, md: 6, lg: 6, xl: 3, '2xl': 3 },
       title: '调度器集成',
-      node: (
-        <Card styles={{ body: { padding: 20 } }}>
-          <Statistic title="调度器总数" value={schedulerStats.total} suffix=" 个" />
-          <div style={{ marginTop: 8 }}>
-            <Space size={8}>
-              <Tag color="green">活跃 {schedulerStats.active}</Tag>
-              {schedulerStats.error > 0 && <Tag color="red">异常 {schedulerStats.error}</Tag>}
-            </Space>
-          </div>
-        </Card>
+      node: statCard(
+        <ApiOutlined />,
+        'linear-gradient(135deg, #0958d9, #1677ff)',
+        '调度器总数',
+        schedulerStats.total,
+        <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--mc-text-3)' }}> 个</span>,
+        <Space size={8}>
+          <Tag color="blue">活跃 {schedulerStats.active}</Tag>
+          {schedulerStats.error > 0 && <Tag color="red">异常 {schedulerStats.error}</Tag>}
+        </Space>,
       ),
     },
     {
