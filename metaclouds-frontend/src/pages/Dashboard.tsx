@@ -20,6 +20,7 @@ import {
   ReloadOutlined,
   AppstoreOutlined,
   ApiOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import {
   useGetClustersQuery,
@@ -29,6 +30,7 @@ import {
   useGetGPUDevicesQuery,
   useGetPartitionsQuery,
   useGetSchedulerIntegrationsQuery,
+  useGetTenantsQuery,
 } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { ErrorState, EmptyState } from '../components/States';
@@ -44,6 +46,7 @@ const DEFAULT_ORDER = [
   'kpi-util',
   'kpi-running',
   'kpi-alerts',
+  'kpi-tenants',
   'chart-resource',
   'chart-job',
   'chart-gpu-vendor',
@@ -106,6 +109,7 @@ const Dashboard: React.FC = () => {
   const { data: gpuDevices } = useGetGPUDevicesQuery({});
   const { data: partitions } = useGetPartitionsQuery({});
   const { data: schedulers } = useGetSchedulerIntegrationsQuery();
+  const { data: tenants } = useGetTenantsQuery(undefined);
 
   const clustersData = extractArrayData(clusters);
   const resourcesData = extractArrayData(resources);
@@ -114,6 +118,7 @@ const Dashboard: React.FC = () => {
   const gpuDevicesData = gpuDevices ?? [];
   const partitionsData = partitions ?? [];
   const schedulersData = schedulers ?? [];
+  const tenantsData = extractArrayData(tenants);
 
   const [layout, setLayout] = useState<Layout>(readLayout);
   const [editable, setEditable] = useState(false);
@@ -420,6 +425,19 @@ const Dashboard: React.FC = () => {
         >
           {alertCount > 0 ? '需要关注' : '运行正常'}
         </span>,
+      ),
+    },
+    {
+      id: 'kpi-tenants',
+      span: { xs: 12, sm: 12, md: 6, lg: 6, xl: 3, '2xl': 3 },
+      title: '租户数量',
+      node: statCard(
+        <TeamOutlined />,
+        'linear-gradient(135deg, #1677ff, #4096ff)',
+        '租户数量',
+        tenantsData.length,
+        <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--mc-text-3)' }}> 个</span>,
+        <span style={{ fontSize: 12.5, color: 'var(--mc-text-3)' }}>多租户资源隔离与配额</span>,
       ),
     },
     {

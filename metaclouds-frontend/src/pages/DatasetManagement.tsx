@@ -109,7 +109,23 @@ const DatasetManagement: React.FC = () => {
   const { data: datasets, isLoading, error, refetch } = useGetDatasetsQuery();
   const datasetsData = datasets ?? [];
 
-  const { data: fluidCaches } = useGetFluidCachesQuery(cacheTarget?.id ?? 0, {
+  // 名称搜索
+  const [searchText, setSearchText] = useState('');
+  const filteredDatasets = useMemo(
+    () =>
+      datasetsData.filter((d) => {
+        const kw = searchText.trim().toLowerCase();
+        if (!kw) return true;
+        return (
+          d.name?.toLowerCase().includes(kw) ||
+          d.description?.toLowerCase().includes(kw) ||
+          d.source_path?.toLowerCase().includes(kw)
+        );
+      }),
+    [datasetsData, searchText],
+  );
+
+  const { data: fluidCaches, isLoading: cachesLoading } = useGetFluidCachesQuery(cacheTarget?.id ?? 0, {
     skip: !cacheTarget,
   });
   const cachesData = fluidCaches ?? [];
@@ -515,14 +531,18 @@ const DatasetManagement: React.FC = () => {
   const state = renderState({
     isLoading,
     error,
-    isEmpty: datasetsData.length === 0,
+    isEmpty: filteredDatasets.length === 0,
     onRetry: refetch,
     skeletonRows: 5,
     skeletonColumns: 8,
     empty: (
       <EmptyState
-        title="暂无数据集"
-        description="登记数据集（Ceph/NFS/S3 等），配置 Fluid 分布式缓存加速训练数据读取。"
+        title={searchText ? '没有匹配的数据集' : '暂无数据集'}
+        description={
+          searchText
+            ? '换个关键词试试。'
+            : '登记数据集（Ceph/NFS/S3 等），配置 Fluid 分布式缓存加速训练数据读取。'
+        }
         action={
           <Can perm="dataset:write">
             <Button type="primary" onClick={handleOpenCreate}>
@@ -542,9 +562,18 @@ const DatasetManagement: React.FC = () => {
       <div className="mc-page-head">
         <div className="mc-page-head-main">
           <h1 className="mc-page-title">数据集与 Fluid 缓存管理</h1>
-          <p className="mc-page-desc">共 {datasetsData.length} 个数据集 · 分布式缓存加速训练数据读取</p>
+          <p className="mc-page-desc">
+            共 {datasetsData.length} 个数据集 · 分布式缓存加速训练数据读取
+          </p>
         </div>
         <div className="mc-page-head-extra">
+          <Input.Search
+            placeholder="搜索名称 / 路径"
+            allowClear
+            style={{ width: 220, marginRight: 8 }}
+            onChange={(e) => setSearchText(e.target.value)}
+            aria-label="搜索数据集"
+          />
           <Can perm="dataset:write">
             <Button type="primary" onClick={handleOpenCreate}>
               新增数据集
@@ -557,7 +586,7 @@ const DatasetManagement: React.FC = () => {
         {state ?? (
           <ResponsiveTable
             columns={columns}
-            dataSource={datasetsData}
+            dataSource={filteredDatasets}
             rowKey="id"
             pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
             scroll={{ x: 1400, y: 520 }}
@@ -659,14 +688,20 @@ const DatasetManagement: React.FC = () => {
           </Can>
         </div>
 
-        <ResponsiveTable
-          columns={cacheColumns}
-          dataSource={cachesData}
-          rowKey="id"
-          pagination={false}
-          size="small"
-          scroll={{ x: 1300 }}
-        />
+        {cachesLoading ? (
+          <div className="mc-skeleton" aria-busy="true" />
+        ) : cachesData.length === 0 ? (
+          <EmptyState title="暂无缓存" description="为该数据集新增一个 Fluid 分布式缓存以加速读取。" />
+        ) : (
+          <ResponsiveTable
+            columns={cacheColumns}
+            dataSource={cachesData}
+            rowKey="id"
+            pagination={false}
+            size="small"
+            scroll={{ x: 1300 }}
+          />
+        )}
 
         {/* 缓存命中率趋势图 */}
         <Card title="缓存命中率趋势（近24小时）" style={{ marginTop: 16 }}>

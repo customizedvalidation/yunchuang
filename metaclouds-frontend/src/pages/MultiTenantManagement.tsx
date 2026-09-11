@@ -3,7 +3,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Card, Button, Space, App, Modal, Form, Input, InputNumber, Popconfirm, Tabs, Tag, Select, Row, Col, Progress } from 'antd';
 import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
-import { useGetTenantsQuery, useCreateTenantMutation, useDeleteTenantMutation, useGetQuotasQuery, useCreateQuotaMutation, useUpdateQuotaMutation, useDeleteQuotaMutation } from '../store/api';
+import { useGetTenantsQuery, useCreateTenantMutation, useUpdateTenantMutation, useDeleteTenantMutation, useGetQuotasQuery, useCreateQuotaMutation, useUpdateQuotaMutation, useDeleteQuotaMutation } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
@@ -16,6 +16,7 @@ interface TenantFormValues {
   gpu_quota: number;
   cpu_quota: number;
   memory_quota: number;
+  storage_quota?: number;
 }
 
 /** 配额表单值 */
@@ -44,8 +45,11 @@ const MultiTenantManagement: React.FC = () => {
   const { data: tenants, isLoading, error, refetch } = useGetTenantsQuery(undefined);
   const tenantsData = extractArrayData<Tenant>(tenants);
   const [createTenant] = useCreateTenantMutation();
+  const [updateTenant] = useUpdateTenantMutation();
   const [deleteTenant] = useDeleteTenantMutation();
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
+  const [keyword, setKeyword] = useState<string>('');
   const [form] = Form.useForm();
 
   // 配额管理
@@ -55,7 +59,7 @@ const MultiTenantManagement: React.FC = () => {
   const [editingQuota, setEditingQuota] = useState<ResourceQuota | null>(null);
   const [quotaForm] = Form.useForm<QuotaFormValues>();
 
-  const { data: quotas } = useGetQuotasQuery(
+  const { data: quotas, isLoading: quotasLoading, error: quotasError } = useGetQuotasQuery(
     selectedTenantId ? { scope_type: 'tenant', scope_id: selectedTenantId } : { scope_type: 'tenant' },
   );
   const quotasData = quotas ?? [];
@@ -63,18 +67,59 @@ const MultiTenantManagement: React.FC = () => {
   const [updateQuota] = useUpdateQuotaMutation();
   const [deleteQuota] = useDeleteQuotaMutation();
 
+  // 租户名称搜索
+  const searchedTenants = useMemo(() => {
+    if (!keyword.trim()) return tenantsData;
+    const kw = keyword.trim().toLowerCase();
+    return tenantsData.filter(
+      (t) => t.name.toLowerCase().includes(kw) || (t.description ?? '').toLowerCase().includes(kw),
+    );
+  }, [tenantsData, keyword]);
+
+  // 打开新建 / 编辑
+  const openCreate = useCallback(() => {
+    setEditingTenant(null);
+    form.resetFields();
+    setIsModalVisible(true);
+  }, [form]);
+
+  const openEdit = useCallback(
+    (record: Tenant) => {
+      setEditingTenant(record);
+      form.setFieldsValue({
+        name: record.name,
+        description: record.description,
+        gpu_quota: record.gpu_quota,
+        cpu_quota: record.cpu_quota,
+        memory_quota: record.memory_quota,
+        storage_quota: record.storage_quota,
+      });
+      setIsModalVisible(true);
+    },
+    [form],
+  );
+
   // useCallback：稳定回调引用
-  const handleCreate = useCallback(async (values: TenantFormValues) => {
-    try {
-      await createTenant(values).unwrap();
-      message.success('租户创建成功');
-      setIsModalVisible(false);
-      form.resetFields();
-      refetch();
-    } catch {
-      message.error('租户创建失败，请检查必填项后重试');
-    }
-  }, [createTenant, form, message, refetch]);
+  const handleCreate = useCallback(
+    async (values: TenantFormValues) => {
+      try {
+        if (editingTenant) {
+          await updateTenant({ id: editingTenant.id, data: values }).unwrap();
+          message.success('租户更新成功');
+        } else {
+          await createTenant(values).unwrap();
+          message.success('租户创建成功');
+        }
+        setIsModalVisible(false);
+        form.resetFields();
+        setEditingTenant(null);
+        refetch();
+      } catch {
+        message.error(editingTenant ? '租户更新失败，请检查必填项后重试' : '租户创建失败，请检查必填项后重试');
+      }
+    },
+    [editingTenant, createTenant, updateTenant, form, message, refetch],
+  );
 
   const handleDelete = useCallback(async (id: number) => {
     try {
@@ -156,14 +201,18 @@ const MultiTenantManagement: React.FC = () => {
     { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: (status: string) => <StatusCell status={status} /> },
     { title: 'GPU配额', dataIndex: 'gpu_quota', key: 'gpu_quota', width: 100, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
     { title: 'CPU配额', dataIndex: 'cpu_quota', key: 'cpu_quota', width: 100, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
-    { title: '内存配额(GB)', dataIndex: 'memory_quota', key: 'memory_quota', width: 120, render: (v: React.ReactNode) => <span className="mc-num">{v}</span> },
+    { title: '内存配额(GB)', dataIndex: 'memory_quota', key: 'memory_quota', width: 120, render: (v: React.ReactNode) => <span className="mc-num">{v ?? '-'}</span> },
+    { title: '存储配额(TB)', dataIndex: 'storage_quota', key: 'storage_quota', width: 110, render: (v: React.ReactNode) => <span className="mc-num">{v ?? '-'}</span> },
     {
-      title: '操作', key: 'action', width: 180,
+      title: '操作', key: 'action', width: 240,
       render: (_: React.ReactNode, record: Tenant) => (
         <Space>
           <Button type="link" size="small" onClick={() => { setSelectedTenantId(record.id); setActiveTab('quotas'); }}>
             配额管理
           </Button>
+          <Can perm="tenant:write">
+            <Button type="link" size="small" onClick={() => openEdit(record)}>编辑</Button>
+          </Can>
           <Can perm="tenant:write">
           <Popconfirm
             title="删除该租户？"
@@ -179,7 +228,7 @@ const MultiTenantManagement: React.FC = () => {
         </Space>
       ),
     },
-  ], [handleDelete]);
+  ], [handleDelete, openEdit]);
 
   // 配额列配置
   const quotaColumns: ColumnsType<ResourceQuota> = useMemo(() => [
@@ -202,7 +251,7 @@ const MultiTenantManagement: React.FC = () => {
       width: 140,
       render: (_: unknown, record: ResourceQuota) => {
         const pct = record.limit > 0 ? Math.round((record.used / record.limit) * 100) : 0;
-        return <Progress percent={pct} size="small" />;
+        return <Progress percent={pct} size="small" status={pct > 80 ? 'exception' : 'normal'} />;
       },
     },
     {
@@ -222,7 +271,9 @@ const MultiTenantManagement: React.FC = () => {
     { title: '单Pod最大CPU', dataIndex: 'max_pod_cpu', key: 'max_pod_cpu', width: 120, render: (v: React.ReactNode) => v ?? '-' },
     { title: '单Pod最小CPU', dataIndex: 'min_pod_cpu', key: 'min_pod_cpu', width: 120, render: (v: React.ReactNode) => v ?? '-' },
     { title: '单Pod最大内存', dataIndex: 'max_pod_memory', key: 'max_pod_memory', width: 130, render: (v: React.ReactNode) => v ?? '-' },
+    { title: '单Pod最小内存', dataIndex: 'min_pod_memory', key: 'min_pod_memory', width: 130, render: (v: React.ReactNode) => v ?? '-' },
     { title: '单Pod最大GPU', dataIndex: 'max_pod_gpu', key: 'max_pod_gpu', width: 120, render: (v: React.ReactNode) => v ?? '-' },
+    { title: '单Pod最小GPU', dataIndex: 'min_pod_gpu', key: 'min_pod_gpu', width: 120, render: (v: React.ReactNode) => v ?? '-' },
     {
       title: '操作',
       key: 'action',
@@ -253,23 +304,48 @@ const MultiTenantManagement: React.FC = () => {
       <EmptyState
         title="还没有租户"
         description="创建租户以划分命名空间与配额边界。"
-        action={<Can perm="tenant:write"><Button type="primary" onClick={() => setIsModalVisible(true)}>创建租户</Button></Can>}
+        action={<Can perm="tenant:write"><Button type="primary" onClick={openCreate}>创建租户</Button></Can>}
       />
     ),
+  });
+
+  // 配额表三态
+  const quotaState = renderState({
+    isLoading: quotasLoading,
+    error: quotasError,
+    isEmpty: quotasData.length === 0,
+    onRetry: refetch,
+    skeletonRows: 4,
+    skeletonColumns: 8,
+    empty: <EmptyState title="暂无配额" description="为该租户新增 GPU / CPU / 内存 / 存储资源配额。" />,
   });
 
   const tabItems = [
     {
       key: 'tenants',
       label: '租户列表',
-      children: state ?? (
-        <ResponsiveTable
-          columns={columns}
-          dataSource={tenantsData}
-          rowKey="id"
-          pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-          scroll={{ x: 900 }}
-        />
+      children: (
+        <div>
+          <div style={{ marginBottom: 16 }}>
+            <Input.Search
+              placeholder="搜索租户名称 / 描述"
+              allowClear
+              style={{ width: 280 }}
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              aria-label="搜索租户"
+            />
+          </div>
+          {state ?? (
+            <ResponsiveTable
+              columns={columns}
+              dataSource={searchedTenants}
+              rowKey="id"
+              pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+              scroll={{ x: 1100 }}
+            />
+          )}
+        </div>
       ),
     },
     {
@@ -295,13 +371,15 @@ const MultiTenantManagement: React.FC = () => {
             </Space>
           </div>
           {selectedTenantId ? (
-            <ResponsiveTable
-              columns={quotaColumns}
-              dataSource={quotasData}
-              rowKey="id"
-              pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-              scroll={{ x: 1500 }}
-            />
+            quotaState ?? (
+              <ResponsiveTable
+                columns={quotaColumns}
+                dataSource={quotasData}
+                rowKey="id"
+                pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+                scroll={{ x: 1700 }}
+              />
+            )
           ) : (
             <EmptyState title="请选择租户" description="选择租户后可查看和管理其资源配额。" />
           )}
@@ -318,7 +396,7 @@ const MultiTenantManagement: React.FC = () => {
           <p className="mc-page-desc">共 {tenantsData.length} 个租户 · 按租户划分命名空间与配额边界</p>
         </div>
         <div className="mc-page-head-extra">
-          <Can perm="tenant:write"><Button type="primary" onClick={() => setIsModalVisible(true)}>创建租户</Button></Can>
+          <Can perm="tenant:write"><Button type="primary" onClick={openCreate}>创建租户</Button></Can>
         </div>
       </div>
 
@@ -326,7 +404,7 @@ const MultiTenantManagement: React.FC = () => {
         <Tabs activeKey={activeTab} items={tabItems} onChange={(k) => setActiveTab(k as 'tenants' | 'quotas')} />
       </Card>
 
-      <Modal className="mc-modal-full" title="创建租户" open={isModalVisible} onCancel={() => setIsModalVisible(false)} footer={null} destroyOnHidden>
+      <Modal className="mc-modal-full" title={editingTenant ? '编辑租户' : '创建租户'} open={isModalVisible} onCancel={() => setIsModalVisible(false)} footer={null} destroyOnHidden>
         <Form form={form} onFinish={handleCreate} layout="vertical">
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入租户名称' }]}>
             <Input placeholder="例如：team-vision" />
@@ -343,9 +421,12 @@ const MultiTenantManagement: React.FC = () => {
           <Form.Item name="memory_quota" label="内存配额(GB)" rules={[{ required: true, message: '请输入内存配额' }]}>
             <InputNumber min={0} style={{ width: '100%' }} />
           </Form.Item>
+          <Form.Item name="storage_quota" label="存储配额(TB)">
+            <InputNumber min={0} style={{ width: '100%' }} />
+          </Form.Item>
           <Form.Item style={{ marginBottom: 0 }}>
             <Space>
-              <Can perm="tenant:write"><Button type="primary" htmlType="submit">创建</Button></Can>
+              <Can perm="tenant:write"><Button type="primary" htmlType="submit">{editingTenant ? '保存' : '创建'}</Button></Can>
               <Button onClick={() => setIsModalVisible(false)}>取消</Button>
             </Space>
           </Form.Item>

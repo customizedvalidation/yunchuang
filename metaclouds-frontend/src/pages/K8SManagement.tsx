@@ -1,6 +1,6 @@
 import { Can } from '../components/Can';
 import React, { useCallback, useMemo, useState } from 'react';
-import { Card, Button, Space, App, Modal, Progress, Tag, List, Typography, Tabs, Segmented, Statistic } from 'antd';
+import { Card, Button, Space, App, Modal, Progress, Tag, List, Typography, Tabs, Segmented, Statistic, Table, Steps, Row, Col, Input } from 'antd';
 import ResponsiveTable from '../components/ResponsiveTable';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -16,6 +16,7 @@ import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
 import type { Job, Tenant, GPUResource, Resource } from '../types';
+import { brand } from '../theme/tokens';
 
 const { Text } = Typography;
 
@@ -24,6 +25,32 @@ const K8S_TABS = [
   { key: '/k8s/nodes', label: '节点管理' },
   { key: '/k8s/pods', label: 'Pod管理' },
   { key: '/k8s/services', label: '服务管理' },
+  { key: '/k8s/isolation', label: '多租户隔离' },
+];
+
+/** skill.md 4.2 — 多租户隔离配置基线（namespace / ResourceQuota / Tolerations） */
+const NAMESPACE_SPEC = [
+  { name: 'team-infra', desc: '基础服务团队，负责基础设施维护', gpuQuota: 2, toleration: '无 GPU 节点' },
+  { name: 'team-data', desc: '数据分析团队，负责数据处理与分析', gpuQuota: 4, toleration: 'T4 节点' },
+  { name: 'team-algorithm', desc: '算法训练团队，负责模型训练与优化', gpuQuota: 8, toleration: 'A100 节点' },
+];
+
+/** skill.md 4.2 — LimitRange：单 Pod 资源范围 */
+const LIMIT_RANGE_SPEC = [
+  { resource: 'CPU', min: '0.5 核', max: '16 核' },
+  { resource: '内存', min: '512 Mi', max: '64 Gi' },
+  { resource: 'GPU', min: '1/4 GPU', max: '8 GPU' },
+];
+
+/** skill.md 4.2 — Pod 调度 7 步流程 */
+const SCHEDULE_STEPS = [
+  '用户通过 Kubernetes API 提交 Pod 请求',
+  '检查 Namespace 是否存在 ResourceQuota',
+  '校验 LimitRange 是否合规',
+  '校验 ResourceQuota 剩余额度是否满足需求',
+  '调度器根据调度策略选择合适节点',
+  '检查 Pod 的 Tolerations，选择匹配的 GPU 节点',
+  'Pod 在选定节点上运行',
 ];
 
 const K8SManagement: React.FC = () => {
@@ -47,12 +74,19 @@ const K8SManagement: React.FC = () => {
     ? tenantsData
     : [{ id: 0, name: 'default', description: '默认命名空间', status: 'active', gpu_quota: 0, cpu_quota: 0, memory_quota: 0, storage_quota: 0 }];
   const [selectedNs, setSelectedNs] = useState<string>(namespaces[0]?.name || 'default');
-  // podsData 用 useMemo 缓存，避免每次渲染重复 filter
-  const podsData = useMemo(() => jobsData.filter((j) => j.status === 'running'), [jobsData]);
-
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isGpuRefreshing, setIsGpuRefreshing] = useState(false);
+  const [jobKeyword, setJobKeyword] = useState<string>('');
+
+  // podsData 用 useMemo 缓存，避免每次渲染重复 filter
+  const podsData = useMemo(() => jobsData.filter((j) => j.status === 'running'), [jobsData]);
+  // 作业名称搜索
+  const searchedJobs = useMemo(() => {
+    if (!jobKeyword.trim()) return jobsData;
+    const kw = jobKeyword.trim().toLowerCase();
+    return jobsData.filter((j) => j.name.toLowerCase().includes(kw));
+  }, [jobsData, jobKeyword]);
 
   // useCallback：稳定回调引用
   const handleRefreshGPU = useCallback(async () => {
@@ -169,9 +203,19 @@ const K8SManagement: React.FC = () => {
     });
     return (
       <Card title="作业管理（Pod）">
-        <Button type="primary" className="mc-mb" onClick={() => refetchJobs()}>
-          刷新作业列表
-        </Button>
+        <Space wrap className="mc-mb">
+          <Button type="primary" onClick={() => refetchJobs()}>
+            刷新作业列表
+          </Button>
+          <Input.Search
+            placeholder="搜索作业名称"
+            allowClear
+            style={{ width: 220 }}
+            value={jobKeyword}
+            onChange={(e) => setJobKeyword(e.target.value)}
+            aria-label="搜索作业"
+          />
+        </Space>
         {state ?? (
           <ResponsiveTable
             columns={jobColumns}
@@ -264,20 +308,115 @@ const K8SManagement: React.FC = () => {
     );
   }, [namespaces, selectedNs, jobsData, resourcesLoading, resourcesError, resourcesData, refetchJobs]);
 
+  /** 多租户隔离面板：Namespaces / ResourceQuota / LimitRange / Tolerations / 调度流程 */
+  const renderIsolationCard = useCallback(() => {
+    const runningGpus = jobsData.filter((j) => j.status === 'running').reduce((s, j) => s + (Number(j.gpus) || 0), 0);
+    const totalQuota = NAMESPACE_SPEC.reduce((s, n) => s + n.gpuQuota, 0);
+    return (
+      <div className="mc-stack">
+        <Card title="Namespaces 与 ResourceQuota（按租户 GPU 总量限制）" style={{ marginBottom: 16 }}>
+          <Table
+            rowKey="name"
+            pagination={false}
+            size="small"
+            dataSource={NAMESPACE_SPEC.map((n) => ({
+              ...n,
+              used: Math.min(runningGpus, n.gpuQuota),
+            }))}
+            columns={[
+              { title: 'Namespace', dataIndex: 'name', key: 'name', render: (v: string) => <Tag color="blue">{v}</Tag> },
+              { title: '团队职责', dataIndex: 'desc', key: 'desc' },
+              {
+                title: 'ResourceQuota（GPU 总量）',
+                dataIndex: 'gpuQuota',
+                key: 'gpuQuota',
+                width: 220,
+                render: (_: unknown, r: { gpuQuota: number; used: number }) => (
+                  <span>
+                    {r.gpuQuota} GPU
+                    <Progress
+                      percent={Math.round((r.used / r.gpuQuota) * 100)}
+                      size="small"
+                      style={{ width: 120, marginLeft: 8 }}
+                      status={r.used / r.gpuQuota > 0.8 ? 'exception' : 'normal'}
+                    />
+                  </span>
+                ),
+              },
+              {
+                title: 'Tolerations（污点 / 容忍调度）',
+                dataIndex: 'toleration',
+                key: 'toleration',
+                render: (v: string) => <Tag color="purple">{v}</Tag>,
+              },
+            ]}
+          />
+          <div className="mc-mt">
+            <Text type="secondary">集群 GPU 配额合计：{totalQuota} GPU（{NAMESPACE_SPEC.map((n) => n.name).join(' / ')}）</Text>
+          </div>
+        </Card>
+
+        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+          <Col xs={24} md={12}>
+            <Card title="LimitRange（限制单个 Pod 资源范围）">
+              <Table
+                rowKey="resource"
+                pagination={false}
+                size="small"
+                dataSource={LIMIT_RANGE_SPEC}
+                columns={[
+                  { title: '资源', dataIndex: 'resource', key: 'resource', render: (v: string) => <Tag>{v}</Tag> },
+                  { title: '最小', dataIndex: 'min', key: 'min' },
+                  { title: '最大', dataIndex: 'max', key: 'max' },
+                ]}
+              />
+            </Card>
+          </Col>
+          <Col xs={24} md={12}>
+            <Card title="Tolerations（节点污点与容忍度）">
+              <List
+                size="small"
+                dataSource={NAMESPACE_SPEC}
+                renderItem={(n) => (
+                  <List.Item>
+                    <Text strong>{n.name}</Text>
+                    <span style={{ marginLeft: 8 }}>→ {n.toleration}</span>
+                  </List.Item>
+                )}
+              />
+            </Card>
+          </Col>
+        </Row>
+
+        <Card title="Pod 调度流程（7 步）">
+          <Steps
+            direction="vertical"
+            current={SCHEDULE_STEPS.length}
+            items={SCHEDULE_STEPS.map((s, i) => ({ title: `${i + 1}. ${s}` }))}
+            style={{
+              ['--ant-primary-color' as string]: brand[500],
+            }}
+          />
+        </Card>
+      </div>
+    );
+  }, [jobsData]);
+
   const renderTab = useCallback((key: string) => {
     if (key === '/k8s') {
       return (
         <div className="mc-stack">
           {renderGpuCard()}
-          {renderJobsCard(jobsData, jobsLoading, jobsError)}
+          {renderJobsCard(searchedJobs, jobsLoading, jobsError)}
         </div>
       );
     }
     if (key === '/k8s/nodes') return renderGpuCard();
     if (key === '/k8s/pods') return renderJobsCard(podsData, jobsLoading, jobsError);
     if (key === '/k8s/services') return renderServicesCard();
+    if (key === '/k8s/isolation') return renderIsolationCard();
     return null;
-  }, [renderGpuCard, renderJobsCard, renderServicesCard, jobsData, jobsLoading, jobsError, podsData]);
+  }, [renderGpuCard, renderJobsCard, renderServicesCard, renderIsolationCard, searchedJobs, jobsLoading, jobsError, podsData]);
 
   return (
     <div className="mc-page">

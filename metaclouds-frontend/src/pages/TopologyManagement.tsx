@@ -75,6 +75,11 @@ const TopologyManagement: React.FC = () => {
   const [scoreCandidateNodes, setScoreCandidateNodes] = useState('');
   const [scoreResults, setScoreResults] = useState<Record<string, number> | null>(null);
 
+  // 搜索 / 筛选
+  const [searchText, setSearchText] = useState('');
+  const [clusterFilter, setClusterFilter] = useState<number | undefined>(undefined);
+  const [networkFilter, setNetworkFilter] = useState<string>('');
+
   // API
   const { data: topologies, isLoading, error, refetch } = useGetNodeTopologiesQuery({});
   const { data: clusters } = useGetClustersQuery(undefined);
@@ -92,6 +97,21 @@ const TopologyManagement: React.FC = () => {
     (id?: number) => clustersData.find((c: { id: number }) => c.id === id)?.name ?? '-',
     [clustersData],
   );
+
+  // 搜索 + 集群 / 网络类型筛选
+  const filteredTopologies = useMemo(() => {
+    const kw = searchText.trim().toLowerCase();
+    return topologiesData.filter((t) => {
+      const matchKw =
+        !kw ||
+        t.node_name.toLowerCase().includes(kw) ||
+        (t.rack_id ?? '').toLowerCase().includes(kw) ||
+        (t.switch_id ?? '').toLowerCase().includes(kw);
+      const matchCluster = clusterFilter == null || t.cluster_id === clusterFilter;
+      const matchNetwork = !networkFilter || t.network_type === networkFilter;
+      return matchKw && matchCluster && matchNetwork;
+    });
+  }, [topologiesData, searchText, clusterFilter, networkFilter]);
 
   // 打开新建
   const handleOpenCreate = useCallback(() => {
@@ -343,10 +363,41 @@ const TopologyManagement: React.FC = () => {
       </div>
 
       <Card id="topology-table">
+        {/* 搜索 + 集群 / 网络类型筛选工具栏 */}
+        <Row gutter={12} style={{ marginBottom: 16 }}>
+          <Col flex="auto">
+            <Input
+              allowClear
+              placeholder="搜索节点名 / 机架 / 交换机"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              placeholder="集群"
+              style={{ width: 160 }}
+              value={clusterFilter}
+              onChange={(v) => setClusterFilter(v)}
+              options={clustersData.map((c: { id: number; name: string }) => ({ label: c.name, value: c.id }))}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              placeholder="网络类型"
+              style={{ width: 140 }}
+              value={networkFilter || undefined}
+              onChange={(v) => setNetworkFilter(v ?? '')}
+              options={NETWORK_TYPE_OPTIONS}
+            />
+          </Col>
+        </Row>
         {state ?? (
           <ResponsiveTable
             columns={columns}
-            dataSource={topologiesData}
+            dataSource={filteredTopologies}
             rowKey="id"
             pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
             scroll={{ x: 1300, y: 520 }}

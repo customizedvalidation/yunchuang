@@ -28,11 +28,14 @@ import {
   useDeleteGPUDeviceMutation,
   useGetGPUAllocationsQuery,
   useGetClustersQuery,
+  useAllocateGPUMutation,
+  useReleaseGPUMutation,
 } from '../store/api';
 import { extractArrayData } from '../utils/api';
 import { renderState, EmptyState } from '../components/States';
 import StatusCell from '../components/StatusCell';
-import type { GPUDevice, GPUVendor } from '../types';
+import type { GPUDevice, GPUVendor, GPUAllocation } from '../types';
+import { brand } from '../theme/tokens';
 
 const VENDOR_OPTIONS: { label: string; value: GPUVendor }[] = [
   { label: 'NVIDIA', value: 'nvidia' },
@@ -82,9 +85,21 @@ const GPUManagement: React.FC = () => {
   const [vendorFilter, setVendorFilter] = useState<string | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [clusterFilter, setClusterFilter] = useState<number | undefined>(undefined);
+  const [keyword, setKeyword] = useState<string>('');
 
   // 详情抽屉
   const [detailDevice, setDetailDevice] = useState<GPUDevice | null>(null);
+
+  // 分配 Modal
+  const [allocateVisible, setAllocateVisible] = useState(false);
+  const [allocatingDevice, setAllocatingDevice] = useState<GPUDevice | null>(null);
+  const [allocateForm] = Form.useForm<{
+    fraction: number;
+    memory_gb?: number;
+    job_id?: number;
+    tenant_id?: number;
+    user_id?: number;
+  }>();
 
   // 表单
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -106,6 +121,17 @@ const GPUManagement: React.FC = () => {
   const [createGPUDevice] = useCreateGPUDeviceMutation();
   const [updateGPUDevice] = useUpdateGPUDeviceMutation();
   const [deleteGPUDevice] = useDeleteGPUDeviceMutation();
+  const [allocateGPU] = useAllocateGPUMutation();
+  const [releaseGPU] = useReleaseGPUMutation();
+
+  // 节点名模糊搜索
+  const searchedDevices = useMemo(() => {
+    if (!keyword.trim()) return devices ?? [];
+    const kw = keyword.trim().toLowerCase();
+    return (devices ?? []).filter(
+      (d) => d.node_name.toLowerCase().includes(kw) || (d.model ?? '').toLowerCase().includes(kw),
+    );
+  }, [devices, keyword]);
 
   // 统计卡片
   const stats = useMemo(() => {
@@ -120,8 +146,70 @@ const GPUManagement: React.FC = () => {
         : 0;
     const totalMem = devicesData.reduce((s, d) => s + (d.total_memory_gb ?? 0), 0);
     const usedMem = devicesData.reduce((s, d) => s + (d.used_memory_gb ?? 0), 0);
-    return { total, allocated, available, avgUtil, totalMem, usedMem };
-  }, [devicesData]);
+    // 显存超发：可分配显存 / 总显存 折算超发倍数（>1 表示超发）
+    const oversub = devicesData
+      .filter((d) => d.total_memory_gb && (d.allocatable_memory_gb ?? 0) > 0)
+      .map((d) => (d.allocatable_memory_gb ?? 0) / (d.total_memory_gb ?? 1));
+    const avgOversub = oversub.length ? (Math.round((oversub.reduce((a, b) => a + b, 0) / oversub.length) * 100) / 100) : 0;
+    // 分配粒度分布：1 / 1/2 / 1/4 / N
+    const fracFull = allocationsData.filter((a) => a.fraction >= 1).length;
+    const fracHalf = allocationsData.filter((a) => a.fraction === 0.5).length;
+    const fracQuarter = allocationsData.filter((a) => a.fraction === 0.25).length;
+    return {
+      total, allocated, available, avgUtil, totalMem, usedMem,
+      avgOversub, fracFull, fracHalf, fracQuarter,
+    };
+  }, [devicesData, allocationsData]);
+
+  // 打开分配 Modal
+  const handleOpenAllocate = useCallback(
+    (record: GPUDevice) => {
+      setAllocatingDevice(record);
+      allocateForm.resetFields();
+      allocateForm.setFieldsValue({ fraction: 1 });
+      setAllocateVisible(true);
+    },
+    [allocateForm],
+  );
+
+  // 提交分配：1 / 1/2 / 1/4 / N GPU
+  const handleSubmitAllocate = useCallback(
+    async (values: { fraction: number; memory_gb?: number; job_id?: number; tenant_id?: number; user_id?: number }) => {
+      if (!allocatingDevice) return;
+      try {
+        await allocateGPU({
+          device_id: allocatingDevice.id,
+          fraction: values.fraction,
+          memory_gb: values.memory_gb,
+          job_id: values.job_id,
+          tenant_id: values.tenant_id,
+          user_id: values.user_id,
+          status: 'active',
+        } as Partial<GPUAllocation>).unwrap();
+        message.success(`已按 ${values.fraction >= 1 ? '1 GPU' : `${Math.round(1 / values.fraction)} 分之一 GPU`} 粒度分配`);
+        setAllocateVisible(false);
+        allocateForm.resetFields();
+        refetch();
+      } catch {
+        message.error('分配失败，请稍后重试');
+      }
+    },
+    [allocatingDevice, allocateGPU, allocateForm, message, refetch],
+  );
+
+  // 释放分配
+  const handleReleaseAllocation = useCallback(
+    async (alloc: GPUAllocation) => {
+      try {
+        await releaseGPU(alloc.id).unwrap();
+        message.success('GPU 已释放');
+        refetch();
+      } catch {
+        message.error('释放失败，请稍后重试');
+      }
+    },
+    [releaseGPU, message, refetch],
+  );
 
   // 打开新建
   const handleOpenCreate = useCallback(() => {
@@ -293,10 +381,17 @@ const GPUManagement: React.FC = () => {
       {
         title: '操作',
         key: 'action',
-        width: 220,
+        width: 280,
         fixed: 'right',
         render: (_: unknown, record: GPUDevice) => (
           <Space size={4}>
+            {record.status === 'available' && (
+              <Can perm="gpu:write">
+                <Button type="link" size="small" onClick={() => handleOpenAllocate(record)}>
+                  分配
+                </Button>
+              </Can>
+            )}
             <Can perm="gpu:write">
               <Button type="link" size="small" onClick={() => handleOpenEdit(record)}>
                 编辑
@@ -325,7 +420,7 @@ const GPUManagement: React.FC = () => {
         ),
       },
     ],
-    [handleOpenEdit, handleSetMaintenance, handleDelete],
+    [handleOpenEdit, handleSetMaintenance, handleDelete, handleOpenAllocate],
   );
 
   // 展开行：分配记录
@@ -344,11 +439,13 @@ const GPUManagement: React.FC = () => {
               { title: '租户ID', dataIndex: 'tenant_id', key: 'tenant_id', width: 90 },
               { title: '用户ID', dataIndex: 'user_id', key: 'user_id', width: 90 },
               {
-                title: '分数',
+                title: '分配粒度',
                 dataIndex: 'fraction',
                 key: 'fraction',
-                width: 80,
-                render: (v: number) => <Tag color="blue">{v}</Tag>,
+                width: 100,
+                render: (v: number) => (
+                  <Tag color="blue">{v >= 1 ? '1 GPU' : v === 0.5 ? '1/2 GPU' : v === 0.25 ? '1/4 GPU' : `${v} GPU`}</Tag>
+                ),
               },
               { title: '显存(GB)', dataIndex: 'memory_gb', key: 'memory_gb', width: 100 },
               {
@@ -359,6 +456,21 @@ const GPUManagement: React.FC = () => {
                 render: (s: string) => <StatusCell status={s} />,
               },
               { title: '开始时间', dataIndex: 'started_at', key: 'started_at', width: 170 },
+              {
+                title: '操作',
+                key: 'alloc-action',
+                width: 90,
+                render: (_: unknown, alloc: GPUAllocation) =>
+                  alloc.status === 'active' ? (
+                    <Can perm="gpu:write">
+                      <Popconfirm title="释放该分配？" onConfirm={() => handleReleaseAllocation(alloc)} okText="释放" cancelText="取消">
+                        <Button type="link" size="small" danger>释放</Button>
+                      </Popconfirm>
+                    </Can>
+                  ) : (
+                    '-'
+                  ),
+              },
             ]}
             dataSource={allocs}
             rowKey="id"
@@ -368,7 +480,7 @@ const GPUManagement: React.FC = () => {
         </div>
       );
     },
-    [deviceAllocations],
+    [deviceAllocations, handleReleaseAllocation],
   );
 
   const state = renderState({
@@ -446,11 +558,68 @@ const GPUManagement: React.FC = () => {
             <Statistic title="已用显存" value={stats.usedMem} suffix="GB" valueStyle={{ color: '#faad14' }} />
           </Card>
         </Col>
+        <Col xs={12} sm={12} md={6} lg={6} xl={4}>
+          <Card>
+            <Statistic title="显存超发比" value={stats.avgOversub} suffix="x" valueStyle={{ color: '#722ed1' }} />
+          </Card>
+        </Col>
       </Row>
+
+      {/* 容器虚拟化隔离能力 + 隔离引擎 + 分配粒度（skill.md 4.2） */}
+      <Card style={{ marginBottom: 16 }} title="容器虚拟化隔离与分配能力">
+        <Row gutter={[16, 16]}>
+          {[
+            { name: '算力隔离', desc: 'cgroups 容器间计算资源隔离' },
+            { name: '显存隔离', desc: 'GPU 显存安全隔离，防止冲突' },
+            { name: '显存超发', desc: '显存超额分配，提升利用率' },
+            { name: '编解码实例', desc: '视频编解码实例优化处理' },
+          ].map((c) => (
+            <Col xs={12} sm={12} md={6} key={c.name}>
+              <div
+                style={{
+                  borderLeft: `3px solid ${brand[500]}`,
+                  padding: '8px 12px',
+                  background: 'var(--mc-bg, transparent)',
+                  borderRadius: 8,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>{c.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--mc-text-3)' }}>{c.desc}</div>
+              </div>
+            </Col>
+          ))}
+          <Col xs={24} sm={12} md={12}>
+            <Card size="small" title="隔离引擎">
+              <Space wrap>
+                <Tag color="blue">用户态虚拟化隔离引擎（轻量高性能）</Tag>
+                <Tag color="purple">内核态虚拟化隔离引擎（安全底层隔离）</Tag>
+              </Space>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} md={12}>
+            <Card size="small" title="GPU 分配粒度分布">
+              <Space wrap>
+                <Tag color="green">1 GPU × {stats.fracFull}</Tag>
+                <Tag color="blue">1/2 GPU × {stats.fracHalf}</Tag>
+                <Tag color="cyan">1/4 GPU × {stats.fracQuarter}</Tag>
+                <Tag color="default">N GPU 多卡并行</Tag>
+              </Space>
+            </Card>
+          </Col>
+        </Row>
+      </Card>
 
       {/* 筛选器 */}
       <Card style={{ marginBottom: 16 }}>
         <Space wrap>
+          <Input.Search
+            placeholder="搜索节点名 / 型号"
+            allowClear
+            style={{ width: 220 }}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            aria-label="搜索 GPU 节点"
+          />
           <Select
             placeholder="厂商筛选"
             allowClear
@@ -488,10 +657,10 @@ const GPUManagement: React.FC = () => {
         {state ?? (
           <ResponsiveTable
             columns={columns}
-            dataSource={devicesData}
+            dataSource={searchedDevices}
             rowKey="id"
             pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-            scroll={{ x: 1600, y: 520 }}
+            scroll={{ x: 1700, y: 520 }}
             expandable={{ expandedRowRender }}
             virtual
           />
@@ -618,6 +787,56 @@ const GPUManagement: React.FC = () => {
           </div>
         )}
       </Drawer>
+
+      {/* GPU 细粒度分配 Modal：1 / 1/2 / 1/4 / N GPU */}
+      <Modal
+        title={`分配 GPU — ${allocatingDevice?.node_name ?? ''} ${allocatingDevice?.model ?? ''}`}
+        open={allocateVisible}
+        onCancel={() => setAllocateVisible(false)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Form form={allocateForm} onFinish={handleSubmitAllocate} layout="vertical">
+          <Form.Item name="fraction" label="GPU 分配粒度" rules={[{ required: true, message: '请选择分配粒度' }]}>
+            <Select
+              placeholder="请选择分配粒度"
+              options={[
+                { label: '1 GPU（整卡，计算密集型）', value: 1 },
+                { label: '1/2 GPU（中等需求）', value: 0.5 },
+                { label: '1/4 GPU（轻量任务）', value: 0.25 },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="memory_gb" label="分配显存(GB)">
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="留空则按粒度自动分配" />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item name="job_id" label="作业ID">
+                <InputNumber min={0} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="tenant_id" label="租户ID">
+                <InputNumber min={0} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="user_id" label="用户ID">
+                <InputNumber min={0} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Space>
+              <Can perm="gpu:write">
+                <Button type="primary" htmlType="submit">确认分配</Button>
+              </Can>
+              <Button onClick={() => setAllocateVisible(false)}>取消</Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };

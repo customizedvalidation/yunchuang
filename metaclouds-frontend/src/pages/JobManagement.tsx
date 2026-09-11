@@ -114,6 +114,11 @@ const JobManagement: React.FC = () => {
   const [detailJob, setDetailJob] = useState<Job | null>(null);
   const [form] = Form.useForm<JobFormValues>();
 
+  // 搜索 / 筛选
+  const [searchText, setSearchText] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [partitionFilter, setPartitionFilter] = useState<number | undefined>(undefined);
+
   const partitionName = useCallback(
     (id?: number) => partitionsData.find((p) => p.id === id)?.name ?? '-',
     [partitionsData],
@@ -254,14 +259,21 @@ const JobManagement: React.FC = () => {
 
   // 按子路由过滤数据，使每个子菜单项对应真实数据集
   const currentData = useMemo(() => {
+    let list = jobsData;
     if (activeKey === '/job/queue') {
-      return jobsData.filter((j) => j.status === 'pending');
+      list = list.filter((j) => j.status === 'pending');
+    } else if (activeKey === '/job/history') {
+      list = list.filter((j) => ['completed', 'failed', 'cancelled'].includes(j.status));
     }
-    if (activeKey === '/job/history') {
-      return jobsData.filter((j) => ['completed', 'failed', 'cancelled'].includes(j.status));
-    }
-    return jobsData;
-  }, [activeKey, jobsData]);
+    // 关键词 + 状态 + 分区筛选
+    const kw = searchText.trim().toLowerCase();
+    return list.filter((j) => {
+      const matchKw = !kw || j.name.toLowerCase().includes(kw) || (j.description ?? '').toLowerCase().includes(kw);
+      const matchStatus = !statusFilter || j.status === statusFilter;
+      const matchPartition = partitionFilter == null || j.partition_id === partitionFilter;
+      return matchKw && matchStatus && matchPartition;
+    });
+  }, [activeKey, jobsData, searchText, statusFilter, partitionFilter]);
 
   const emptyText: Record<string, { title: string; desc: string }> = {
     '/job/list': { title: '还没有作业', desc: '提交第一个作业后，就可以在这里跟踪它的运行状态。' },
@@ -317,6 +329,9 @@ const JobManagement: React.FC = () => {
 
   return (
     <div className="mc-page">
+      <a href="#job-table" className="mc-skip-link">
+        跳转到作业列表
+      </a>
       <div className="mc-page-head">
         <div className="mc-page-head-main">
           <h1 className="mc-page-title">作业管理</h1>
@@ -335,7 +350,44 @@ const JobManagement: React.FC = () => {
         </div>
       </div>
 
-      <Card>
+      <Card id="job-table">
+        {/* 搜索 + 状态 / 分区筛选工具栏 */}
+        <Row gutter={12} style={{ marginBottom: 16 }}>
+          <Col flex="auto">
+            <Input
+              allowClear
+              placeholder="搜索作业名称 / 描述"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              placeholder="状态"
+              style={{ width: 130 }}
+              value={statusFilter || undefined}
+              onChange={(v) => setStatusFilter(v ?? '')}
+              options={[
+                { label: '排队中', value: 'pending' },
+                { label: '运行中', value: 'running' },
+                { label: '已完成', value: 'completed' },
+                { label: '失败', value: 'failed' },
+                { label: '已取消', value: 'cancelled' },
+              ]}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              placeholder="分区"
+              style={{ width: 150 }}
+              value={partitionFilter}
+              onChange={(v) => setPartitionFilter(v)}
+              options={partitionsData.map((p) => ({ label: p.name, value: p.id }))}
+            />
+          </Col>
+        </Row>
         <Tabs
           activeKey={activeKey}
           items={JOB_TABS.map((t) => ({ ...t, children: renderTable() }))}
@@ -444,7 +496,21 @@ const JobManagement: React.FC = () => {
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="max_gpus" label="最大GPU">
+              <Form.Item
+                name="max_gpus"
+                label="最大GPU"
+                dependencies={['min_gpus', 'elastic_enabled']}
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (getFieldValue('elastic_enabled') && value != null && getFieldValue('min_gpus') != null && value < getFieldValue('min_gpus')) {
+                        return Promise.reject(new Error('最大GPU 不能小于 最小GPU'));
+                      }
+                      return Promise.resolve();
+                    },
+                  }),
+                ]}
+              >
                 <InputNumber min={0} style={{ width: '100%' }} />
               </Form.Item>
             </Col>

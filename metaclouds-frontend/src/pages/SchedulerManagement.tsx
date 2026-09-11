@@ -95,9 +95,24 @@ const SchedulerManagement: React.FC = () => {
   const [deleteScheduler] = useDeleteSchedulerIntegrationMutation();
   const [syncJobs] = useSyncSchedulerJobsMutation();
   const [healthCheckId, setHealthCheckId] = useState<number | null>(null);
+  const [healthCheckName, setHealthCheckName] = useState<string>('');
   const { data: healthData } = useGetSchedulerHealthQuery(healthCheckId ?? 0, {
     skip: !healthCheckId,
   });
+
+  // 搜索 / 筛选
+  const [searchText, setSearchText] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string>('');
+
+  // 搜索 + 类型筛选
+  const filteredSchedulers = useMemo(() => {
+    const kw = searchText.trim().toLowerCase();
+    return schedulersData.filter((s) => {
+      const matchKw = !kw || s.name.toLowerCase().includes(kw) || (s.endpoint ?? '').toLowerCase().includes(kw);
+      const matchType = !typeFilter || s.type === typeFilter;
+      return matchKw && matchType;
+    });
+  }, [schedulersData, searchText, typeFilter]);
 
   // 打开新建
   const handleOpenCreate = useCallback(() => {
@@ -176,10 +191,14 @@ const SchedulerManagement: React.FC = () => {
   );
 
   // 健康检查
-  const handleHealthCheck = useCallback((id: number) => {
-    setHealthCheckId(id);
-    message.info('健康检查已发起，结果将在下方显示');
-  }, [message]);
+  const handleHealthCheck = useCallback(
+    (record: SchedulerIntegration) => {
+      setHealthCheckId(record.id);
+      setHealthCheckName(record.name);
+      message.info(`已发起「${record.name}」健康检查，结果将在页头显示`);
+    },
+    [message],
+  );
 
   // 打开队列
   const handleOpenQueues = useCallback((record: SchedulerIntegration) => {
@@ -267,7 +286,7 @@ const SchedulerManagement: React.FC = () => {
                 同步作业
               </Button>
             </Can>
-            <Button type="link" size="small" onClick={() => handleHealthCheck(record.id)}>
+            <Button type="link" size="small" onClick={() => handleHealthCheck(record)}>
               健康检查
             </Button>
             <Can perm="scheduler:write">
@@ -337,7 +356,7 @@ const SchedulerManagement: React.FC = () => {
         <div className="mc-page-head-extra">
           {healthResult && (
             <span style={{ marginRight: 12 }}>
-              最近健康检查：{healthResult}
+              {healthCheckName} 健康检查：{healthResult}
             </span>
           )}
           <Can perm="scheduler:write">
@@ -349,10 +368,31 @@ const SchedulerManagement: React.FC = () => {
       </div>
 
       <Card id="scheduler-table">
+        {/* 搜索 + 类型筛选工具栏 */}
+        <Row gutter={12} style={{ marginBottom: 16 }}>
+          <Col flex="auto">
+            <Input
+              allowClear
+              placeholder="搜索调度器名称 / 端点"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              placeholder="调度器类型"
+              style={{ width: 160 }}
+              value={typeFilter || undefined}
+              onChange={(v) => setTypeFilter(v ?? '')}
+              options={SCHEDULER_TYPE_OPTIONS}
+            />
+          </Col>
+        </Row>
         {state ?? (
           <ResponsiveTable
             columns={columns}
-            dataSource={schedulersData}
+            dataSource={filteredSchedulers}
             rowKey="id"
             pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
             scroll={{ x: 1800, y: 520 }}

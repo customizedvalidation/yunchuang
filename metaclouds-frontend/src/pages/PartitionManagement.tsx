@@ -94,13 +94,18 @@ const PartitionManagement: React.FC = () => {
   const [permTarget, setPermTarget] = useState<Partition | null>(null);
   const [permForm] = Form.useForm();
 
+  // 搜索 / 筛选
+  const [searchText, setSearchText] = useState('');
+  const [clusterFilter, setClusterFilter] = useState<number | undefined>(undefined);
+  const [statusFilter, setStatusFilter] = useState<string>('');
+
   // API
   const { data: partitions, isLoading, error, refetch } = useGetPartitionsQuery({});
   const { data: clusters } = useGetClustersQuery(undefined);
   const partitionsData = partitions ?? [];
   const clustersData = extractArrayData(clusters);
 
-  const { data: permData } = useGetPartitionPermissionsQuery(permTarget?.id ?? 0, {
+  const { data: permData, refetch: refetchPerms } = useGetPartitionPermissionsQuery(permTarget?.id ?? 0, {
     skip: !permTarget,
   });
   const permissionsData = permData ?? [];
@@ -117,6 +122,17 @@ const PartitionManagement: React.FC = () => {
     (id?: number) => clustersData.find((c: { id: number }) => c.id === id)?.name ?? '-',
     [clustersData],
   );
+
+  // 搜索 + 集群 / 状态筛选
+  const filteredPartitions = useMemo(() => {
+    const kw = searchText.trim().toLowerCase();
+    return partitionsData.filter((p) => {
+      const matchKw = !kw || p.name.toLowerCase().includes(kw) || (p.description ?? '').toLowerCase().includes(kw);
+      const matchCluster = clusterFilter == null || p.cluster_id === clusterFilter;
+      const matchStatus = !statusFilter || p.status === statusFilter;
+      return matchKw && matchCluster && matchStatus;
+    });
+  }, [partitionsData, searchText, clusterFilter, statusFilter]);
 
   // 打开新建
   const handleOpenCreate = useCallback(() => {
@@ -239,11 +255,12 @@ const PartitionManagement: React.FC = () => {
         await setPermission({ partition_id: permTarget.id, data: values }).unwrap();
         message.success('权限添加成功');
         permForm.resetFields();
+        refetchPerms();
       } catch {
         message.error('添加失败，请稍后重试');
       }
     },
-    [permTarget, setPermission, permForm, message],
+    [permTarget, setPermission, permForm, message, refetchPerms],
   );
 
   const handleRemovePermission = useCallback(
@@ -251,11 +268,12 @@ const PartitionManagement: React.FC = () => {
       try {
         await removePermission(id).unwrap();
         message.success('权限已移除');
+        refetchPerms();
       } catch {
         message.error('移除失败，请稍后重试');
       }
     },
-    [removePermission, message],
+    [removePermission, message, refetchPerms],
   );
 
   // 列定义
@@ -427,10 +445,46 @@ const PartitionManagement: React.FC = () => {
       </div>
 
       <Card id="partition-table">
+        {/* 搜索 + 集群 / 状态筛选工具栏 */}
+        <Row gutter={12} style={{ marginBottom: 16 }}>
+          <Col flex="auto">
+            <Input
+              allowClear
+              placeholder="搜索分区名称 / 描述"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              placeholder="集群"
+              style={{ width: 160 }}
+              value={clusterFilter}
+              onChange={(v) => setClusterFilter(v)}
+              options={clustersData.map((c: { id: number; name: string }) => ({ label: c.name, value: c.id }))}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              placeholder="状态"
+              style={{ width: 130 }}
+              value={statusFilter || undefined}
+              onChange={(v) => setStatusFilter(v ?? '')}
+              options={[
+                { label: '活跃', value: 'active' },
+                { label: '未启用', value: 'inactive' },
+                { label: '维护', value: 'maintenance' },
+                { label: '已排空', value: 'drained' },
+              ]}
+            />
+          </Col>
+        </Row>
         {state ?? (
           <ResponsiveTable
             columns={columns}
-            dataSource={partitionsData}
+            dataSource={filteredPartitions}
             rowKey="id"
             pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
             scroll={{ x: 1700, y: 520 }}
