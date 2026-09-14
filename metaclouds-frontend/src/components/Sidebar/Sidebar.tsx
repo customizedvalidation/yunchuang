@@ -1,24 +1,29 @@
-﻿import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { Layout, Menu, Tooltip, Badge } from 'antd';
 import type { MenuProps } from 'antd';
 
 const { Sider } = Layout;
 import {
   DashboardOutlined,
-  SaveOutlined,
   CloudOutlined,
   TagsOutlined,
   BellOutlined,
-  UserOutlined,
-  CiOutlined,
-  IeOutlined,
   ContainerOutlined,
   LeftOutlined,
   LogoutOutlined,
+  ThunderboltOutlined,
+  AppstoreOutlined,
+  DeploymentUnitOutlined,
+  ApiOutlined,
+  ApartmentOutlined,
+  RocketOutlined,
+  DatabaseOutlined,
+  TeamOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { semantic, brand } from '../../theme/tokens';
-import { useGetJobsQuery, useGetClustersQuery, useGetResourcesQuery, useGetTenantsQuery, useGetAlertsQuery, csrfHeaders } from '../../store/api';
+import { useGetJobsQuery, useGetClustersQuery, useGetResourcesQuery, useGetTenantsQuery, useGetAlertsQuery, useGetGPUDevicesQuery, useGetPartitionsQuery, useGetSchedulerIntegrationsQuery, useGetDatasetsQuery, csrfHeaders } from '../../store/api';
 import { extractArrayData } from '../../utils/api';
 import { isRoleAllowed, readStoredRole } from '../../utils/auth';
 import type { Job, MenuItem, UserRole } from '../../types';
@@ -57,19 +62,20 @@ function filterMenuByRole(items: MenuItem[], role: UserRole | null): MenuItem[] 
   return result;
 }
 
-// 菜单按“业务域”分组并合理排列：
-// 总览 → 调度 → 基础设施(集群/资源/K8S) → 平台(租户/加速) → 可观测与治理(监控/安全)
+// 菜单按 skill.md 5 层架构分组并补全全部 15 个页面：
+// 总览 → 作业调度(容器层) → 基础资源(基础资源层) → 集群管理(集群管理层)
+// → 加速套件(加速套件层) → 平台治理 → 可观测与安全(监控管理安全层)
 export const menuItems: MenuItem[] = [
   {
     type: 'group',
     label: '总览',
     children: [
-      { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', description: '总览' },
+      { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', description: '算力总览' },
     ],
   },
   {
     type: 'group',
-    label: '调度',
+    label: '作业调度',
     children: [
       {
         key: '/job', icon: <TagsOutlined />, label: '作业管理', description: '作业调度',
@@ -83,35 +89,52 @@ export const menuItems: MenuItem[] = [
   },
   {
     type: 'group',
-    label: '基础设施',
+    label: '基础资源',
     children: [
-      { key: '/cluster', icon: <SaveOutlined />, label: '集群管理', description: '集群配置' },
       { key: '/resource', icon: <CloudOutlined />, label: '资源管理', description: '资源分配' },
+      { key: '/gpus', icon: <ThunderboltOutlined />, label: 'GPU 设备', description: '细粒度分配' },
+      { key: '/partitions', icon: <AppstoreOutlined />, label: '分区管理', description: '分区配额' },
+    ],
+  },
+  {
+    type: 'group',
+    label: '集群管理',
+    children: [
+      { key: '/cluster', icon: <DeploymentUnitOutlined />, label: '集群管理', description: '高可用集群' },
       {
-        key: '/k8s', icon: <ContainerOutlined />, label: 'K8S管理', description: '容器编排',
+        key: '/k8s', icon: <ContainerOutlined />, label: 'K8S 管理', description: '容器编排',
         children: [
           { key: '/k8s/nodes', label: '节点管理' },
-          { key: '/k8s/pods', label: 'Pod管理' },
+          { key: '/k8s/pods', label: 'Pod 管理' },
           { key: '/k8s/services', label: '服务管理' },
         ],
       },
+      { key: '/schedulers', icon: <ApiOutlined />, label: '调度器', description: 'Slurm/LSF' },
+      { key: '/topology', icon: <ApartmentOutlined />, label: '拓扑感知', description: '网络拓扑' },
     ],
   },
   {
     type: 'group',
-    label: '平台',
+    label: '加速套件',
+    children: [
+      { key: '/acceleration', icon: <RocketOutlined />, label: '加速套件', description: '推理加速' },
+      { key: '/datasets', icon: <DatabaseOutlined />, label: '数据集', description: 'Fluid 加速' },
+    ],
+  },
+  {
+    type: 'group',
+    label: '平台治理',
     children: [
       // 对齐后端 authz：tenant:read 仅授予 admin 与 manager，user 点击会被 403
-      { key: '/tenant', icon: <UserOutlined />, label: '多租户管理', description: '租户配置', roles: ['admin', 'manager'] },
-      { key: '/acceleration', icon: <CiOutlined />, label: '加速套件', description: 'GPU加速' },
+      { key: '/tenant', icon: <TeamOutlined />, label: '多租户', description: '租户配额', roles: ['admin', 'manager'] },
     ],
   },
   {
     type: 'group',
-    label: '可观测与治理',
+    label: '可观测与安全',
     children: [
       { key: '/monitoring', icon: <BellOutlined />, label: '监控告警', description: '实时监控' },
-      { key: '/security', icon: <IeOutlined />, label: '安全管理', description: '安全策略' },
+      { key: '/security', icon: <SafetyCertificateOutlined />, label: '安全管理', description: '安全策略' },
     ],
   },
 ];
@@ -183,6 +206,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse, mobileOpen }) 
   const { data: badgeClusters } = useGetClustersQuery(undefined);
   const { data: badgeResources } = useGetResourcesQuery(undefined);
   const { data: badgeTenants } = useGetTenantsQuery(undefined);
+  const { data: badgeGPUDevices } = useGetGPUDevicesQuery({});
+  const { data: badgePartitions } = useGetPartitionsQuery({});
+  const { data: badgeSchedulers } = useGetSchedulerIntegrationsQuery();
+  const { data: badgeDatasets } = useGetDatasetsQuery();
   const { data: badgeAlerts } = useGetAlertsQuery(undefined);
   const badgeJobsData = extractArrayData<Job>(badgeJobs);
   const badgeMap: Record<string, number> = {
@@ -194,6 +221,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse, mobileOpen }) 
     '/resource': extractArrayData(badgeResources).length,
     '/tenant': extractArrayData(badgeTenants).length,
     '/monitoring': extractArrayData(badgeAlerts).length,
+    '/gpus': extractArrayData(badgeGPUDevices).length,
+    '/partitions': extractArrayData(badgePartitions).length,
+    '/schedulers': extractArrayData(badgeSchedulers).length,
+    '/datasets': extractArrayData(badgeDatasets).length,
   };
 
   // 徽标颜色分级：按业务语义与数量给出不同警示色，避免一律红色
@@ -215,6 +246,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse, mobileOpen }) 
       case '/cluster':
       case '/resource':
       case '/tenant':
+      case '/gpus':
+      case '/partitions':
+      case '/schedulers':
+      case '/datasets':
         return brand[500];
       default:
         return semantic.danger;

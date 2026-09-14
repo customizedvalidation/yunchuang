@@ -6,8 +6,8 @@
   --sidebar-width-phone: 240px;
   --sidebar-width-landscape: 64px;
   
-  --sidebar-bg-start: #0f172a;
-  --sidebar-bg-end: #1e293b;
+  --sidebar-bg-start: #0a1628;
+  --sidebar-bg-end: #0e2140;
   
   --sidebar-border-color: rgba(255, 255, 255, 0.08);
   --sidebar-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
@@ -16,15 +16,15 @@
   --sidebar-transition-duration: 0.2s;
   --sidebar-transition-easing: cubic-bezier(0.4, 0, 0.2, 1);
   
-  /* 品牌色统一走设计系统（历史遗留的 Tailwind 默认色已统一为设计系统品牌色） */
-  --sidebar-primary-color: #2f6bff;
-  --sidebar-primary-light: #5b8bff;
-  --sidebar-primary-dark: #1f52e0;
+  /* ???脩?銝韏啗挽霈∠頂蝏??????Tailwind 暺恕?脣歇蝏?銝箄挽霈∠頂蝏??嚗?*/
+  --sidebar-primary-color: #1677ff;
+  --sidebar-primary-light: #4096ff;
+  --sidebar-primary-dark: #0958d9;
 
-  --sidebar-secondary-color: #5b3fd9; /* 品牌渐变浅端（原型 v1.2） */
-  --sidebar-secondary-light: #7c5cff;
+  --sidebar-secondary-color: #0958d9; /* 科技蓝深端 */
+  --sidebar-secondary-light: #4096ff;
 
-  --sidebar-accent-color: #00b8a9; /* 原型 teal */
+  --sidebar-accent-color: #69b1ff; /* 科技蓝浅端 */
   
   --sidebar-text-primary: #f8fafc;
   --sidebar-text-secondary: #e2e8f0;
@@ -32,16 +32,16 @@
   --sidebar-text-disabled: #64748b;
   
   --sidebar-menu-bg: rgba(255, 255, 255, 0.06);
-  --sidebar-menu-bg-hover: rgba(47, 107, 255, 0.24);
-  --sidebar-menu-bg-active: rgba(47, 107, 255, 0.38);
+  --sidebar-menu-bg-hover: rgba(22, 119, 255, 0.24);
+  --sidebar-menu-bg-active: rgba(22, 119, 255, 0.38);
   
   --sidebar-menu-border-radius: 12px;
   --sidebar-menu-border-radius-sm: 8px;
   
-  --sidebar-menu-border-color: rgba(47, 107, 255, 0.5);
+  --sidebar-menu-border-color: rgba(22, 119, 255, 0.5);
   
   --sidebar-submenu-bg: rgba(15, 23, 42, 0.85);
-  --sidebar-submenu-border-color: rgba(47, 107, 255, 0.2);
+  --sidebar-submenu-border-color: rgba(22, 119, 255, 0.2);
   
   --sidebar-indicator-width: 4px;
   --sidebar-indicator-height: 36px;
@@ -84,8 +84,8 @@
   --sidebar-logout-text-color-hover: #ff5c7a;
   
   --sidebar-collapse-btn-size: 28px;
-  --sidebar-collapse-btn-bg-start: #2f6bff;
-  --sidebar-collapse-btn-bg-end: #5b3fd9;
+  --sidebar-collapse-btn-bg-start: #1677ff;
+  --sidebar-collapse-btn-bg-end: #0958d9;
   
   --sidebar-z-index: 1000;
   
