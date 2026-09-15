@@ -123,17 +123,11 @@ export const menuItems: MenuItem[] = [
   },
   {
     type: 'group',
-    label: '平台治理',
-    children: [
-      // 对齐后端 authz：tenant:read 仅授予 admin 与 manager，user 点击会被 403
-      { key: '/tenant', icon: <TeamOutlined />, label: '多租户', description: '租户配额', roles: ['admin', 'manager'] },
-    ],
-  },
-  {
-    type: 'group',
-    label: '可观测与安全',
+    label: '系统治理',
     children: [
       { key: '/monitoring', icon: <BellOutlined />, label: '监控告警', description: '实时监控' },
+      // 对齐后端 authz：tenant:read 仅授予 admin 与 manager，user 点击会被 403
+      { key: '/tenant', icon: <TeamOutlined />, label: '多租户', description: '租户配额', roles: ['admin', 'manager'] },
       { key: '/security', icon: <SafetyCertificateOutlined />, label: '安全管理', description: '安全策略' },
     ],
   },
@@ -196,7 +190,22 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onCollapse, mobileOpen }) 
   }, [visibleMenuItems]);
 
   // 受控展开：默认展开当前路由所属父菜单，并允许用户手动展开/收起子菜单
-  const [openKeys, setOpenKeys] = useState<string[]>(() => getParentKeysForPath(location.pathname));
+  // 受控展开：默认展开全部子菜单（保证子菜单完整显示），并允许用户手动展开/收起
+  const [openKeys, setOpenKeys] = useState<string[]>(() => {
+    const allParentKeys: string[] = [];
+    const collectParentKeys = (items: MenuItem[]): void => {
+      for (const item of items) {
+        if (item.type === 'group') {
+          collectParentKeys(item.children || []);
+        } else if (item.children?.length && item.key) {
+          allParentKeys.push(item.key);
+          collectParentKeys(item.children);
+        }
+      }
+    };
+    collectParentKeys(visibleMenuItems);
+    return allParentKeys;
+  });
   useEffect(() => {
     setOpenKeys((prev) => Array.from(new Set([...prev, ...getParentKeysForPath(location.pathname)])));
   }, [location.pathname, getParentKeysForPath]);

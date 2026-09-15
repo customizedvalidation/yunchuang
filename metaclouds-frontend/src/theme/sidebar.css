@@ -58,13 +58,13 @@
   --sidebar-logo-subtitle-size-phone: 10px;
   --sidebar-logo-subtitle-size-landscape: 10px;
   
-  --sidebar-menu-label-size: 14px;
-  --sidebar-menu-label-size-tablet: 13px;
-  --sidebar-menu-label-size-mobile: 14px;
+  --sidebar-menu-label-size: 13px;
+  --sidebar-menu-label-size-tablet: 12px;
+  --sidebar-menu-label-size-mobile: 13px;
   --sidebar-menu-label-size-phone: 13px;
   --sidebar-menu-label-size-landscape: 13px;
   
-  --sidebar-menu-description-size: 11px;
+  --sidebar-menu-description-size: 10px;
   --sidebar-menu-description-size-tablet: 10px;
   --sidebar-menu-description-size-mobile: 11px;
   --sidebar-menu-description-size-phone: 10px;
@@ -89,9 +89,9 @@
   
   --sidebar-z-index: 1000;
   
-  --sidebar-menu-container-height: calc(100vh - 144px);
-  --sidebar-menu-container-height-tablet: calc(100vh - 130px);
-  --sidebar-menu-container-height-mobile: calc(100vh - 120px);
+  --sidebar-menu-container-height: calc(100vh - 108px);
+  --sidebar-menu-container-height-tablet: calc(100vh - 104px);
+  --sidebar-menu-container-height-mobile: calc(100vh - 96px);
   --sidebar-menu-container-height-phone: calc(100vh - 110px);
   --sidebar-menu-container-height-landscape: calc(100vh - 100px);
   
@@ -99,7 +99,7 @@
   --sidebar-menu-margin-phone: 3px 6px;
   --sidebar-menu-margin-landscape: 3px 6px;
   
-  --sidebar-menu-padding: 10px 14px;
+  --sidebar-menu-padding: 4px 12px;
   --sidebar-menu-padding-phone: 8px 10px;
   --sidebar-menu-padding-landscape: 8px 12px;
 }
