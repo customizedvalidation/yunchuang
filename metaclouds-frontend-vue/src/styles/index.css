@@ -1,0 +1,165 @@
+/* ============================================================
+   Metaclouds Design System (MDS) v2.0 — Vue 版
+   与 React 版 src/index.css + src/theme/sidebar.css 对齐
+   ============================================================ */
+:root {
+  /* 品牌 */
+  --mc-brand: #2f6bff;
+  --mc-brand-600: #1f52e0;
+  --mc-brand-400: #5b8bff;
+  --mc-brand-100: #dce8ff;
+  --mc-brand-50: #eef4ff;
+  --mc-brand-grad: linear-gradient(135deg, #2f6bff 0%, #5b3fd9 100%);
+
+  /* 科技蓝（侧边栏专用） */
+  --sidebar-primary-color: #1677ff;
+  --sidebar-primary-light: #4096ff;
+  --sidebar-primary-dark: #0958d9;
+  --sidebar-accent-color: #69b1ff;
+
+  /* 语义 */
+  --mc-success: #16c784;
+  --mc-success-soft: rgba(22, 199, 132, 0.12);
+  --mc-warning: #ffb020;
+  --mc-warning-soft: rgba(255, 176, 32, 0.12);
+  --mc-danger: #ff5c7a;
+  --mc-danger-soft: rgba(255, 92, 122, 0.12);
+  --mc-info-soft: #eef4ff;
+  --mc-teal: #00b8a9;
+
+  --mc-success-fg: #0b7a54;
+  --mc-warning-fg: #8a5a00;
+  --mc-danger-fg: #c2185b;
+  --mc-brand-fg: #1e50e0;
+
+  /* 中性 */
+  --mc-text-1: #0e1726;
+  --mc-text-2: #4a5b75;
+  --mc-text-3: #647189;
+  --mc-line: #e4eaf3;
+  --mc-line-strong: #d2dceb;
+  --mc-surface: #ffffff;
+  --mc-surface-2: #fafcfe;
+  --mc-surface-3: #f4f7fc;
+  --mc-bg: #f5f7fc;
+
+  /* 圆角 */
+  --mc-radius-xs: 6px;
+  --mc-radius-sm: 8px;
+  --mc-radius-md: 12px;
+  --mc-radius-lg: 16px;
+  --mc-radius-xl: 22px;
+  --mc-radius-pill: 999px;
+
+  /* 阴影 */
+  --mc-shadow-1: 0 1px 2px rgba(14, 23, 38, 0.06);
+  --mc-shadow-2: 0 2px 6px rgba(14, 23, 38, 0.06);
+  --mc-shadow-3: 0 8px 24px rgba(14, 23, 38, 0.08);
+  --mc-shadow-raised-sm: 6px 6px 14px rgba(14, 23, 38, 0.06), -6px -6px 14px rgba(255, 255, 255, 0.9);
+  --mc-shadow-raised: 10px 10px 24px rgba(14, 23, 38, 0.07), -10px -10px 24px rgba(255, 255, 255, 0.9);
+
+  /* 动效 */
+  --mc-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --mc-t-fast: 120ms;
+  --mc-t-base: 180ms;
+  --mc-t-slow: 280ms;
+
+  /* 流式间距 */
+  --mc-gutter: clamp(16px, 8px + 1.2vw, 48px);
+  --mc-gap: clamp(12px, 8px + 0.5vw, 24px);
+  --mc-sider-w: 240px;
+  --mc-sider-w-collapsed: 64px;
+
+  /* 流式字号 */
+  --mc-fs-h1: clamp(19px, 17.6px + 0.35vw, 26px);
+  --mc-fs-h2: clamp(15px, 14.2px + 0.16vw, 17px);
+  --mc-fs-body: clamp(13.5px, 13.2px + 0.08vw, 14.5px);
+  --mc-fs-sm: clamp(12.5px, 12.3px + 0.06vw, 13.5px);
+
+  color-scheme: light;
+}
+
+/* lg(1024–1279)：常驻 64px 图标轨 */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root { --mc-sider-w: 64px; }
+}
+/* <1024：侧边栏浮层 */
+@media (max-width: 1023px) {
+  :root { --mc-sider-w: 0px; }
+}
+
+/* ============================ 基础 ============================ */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: 'Inter', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--mc-bg);
+  color: var(--mc-text-1);
+  transition: background var(--mc-t-base) var(--mc-ease), color var(--mc-t-base) var(--mc-ease);
+}
+.mc-num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+.mc-mono { font-family: 'JetBrains Mono', source-code-pro, Menlo, Monaco, Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--mc-line-strong); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box; }
+
+/* ============================ 页面模板 ============================ */
+.mc-page { padding: var(--mc-gutter); min-width: 0; }
+.mc-page-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.mc-page-head-main { flex: 1; min-width: 220px; }
+.mc-page-title { margin: 0 0 4px; font-size: var(--mc-fs-h1); font-weight: 660; letter-spacing: -0.3px; color: var(--mc-text-1); }
+.mc-page-desc { margin: 0; font-size: var(--mc-fs-sm); color: var(--mc-text-3); }
+.mc-page-head-extra { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* 状态色点 */
+.mc-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+.mc-status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.mc-status.running { color: var(--mc-brand-fg); }
+.mc-status.running .mc-status-dot { background: var(--mc-brand); animation: mc-pulse 2s var(--mc-ease) infinite; }
+.mc-status.pending { color: var(--mc-warning-fg); }
+.mc-status.pending .mc-status-dot { background: var(--mc-warning); }
+.mc-status.completed { color: var(--mc-success-fg); }
+.mc-status.completed .mc-status-dot { background: var(--mc-success); }
+.mc-status.failed { color: var(--mc-danger-fg); }
+.mc-status.failed .mc-status-dot { background: var(--mc-danger); }
+.mc-status.idle { color: var(--mc-text-3); }
+.mc-status.idle .mc-status-dot { background: var(--mc-text-3); }
+@keyframes mc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* 布局工具 */
+.mc-stack { display: flex; flex-direction: column; gap: var(--mc-gap); min-width: 0; }
+.mc-flow { display: flex; flex-wrap: wrap; gap: var(--mc-gap); align-items: flex-start; }
+.mc-quota-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--mc-gap); min-width: 0; }
+.mc-mb { margin-bottom: var(--mc-gap); }
+.mc-mt { margin-top: var(--mc-gap); }
+
+/* App Shell */
+.mc-app-shell { display: grid; grid-template-columns: auto minmax(0, 1fr); min-height: 100vh; background: var(--mc-bg); transition: grid-template-columns var(--mc-t-slow) var(--mc-ease); }
+@media (max-width: 1023px) { .mc-app-shell { grid-template-columns: 0 minmax(0, 1fr); } }
+.mc-app-main { min-width: 0; display: flex; flex-direction: column; }
+.mc-app-content { flex: 1; min-width: 0; }
+
+/* 移动端浮层遮罩 */
+.mc-app-overlay { display: none; }
+@media (max-width: 1023px) {
+  .mc-app-overlay { display: block; position: fixed; inset: 0; background: rgba(14, 23, 38, 0.45); z-index: 999; opacity: 0; pointer-events: none; transition: opacity var(--mc-t-base) var(--mc-ease); }
+  .mc-app-shell.is-mobile-open .mc-app-overlay { opacity: 1; pointer-events: auto; }
+}
+
+/* Element Plus 皮肤覆盖 */
+.el-card { display: block; width: 100%; border-radius: var(--mc-radius-lg); border-color: transparent; box-shadow: var(--mc-shadow-raised-sm); }
+.el-card__header { border-bottom: 1px solid var(--mc-line); font-weight: 650; }
+.el-card__body { padding: 20px; }
+.el-button--primary { background-image: var(--mc-brand-grad); border: none; }
+.el-button--primary:hover { filter: brightness(1.06); }
+.el-table th { color: var(--mc-text-3); font-weight: 600; }
+.el-tag--success { color: var(--mc-success-fg); background: var(--mc-success-soft); border-color: transparent; }
+.el-tag--warning { color: var(--mc-warning-fg); background: var(--mc-warning-soft); border-color: transparent; }
+.el-tag--danger { color: var(--mc-danger-fg); background: var(--mc-danger-soft); border-color: transparent; }
+.el-dialog { border-radius: var(--mc-radius-xl); }
+
+/* 三态守卫 */
+.page-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; color: var(--mc-text-3); }
+.page-state-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+.page-state-text { font-size: 14px; }
