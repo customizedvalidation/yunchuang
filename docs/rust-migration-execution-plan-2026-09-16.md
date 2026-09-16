@@ -141,6 +141,16 @@
 
 ## 3. Phase 1 — 基础设施骨架（2-3 周）
 
+> **状态：✅ 已完成（2026-09-16）**
+>
+> 全部 8 个工作包（P1-01 ~ P1-08）已交付并通过验收。实际工时约 3 人天（3 代理并行），计划 25 人天。
+>
+> **验收结果**：
+> - `cargo fmt --check` ✅ / `cargo clippy --all-targets -- -D warnings` ✅ / `cargo test` 61 passed / 0 failed ✅
+> - 端到端冒烟测试：登录 200、User CRUD 全通过、CSRF 403/跳过正确、401 信封正确、安全头齐全
+> - 交付：justfile、CI 三 job（lint-test/coverage/release-build）、~60 字段配置、9+ 错误码、6 中间件栈、双驱动 DatabasePool、GORM 特性层（HasTimestamps/SoftDelete/Pagination/Json）、CSRF 双提交、bcrypt 双读兼容、30 权限常量矩阵
+> - 代码：`metaclouds-backend-rust/`（commit 见 git log）
+
 ### WP-P1-01：Cargo Workspace + CI 流水线
 - **目标**：一条命令完成 fmt/clippy/test/coverage/镜像构建。
 - **任务清单**

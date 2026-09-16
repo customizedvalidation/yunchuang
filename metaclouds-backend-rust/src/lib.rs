@@ -3,12 +3,14 @@
 //! in-memory SQLite database.
 
 pub mod auth;
+pub mod authz;
 pub mod config;
 pub mod db;
 pub mod error;
 pub mod handlers;
 pub mod middleware;
 pub mod models;
+pub mod orm;
 pub mod response;
 pub mod routes;
 
@@ -46,6 +48,8 @@ impl Default for TestConfig {
 
 impl From<TestConfig> for crate::config::Config {
     fn from(t: TestConfig) -> Self {
+        // 以 Config::default() 为底座，只覆盖 Phase 0 测试关心的六个字段；
+        // 其余字段沿用配置层与 Go 版对齐的默认值。
         Self {
             server_host: t.server_host,
             server_port: t.server_port,
@@ -53,6 +57,7 @@ impl From<TestConfig> for crate::config::Config {
             jwt_secret: t.jwt_secret,
             jwt_expires: Duration::from_secs(t.jwt_expires_secs),
             log_level: t.log_level,
+            ..Self::default()
         }
     }
 }

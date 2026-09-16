@@ -1,0 +1,32 @@
+# Metaclouds Rust 后端 —— 本地任务运行器。
+#
+# 命令集对齐 Go 侧 Makefile：fmt / clippy / test / build / run / coverage / migrate。
+# 用法示例：`just test`、`just coverage`。
+
+# 格式化全部源码（rustfmt）。
+fmt:
+    cargo fmt --all
+
+# 静态检查（clippy），把警告视为错误。
+clippy:
+    cargo clippy --all-targets -- -D warnings
+
+# 运行全部测试。
+test:
+    cargo test
+
+# 调试模式构建。
+build:
+    cargo build
+
+# 本地启动服务。
+run:
+    cargo run
+
+# 用 cargo-llvm-cov 统计测试覆盖率并输出摘要（需先 `cargo install cargo-llvm-cov`）。
+coverage:
+    cargo llvm-cov --all-features
+
+# 运行数据库迁移（sqlx-cli，需先 `cargo install sqlx-cli`）。
+migrate:
+    sqlx migrate run

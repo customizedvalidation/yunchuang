@@ -92,6 +92,46 @@ pub fn role_has_permission(role: &str, permission: &str) -> bool {
     }
 }
 
+/// 从请求中提取令牌：优先 `Authorization: Bearer {token}`，其次 `access_token` Cookie。
+///
+/// 错误消息对齐 Go `middlewares/jwt_auth.go`：
+/// - 带了 Authorization 头但格式不是 `Bearer {token}` → 400；
+/// - 既没有 Authorization 头也没有 access_token Cookie → 401。
+fn extract_token(request: &Request, cookies: &Cookies) -> AppResult<String> {
+    if let Some(value) = request
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        if !value.is_empty() {
+            let parts: Vec<&str> = value.splitn(2, ' ').collect();
+            if parts.len() != 2 || !parts[0].eq_ignore_ascii_case("Bearer") {
+                return Err(AppError::bad_request(
+                    "Authorization header format must be Bearer {token}",
+                ));
+            }
+            let token = parts[1].trim();
+            if token.is_empty() {
+                return Err(AppError::bad_request(
+                    "Authorization header format must be Bearer {token}",
+                ));
+            }
+            return Ok(token.to_string());
+        }
+    }
+
+    // 无 Authorization 头：退回 httpOnly Cookie（浏览器 SPA 通道）。
+    if let Some(cookie) = cookies.get("access_token") {
+        if !cookie.value().is_empty() {
+            return Ok(cookie.value().to_string());
+        }
+    }
+
+    Err(AppError::unauthorized(
+        "Authorization header or access_token cookie is required",
+    ))
+}
+
 /// Middleware: extract + verify JWT from `Authorization: Bearer ...` or the
 /// `access_token` cookie, then stash the claims in request extensions.
 pub async fn jwt_auth(
@@ -100,27 +140,12 @@ pub async fn jwt_auth(
     mut request: Request,
     next: Next,
 ) -> AppResult<Response> {
-    let token = extract_bearer(&request)
-        .or_else(|| cookies.get("access_token").map(|c| c.value().to_string()))
-        .ok_or_else(|| AppError::unauthorized("missing authentication token"))?;
+    let token = extract_token(&request, &cookies)?;
 
     let claims = verify_token(state.config.jwt_secret.as_bytes(), &token)?;
     tracing::debug!(user_id = claims.user_id, username = %claims.username, "authenticated");
     request.extensions_mut().insert(claims);
     Ok(next.run(request).await)
-}
-
-fn extract_bearer(request: &Request) -> Option<String> {
-    let value = request.headers().get(AUTHORIZATION)?.to_str().ok()?;
-    let rest = value
-        .strip_prefix("Bearer ")
-        .or_else(|| value.strip_prefix("bearer "))?;
-    let trimmed = rest.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
 }
 
 /// Middleware factory: require the authenticated caller's role to hold the

@@ -10,11 +10,13 @@ axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", features = [
     "sqlite",
+    "postgres",
     "runtime-tokio-rustls",
     "chrono",
     "macros",
     "migrate",
 ] }
+bcrypt = "0.15"
 jsonwebtoken = "9"
 argon2 = "0.5"
 tower-cookies = { version = "0.11", features = ["axum-core"] }
