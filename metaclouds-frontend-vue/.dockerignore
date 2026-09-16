@@ -1,0 +1,38 @@
+# 依赖与构建产物
+node_modules
+dist
+dist-ssr
+
+# 版本控制
+.git
+.gitignore
+.gitattributes
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+
+# 编辑器 / IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# 环境变量与本地配置（构建期不应带入镜像）
+.env
+.env.local
+.env.*.local
+
+# 文档与说明（不需要进入镜像）
+*.md
+README*
+LICENSE
+
+# 测试覆盖率与报告
+coverage
+*.tsbuildinfo

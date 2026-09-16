@@ -1,5 +1,7 @@
 # Metaclouds 后端系统复盘与优化报告
 
+> **注意**：本报告基于 React 版前端撰写，Vue 迁移（2026-09-15）后仅供历史参考，不代表当前代码结构。
+
 > 生成时间：2026-08-30
 > 范围：`metaclouds-backend`（Go + Gin）、`metaclouds-frontend`、`prometheus.yml` / `alerts.yml` / `docker-compose.yml`
 > 验证环境：Go 1.25（`~/sdk/go1.25.0`）、Windows、离线沙箱

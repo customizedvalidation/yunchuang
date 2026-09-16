@@ -1,5 +1,7 @@
 # 复盘：③ 远程仓库配置与推送
 
+> **注意**：本报告基于 React 版前端撰写，Vue 迁移（2026-09-15）后仅供历史参考，不代表当前代码结构。
+
 **日期**：2026-09-03
 **仓库**：`https://github.com/customizedvalidation/yunchuang.git`
 **结果**：✅ 推送成功，远端 `main` = `c119538`，本地与远端 `ahead 0 / behind 0` 完全同步

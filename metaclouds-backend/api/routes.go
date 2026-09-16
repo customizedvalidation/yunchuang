@@ -687,6 +687,50 @@ func RegisterRoutes(r *gin.Engine,
 			checkpoints.DELETE("/:id", authz.RequirePermission(authz.PermissionCheckpointWrite), checkpointController.DeleteCheckpoint)
 			checkpoints.GET("/latest/:jobId", checkpointController.GetLatestCheckpoint)
 		}
+		// ==================== Vue3 前端兼容别名路由 ====================
+		// React -> Vue3 migration: new frontend (metaclouds-frontend-vue/src/api) uses different path
+		// naming for GPU / Topology / Dataset-FluidCache. These aliases point to the exact same
+		// controller handlers + RBAC as the routes above. No business logic change, existing routes
+		// untouched (zero regression). All inherit JWT via the authorized group.
+
+		// GPU: Vue uses singular /gpu prefix + /devices, /allocations subpaths (old route is plural /gpus).
+		// release: Vue uses POST /gpu/allocations/:id/release (old route is DELETE /gpus/allocations/:id).
+		gpuAliases := authorized.Group("/gpu")
+		{
+			gpuAliases.GET("/devices", gpuController.GetGPUDevices)
+			gpuAliases.POST("/devices", authz.RequirePermission(authz.PermissionGPUWrite), gpuController.CreateGPUDevice)
+			gpuAliases.GET("/devices/:id", gpuController.GetGPUDevice)
+			gpuAliases.PUT("/devices/:id", authz.RequirePermission(authz.PermissionGPUWrite), gpuController.UpdateGPUDevice)
+			gpuAliases.DELETE("/devices/:id", authz.RequirePermission(authz.PermissionGPUWrite), gpuController.DeleteGPUDevice)
+			gpuAliases.GET("/allocations", gpuController.GetGPUAllocations)
+			gpuAliases.POST("/allocations", authz.RequirePermission(authz.PermissionJobWrite), gpuController.AllocateGPU)
+			gpuAliases.POST("/allocations/:id/release", authz.RequirePermission(authz.PermissionJobWrite), gpuController.ReleaseGPU)
+			gpuAliases.GET("/utilization", gpuController.GetGPUUtilization)
+		}
+
+		// Topology: Vue adds /nodes subpath under /topology (old route hangs directly off /topology).
+		// /topology/:id (param) and /topology/nodes (static) coexist in Gin, static wins; same pattern as /topology/score.
+		topologyAliases := authorized.Group("/topology")
+		{
+			topologyAliases.GET("/nodes", topologyController.GetNodeTopologies)
+			topologyAliases.POST("/nodes", authz.RequirePermission(authz.PermissionTopologyWrite), topologyController.CreateNodeTopology)
+			topologyAliases.GET("/nodes/:id", topologyController.GetNodeTopology)
+			topologyAliases.PUT("/nodes/:id", authz.RequirePermission(authz.PermissionTopologyWrite), topologyController.UpdateNodeTopology)
+			topologyAliases.DELETE("/nodes/:id", authz.RequirePermission(authz.PermissionTopologyWrite), topologyController.DeleteNodeTopology)
+		}
+
+		// Dataset FluidCache: Vue uses /fluid-caches naming (old route is /datasets/:id/caches and /datasets/caches/:cacheId).
+		// handler param names preserved: Get/CreateFluidCache read "id" (dataset id); the rest read "cacheId".
+		datasets.GET("/:id/fluid-caches", datasetController.GetFluidCaches)
+		datasets.POST("/:id/fluid-caches", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.CreateFluidCache)
+		fluidCaches := authorized.Group("/fluid-caches")
+		{
+			fluidCaches.PUT("/:cacheId", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.UpdateFluidCache)
+			fluidCaches.DELETE("/:cacheId", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.DeleteFluidCache)
+			fluidCaches.POST("/:cacheId/enable", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.EnableFluidCache)
+			fluidCaches.POST("/:cacheId/disable", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.DisableFluidCache)
+			fluidCaches.POST("/:cacheId/prefetch", authz.RequirePermission(authz.PermissionDatasetWrite), datasetController.TriggerPrefetch)
+		}
 	}
 
 	r.NoRoute(func(c *gin.Context) {

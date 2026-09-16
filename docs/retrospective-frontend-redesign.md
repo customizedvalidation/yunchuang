@@ -1,5 +1,7 @@
 # Metaclouds 前端响应式改版 · 复盘报告（M1–M4 + R3-b）
 
+> **注意**：本报告基于 React 版前端撰写，Vue 迁移（2026-09-15）后仅供历史参考，不代表当前代码结构。
+
 - 撰写人：齐活林（Qi）· 交付总监（主理人）
 - 日期：2026-09-02
 - 关联文档：`docs/prd-frontend-redesign.md`、`docs/design-frontend-redesign.md`、`docs/rbac-permission-convergence.md`

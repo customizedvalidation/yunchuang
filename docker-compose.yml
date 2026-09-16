@@ -184,11 +184,11 @@ services:
 
   frontend:
     build:
-      context: ./metaclouds-frontend
+      context: ./metaclouds-frontend-vue
       dockerfile: Dockerfile
     container_name: metaclouds-frontend
     ports:
-      - "3000:3000"
+      - "8080:80"
     depends_on:
       - backend
     networks:

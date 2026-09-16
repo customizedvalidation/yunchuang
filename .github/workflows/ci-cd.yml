@@ -322,7 +322,7 @@ jobs:
     needs: security-scan
     defaults:
       run:
-        working-directory: metaclouds-frontend
+        working-directory: metaclouds-frontend-vue
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -332,7 +332,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: metaclouds-frontend/package-lock.json
+          cache-dependency-path: metaclouds-frontend-vue/package-lock.json
 
       # ----------------------------------------------------------------------
       # 前端 node_modules 缓存
@@ -340,23 +340,23 @@ jobs:
       - name: Cache node_modules
         uses: actions/cache@v4
         with:
-          path: metaclouds-frontend/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('metaclouds-frontend/package-lock.json') }}
+          path: metaclouds-frontend-vue/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('metaclouds-frontend-vue/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
 
       - name: Install dependencies
         run: npm ci
 
+      # Vue 项目类型检查：vue-tsc --noEmit（package.json 中 type-check 脚本）
       - name: TypeScript type check
-        run: npx tsc --noEmit
+        run: npm run type-check
 
-      - name: ESLint
-        run: npm run lint
-        continue-on-error: true
+      # Vue 项目暂无 lint 脚本与 ESLint 配置，跳过该步骤
+      # TODO(frontend-quality): 待测试/ lint 体系补齐后恢复
 
       - name: Run frontend tests
-        run: npm test -- --passWithNoTests
+        run: npm run test -- --passWithNoTests
         continue-on-error: true
 
       - name: Build frontend
@@ -378,7 +378,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: metaclouds-frontend/dist
+          path: metaclouds-frontend-vue/dist
           if-no-files-found: warn
 
   # ============================================================================
@@ -477,8 +477,8 @@ jobs:
       - name: Build and push frontend Docker image
         uses: docker/build-push-action@v5
         with:
-          context: metaclouds-frontend
-          file: metaclouds-frontend/Dockerfile
+          context: metaclouds-frontend-vue
+          file: metaclouds-frontend-vue/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}

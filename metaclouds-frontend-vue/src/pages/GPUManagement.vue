@@ -59,6 +59,34 @@
       </el-col>
     </el-row>
 
+    <!-- 容器虚拟化隔离能力 + 隔离引擎 + 分配粒度（skill.md 4.2） -->
+    <el-card shadow="never" class="mc-mb" header="容器虚拟化隔离与分配能力">
+      <el-row :gutter="16">
+        <el-col :span="6" v-for="c in ISOLATION_CAPS" :key="c.name">
+          <div class="iso-cap">
+            <div class="iso-cap-name">{{ c.name }}</div>
+            <div class="iso-cap-desc">{{ c.desc }}</div>
+          </div>
+        </el-col>
+      </el-row>
+      <el-row :gutter="16" class="mc-mt">
+        <el-col :span="12">
+          <el-card shadow="never" class="iso-sub" header="隔离引擎">
+            <el-tag type="primary" size="small" class="mc-mr">用户态虚拟化隔离引擎（轻量高性能）</el-tag>
+            <el-tag type="warning" size="small">内核态虚拟化隔离引擎（安全底层隔离）</el-tag>
+          </el-card>
+        </el-col>
+        <el-col :span="12">
+          <el-card shadow="never" class="iso-sub" header="GPU 分配粒度分布">
+            <el-tag type="success" size="small" class="mc-mr">1 GPU × {{ fracFull }}</el-tag>
+            <el-tag type="primary" size="small" class="mc-mr">1/2 GPU × {{ fracHalf }}</el-tag>
+            <el-tag type="warning" size="small" class="mc-mr">1/4 GPU × {{ fracQuarter }}</el-tag>
+            <el-tag size="small">N GPU 多卡并行</el-tag>
+          </el-card>
+        </el-col>
+      </el-row>
+    </el-card>
+
     <!-- 筛选器 -->
     <el-card shadow="never" class="mc-mb">
       <div class="toolbar">
@@ -144,6 +172,9 @@
               </Can>
               <Can :roles="['admin', 'manager']">
                 <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+              </Can>
+              <Can :roles="['admin', 'manager']">
+                <el-button v-if="row.status !== 'maintenance'" link type="warning" size="small" @click="handleSetMaintenance(row)">维护</el-button>
               </Can>
               <Can :roles="['admin', 'manager']">
                 <el-button link type="primary" size="small" @click="openAllocations(row)">分配记录</el-button>
@@ -374,6 +405,14 @@ const GPU_STATUS_OPTIONS = [
   { label: '故障', value: 'fault' },
 ]
 
+/** skill.md 4.2 容器虚拟化隔离能力 */
+const ISOLATION_CAPS = [
+  { name: '算力隔离', desc: 'cgroups 容器间计算资源隔离' },
+  { name: '显存隔离', desc: 'GPU 显存安全隔离，防止冲突' },
+  { name: '显存超发', desc: '显存超额分配，提升利用率' },
+  { name: '编解码实例', desc: '视频编解码实例优化处理' },
+]
+
 const VENDOR_LABEL: Record<GPUVendor, string> = {
   nvidia: 'NVIDIA',
   enflame: '燧原',
@@ -471,6 +510,22 @@ const vendorDist = computed<Record<string, number>>(() => {
   }
   return dist
 })
+
+// 分配粒度分布（1 / 1/2 / 1/4 GPU）
+const fracFull = computed(() => allocationsData.value.filter((a) => a.fraction >= 1).length)
+const fracHalf = computed(() => allocationsData.value.filter((a) => a.fraction === 0.5).length)
+const fracQuarter = computed(() => allocationsData.value.filter((a) => a.fraction === 0.25).length)
+
+/** 设为维护模式 */
+async function handleSetMaintenance(row: GPUDevice) {
+  try {
+    await gpuApi.updateDevice(row.id, { status: 'maintenance' })
+    ElMessage.success('已设为维护模式')
+    devices.refetch()
+  } catch {
+    ElMessage.error('操作失败，请稍后重试')
+  }
+}
 
 // ---------- 表单 ----------
 const formRef = ref<FormInstance>()
@@ -640,4 +695,9 @@ const detailRows = computed(() => {
 .detail-label { width: 120px; color: var(--mc-text-3); flex-shrink: 0; }
 .detail-value { flex: 1; word-break: break-all; }
 .mc-empty-mini { color: var(--mc-text-3); }
+.iso-cap { border-left: 3px solid var(--mc-brand, #2f6bff); padding: 8px 12px; border-radius: 8px; background: var(--mc-bg, transparent); }
+.iso-cap-name { font-weight: 600; margin-bottom: 4px; }
+.iso-cap-desc { font-size: 12px; color: var(--mc-text-3); }
+.iso-sub .el-card__header { font-size: 13px; font-weight: 600; }
+.mc-mr { margin-right: 6px; }
 </style>

@@ -186,7 +186,49 @@ npm run preview # 预览构建产物
 - Node.js ≥ 18（推荐 22.x）
 - 后端服务运行于 `http://localhost:8000`
 
-## 九、skill.md 能力保留对照
+## 九、Docker 镜像与 CI/CD
+
+### 9.1 镜像构建
+Vue 前端采用与旧 React 版一致的多阶段构建，定义在 `metaclouds-frontend-vue/Dockerfile`：
+
+| 阶段 | 基础镜像 | 职责 |
+|------|----------|------|
+| builder | `node:22-alpine` | `npm ci` → `npm run build`（= `vue-tsc --noEmit && vite build`），产物 `dist/` |
+| runtime | `nginx:alpine` | 拷贝 `dist/` 到 `/usr/share/nginx/html`，加载 `nginx.conf`，监听 80 |
+
+构建期环境变量：`CODEBUDDY_SAFE_DELETE_ENABLED=0`。
+
+### 9.2 nginx 配置
+`metaclouds-frontend-vue/nginx.conf`：
+- `listen 80`，root `/usr/share/nginx/html`
+- SPA history 路由回退：`location / { try_files $uri $uri/ /index.html; }`
+- 带内容 hash 的静态资源（`/assets/`、js/css/font/img）`Cache-Control: public, immutable` + `expires 1y`
+- `index.html` 不缓存（`no-cache, no-store, must-revalidate`）
+- 生产环境 `/api` 由 Kubernetes Ingress 处理，nginx 内不做反向代理
+
+### 9.3 CI/CD 流水线
+`.github/workflows/ci-cd.yml` 已全量切换到 Vue：
+
+| 步骤 | Vue 版命令 |
+|------|-----------|
+| 工作目录 / 缓存 | `metaclouds-frontend-vue/`（working-directory、package-lock 缓存、node_modules 缓存、dist 上传） |
+| 类型检查 | `npm run type-check`（= `vue-tsc --noEmit`） |
+| ESLint | **已移除**（Vue 项目暂无 lint 脚本与配置，待体系补齐后恢复） |
+| 单元测试 | `npm run test -- --passWithNoTests`（`continue-on-error: true`，待测试脚本落地） |
+| 构建 | `npm run build`（= `vue-tsc --noEmit && vite build`） |
+| Docker | `context: metaclouds-frontend-vue`，`file: metaclouds-frontend-vue/Dockerfile` |
+
+镜像名仍为 `ghcr.io/<repo>-frontend`（运行时 K8s 资源名 `deployment/metaclouds-frontend`、Service `metaclouds-frontend` 保持不变，仅构建来源目录切换）。
+
+### 9.4 本地构建镜像验证
+```bash
+cd metaclouds-frontend-vue
+docker build -t metaclouds-frontend:local .
+docker run --rm -p 8080:80 metaclouds-frontend:local
+# 浏览器打开 http://localhost:8080
+```
+
+## 十、skill.md 能力保留对照
 
 | skill.md 能力层 | Vue 版页面对应 | 状态 |
 |-----------------|-----------------|------|

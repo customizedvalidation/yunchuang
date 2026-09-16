@@ -1,9 +1,14 @@
 # Metaclouds 生产部署 Runbook
 
-> **版本**：v1.1（2026-09-09）
+> **版本**：v1.2（2026-09-16）
 > **适用环境**：Kubernetes 生产集群
 > **部署方式**：Kustomize（`kubectl apply -k`）
-> **关联文档**：[生产落地复盘（2026-09-03）](./production-review-2026-09-03.md)、[优化报告](./optimization-report.md)
+> **关联文档**：[生产落地复盘（2026-09-03）](./production-review-2026-09-03.md)、[优化报告](./optimization-report.md)、[Vue 迁移说明](./vue-migration-guide.md)
+
+> **前端技术栈变更（2026-09-16）**：前端已由 React 版 `metaclouds-frontend/` 全量迁移至 Vue 3 版 `metaclouds-frontend-vue/`。
+> 本文中出现的 `deployment/metaclouds-frontend`、`svc/metaclouds-frontend`、容器名 `metaclouds-frontend` 均为**运行时 K8s 资源名**，保持不变；
+> 但镜像的**构建上下文 / Dockerfile 路径已切换为 `metaclouds-frontend-vue/`**（CI 见 `.github/workflows/ci-cd.yml`，Dockerfile 与 nginx.conf 位于 `metaclouds-frontend-vue/` 下）。
+> 旧 React 目录 `metaclouds-frontend/` 已标记 DEPRECATED，仅保留 git 历史参考，不再参与构建与部署。
 
 ---
 
