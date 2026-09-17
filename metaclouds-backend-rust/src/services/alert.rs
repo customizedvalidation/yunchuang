@@ -213,7 +213,7 @@ pub async fn resolve_alert(pool: &SqlitePool, id: i64) -> AppResult<AlertRespons
 }
 
 /// 告警统计（按 severity / status 聚合）。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct AlertStats {
     pub by_severity: serde_json::Value,
     pub by_status: serde_json::Value,

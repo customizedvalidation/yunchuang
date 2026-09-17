@@ -72,7 +72,7 @@ impl SoftDelete for Partition {
 }
 
 /// 对外分区视图（剔除软删除列 `deleted_at`，对齐 GORM `json:"-"`）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PartitionResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

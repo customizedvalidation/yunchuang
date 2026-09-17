@@ -19,7 +19,7 @@ use crate::response::{ApiResponse, WithStatus};
 use crate::services::security::{self, CreatePolicyInput, UpdatePolicyInput};
 
 /// 分页 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct PolicyListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -29,7 +29,7 @@ pub struct PolicyListQuery {
 }
 
 /// `POST /api/v1/security/policies` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreatePolicyRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -54,7 +54,7 @@ pub struct CreatePolicyRequest {
 }
 
 /// `PUT /api/v1/security/policies/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdatePolicyRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -68,7 +68,7 @@ pub struct UpdatePolicyRequest {
 }
 
 /// 分页列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct PolicyPage {
     pub data: Vec<SecurityPolicyResponse>,
     pub total: i64,
@@ -78,6 +78,7 @@ pub struct PolicyPage {
 }
 
 /// `GET /api/v1/security/policies` — 分页 + 过滤列表。
+#[utoipa::path(get,path="/api/v1/security/policies",tag="security",responses((status=200,description="paginated policies",body=PolicyPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_policies(
     State(state): State<AppState>,
     Query(q): Query<PolicyListQuery>,
@@ -104,6 +105,7 @@ pub async fn list_policies(
 }
 
 /// `GET /api/v1/security/policies/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/security/policies/{id}",tag="security",responses((status=200,description="policy",body=crate::models::security_policy::SecurityPolicyResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_policy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -113,6 +115,7 @@ pub async fn get_policy(
 }
 
 /// `POST /api/v1/security/policies` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/security/policies",request_body=CreatePolicyRequest,tag="security",responses((status=201,description="created",body=crate::models::security_policy::SecurityPolicyResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_policy(
     State(state): State<AppState>,
     claims: Claims,
@@ -140,6 +143,7 @@ pub async fn create_policy(
 }
 
 /// `PUT /api/v1/security/policies/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/security/policies/{id}",request_body=UpdatePolicyRequest,tag="security",responses((status=200,description="updated",body=crate::models::security_policy::SecurityPolicyResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_policy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -162,6 +166,7 @@ pub async fn update_policy(
 }
 
 /// `DELETE /api/v1/security/policies/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/security/policies/{id}",tag="security",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_policy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -171,6 +176,7 @@ pub async fn delete_policy(
 }
 
 /// `POST /api/v1/security/policies/:id/enable` — 启用。
+#[utoipa::path(post,path="/api/v1/security/policies/{id}/enable",tag="security",responses((status=200,description="enabled",body=crate::models::security_policy::SecurityPolicyResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn enable_policy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -180,6 +186,7 @@ pub async fn enable_policy(
 }
 
 /// `POST /api/v1/security/policies/:id/disable` — 禁用。
+#[utoipa::path(post,path="/api/v1/security/policies/{id}/disable",tag="security",responses((status=200,description="disabled",body=crate::models::security_policy::SecurityPolicyResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn disable_policy(
     State(state): State<AppState>,
     Path(id): Path<i64>,

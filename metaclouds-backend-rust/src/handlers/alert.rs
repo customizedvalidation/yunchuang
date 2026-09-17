@@ -19,7 +19,7 @@ use crate::response::{ApiResponse, WithStatus};
 use crate::services::alert::{self, AlertStats, UpdateAlertInput};
 
 /// 分页 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct AlertListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -33,7 +33,7 @@ pub struct AlertListQuery {
 }
 
 /// `POST /api/v1/alerts` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateAlertRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -60,7 +60,7 @@ pub struct CreateAlertRequest {
 }
 
 /// `PUT /api/v1/alerts/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateAlertRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -74,7 +74,7 @@ pub struct UpdateAlertRequest {
 }
 
 /// 分页列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct AlertPage {
     pub data: Vec<AlertResponse>,
     pub total: i64,
@@ -84,6 +84,7 @@ pub struct AlertPage {
 }
 
 /// `GET /api/v1/alerts` — 分页 + 过滤列表。
+#[utoipa::path(get,path="/api/v1/alerts",tag="alerts",responses((status=200,description="paginated alerts",body=AlertPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_alerts(
     State(state): State<AppState>,
     Query(q): Query<AlertListQuery>,
@@ -118,6 +119,7 @@ pub async fn list_alerts(
 }
 
 /// `GET /api/v1/alerts/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/alerts/{id}",tag="alerts",responses((status=200,description="alert",body=crate::models::alert::AlertResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_alert(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -127,6 +129,7 @@ pub async fn get_alert(
 }
 
 /// `POST /api/v1/alerts` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/alerts",request_body=CreateAlertRequest,tag="alerts",responses((status=201,description="created",body=crate::models::alert::AlertResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_alert(
     State(state): State<AppState>,
     claims: Claims,
@@ -154,6 +157,7 @@ pub async fn create_alert(
 }
 
 /// `PUT /api/v1/alerts/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/alerts/{id}",request_body=UpdateAlertRequest,tag="alerts",responses((status=200,description="updated",body=crate::models::alert::AlertResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_alert(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -175,6 +179,7 @@ pub async fn update_alert(
 }
 
 /// `DELETE /api/v1/alerts/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/alerts/{id}",tag="alerts",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_alert(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -184,6 +189,7 @@ pub async fn delete_alert(
 }
 
 /// `POST /api/v1/alerts/:id/acknowledge` — 确认告警。
+#[utoipa::path(post,path="/api/v1/alerts/{id}/acknowledge",tag="alerts",responses((status=200,description="acknowledged",body=crate::models::alert::AlertResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn acknowledge_alert(
     State(state): State<AppState>,
     claims: Claims,
@@ -194,6 +200,7 @@ pub async fn acknowledge_alert(
 }
 
 /// `POST /api/v1/alerts/:id/resolve` — 解决告警。
+#[utoipa::path(post,path="/api/v1/alerts/{id}/resolve",tag="alerts",responses((status=200,description="resolved",body=crate::models::alert::AlertResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn resolve_alert(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -203,6 +210,7 @@ pub async fn resolve_alert(
 }
 
 /// `GET /api/v1/alerts/stats` — 告警统计。
+#[utoipa::path(get,path="/api/v1/alerts/stats",tag="alerts",responses((status=200,description="alert stats",body=crate::services::alert::AlertStats),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_alert_stats(
     State(state): State<AppState>,
 ) -> AppResult<Json<ApiResponse<AlertStats>>> {

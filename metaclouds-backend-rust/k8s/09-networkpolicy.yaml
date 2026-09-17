@@ -1,0 +1,113 @@
+# ==============================================================================
+# 09-networkpolicy.yaml — NetworkPolicy（默认拒绝 + 显式放行）
+# ==============================================================================
+# 默认拒绝所有入站/出站，仅放行显式声明的通信路径。
+# 前置条件：CNI 支持 NetworkPolicy（Calico / Cilium）。
+#
+# 通信矩阵：
+#   ingress-controller → backend:8000
+#   backend            → postgres:5432, redis:6379, DNS:53
+# ==============================================================================
+
+---
+# ------------------------------------------------------------------------------
+# 1. 默认拒绝：命名空间内所有 Pod 的所有入站/出站
+# ------------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metaclouds-default-deny
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    app.kubernetes.io/part-of: metaclouds
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# ------------------------------------------------------------------------------
+# 2. 后端 NetworkPolicy
+#    入站：仅允许 ingress-nginx controller 访问 8000 端口
+#    出站：允许到 PostgreSQL / Redis / DNS
+# ------------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metaclouds-backend-policy
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+spec:
+  podSelector:
+    matchLabels:
+      app: metaclouds
+      component: backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 来自 ingress-nginx controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+    # 允许同命名空间内其他 Pod 访问（如监控探针）
+    - from:
+        - podSelector:
+            matchLabels:
+              app: metaclouds
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # → PostgreSQL（5432）
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+    # → Redis（6379）
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # → DNS（kube-dns / CoreDNS，53 UDP + TCP）
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # → K8s API Server（443，作业调度）
+    # 托管集群用 ipBlock 放行 kubernetes service ClusterIP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              component: kube-apiserver
+      ports:
+        - protocol: TCP
+          port: 443

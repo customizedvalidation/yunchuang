@@ -86,7 +86,7 @@ fn clear_auth_cookies(cookies: &Cookies) {
 // 请求/响应结构
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct LoginRequest {
     #[validate(length(min = 1, message = "username is required"))]
     pub username: String,
@@ -94,20 +94,20 @@ pub struct LoginRequest {
     pub password: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct LoginResponse {
     pub token: String,
     pub user: UserResponse,
     pub expires_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct CsrfResponse {
     pub csrf_token: String,
 }
 
 /// `PUT /api/v1/auth/change-password` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct ChangePasswordRequest {
     #[validate(length(min = 1, message = "old_password is required"))]
     pub old_password: String,
@@ -120,6 +120,7 @@ pub struct ChangePasswordRequest {
 // ---------------------------------------------------------------------------
 
 /// `POST /api/v1/auth/login`
+#[utoipa::path(post,path="/api/v1/auth/login",request_body=LoginRequest,tag="auth",responses((status=200,description="login ok",body=LoginResponse),(status=401,description="invalid credentials",body=crate::openapi::ErrorResponse)))]
 pub async fn login(
     State(state): State<AppState>,
     cookies: Cookies,
@@ -148,6 +149,7 @@ pub async fn login(
 }
 
 /// `POST /api/v1/auth/logout` — 清除认证 Cookie。
+#[utoipa::path(post,path="/api/v1/auth/logout",tag="auth",responses((status=200,description="logged out")))]
 pub async fn logout(cookies: Cookies) -> AppResult<Json<ApiResponse<()>>> {
     clear_auth_cookies(&cookies);
     Ok(Json(ApiResponse {
@@ -163,6 +165,7 @@ pub async fn logout(cookies: Cookies) -> AppResult<Json<ApiResponse<()>>> {
 ///
 /// 路由挂在 `jwt_auth` 之后，因此只有仍有效的令牌能到达这里；
 /// 这里用当前用户信息重新签发，刷新 Cookie 并返回 LoginResponse。
+#[utoipa::path(post,path="/api/v1/auth/refresh",tag="auth",responses((status=200,description="refreshed",body=LoginResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn refresh(
     State(state): State<AppState>,
     cookies: Cookies,
@@ -184,6 +187,7 @@ pub async fn refresh(
 }
 
 /// `GET /api/v1/auth/profile` — 返回当前登录用户（数据取自 DB）。
+#[utoipa::path(get,path="/api/v1/auth/profile",tag="auth",responses((status=200,description="current user",body=crate::models::user::UserResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_profile(
     State(state): State<AppState>,
     claims: Claims,
@@ -193,6 +197,7 @@ pub async fn get_profile(
 }
 
 /// `PUT /api/v1/auth/change-password` — 修改当前用户密码（需 JWT）。
+#[utoipa::path(put,path="/api/v1/auth/change-password",request_body=ChangePasswordRequest,tag="auth",responses((status=200,description="password changed"),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn change_password(
     State(state): State<AppState>,
     claims: Claims,
@@ -212,6 +217,7 @@ pub async fn change_password(
 /// `GET /api/v1/auth/csrf` — 从 csrf_token Cookie 读取并返回双提交令牌。
 ///
 /// 未登录（无该 Cookie）时返回 401，引导前端重新登录。
+#[utoipa::path(get,path="/api/v1/auth/csrf",tag="auth",responses((status=200,description="csrf token",body=CsrfResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse)))]
 pub async fn get_csrf_token(cookies: Cookies) -> AppResult<Json<ApiResponse<CsrfResponse>>> {
     let token = cookies
         .get(CSRF_COOKIE_NAME)

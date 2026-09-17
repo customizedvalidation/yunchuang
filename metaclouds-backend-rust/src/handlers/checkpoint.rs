@@ -18,7 +18,7 @@ use crate::response::{ApiResponse, WithStatus};
 use crate::services::checkpoint as checkpoint_service;
 
 /// 分页 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct CheckpointListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -27,7 +27,7 @@ pub struct CheckpointListQuery {
 }
 
 /// `POST /api/v1/checkpoints` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateCheckpointRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -56,7 +56,7 @@ pub struct CreateCheckpointRequest {
 }
 
 /// `PUT /api/v1/checkpoints/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateCheckpointRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -70,7 +70,7 @@ pub struct UpdateCheckpointRequest {
 }
 
 /// 分页列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct CheckpointPage {
     pub data: Vec<CheckpointResponse>,
     pub total: i64,
@@ -80,6 +80,7 @@ pub struct CheckpointPage {
 }
 
 /// `GET /api/v1/checkpoints` — 分页 + 过滤列表。
+#[utoipa::path(get,path="/api/v1/checkpoints",tag="checkpoints",responses((status=200,description="paginated checkpoints",body=CheckpointPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_checkpoints(
     State(state): State<AppState>,
     Query(q): Query<CheckpointListQuery>,
@@ -100,6 +101,7 @@ pub async fn list_checkpoints(
 }
 
 /// `GET /api/v1/checkpoints/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/checkpoints/{id}",tag="checkpoints",responses((status=200,description="checkpoint",body=crate::models::checkpoint::CheckpointResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_checkpoint(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -109,6 +111,7 @@ pub async fn get_checkpoint(
 }
 
 /// `POST /api/v1/checkpoints` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/checkpoints",request_body=CreateCheckpointRequest,tag="checkpoints",responses((status=201,description="created",body=crate::models::checkpoint::CheckpointResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_checkpoint(
     State(state): State<AppState>,
     claims: Claims,
@@ -138,6 +141,7 @@ pub async fn create_checkpoint(
 }
 
 /// `PUT /api/v1/checkpoints/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/checkpoints/{id}",request_body=UpdateCheckpointRequest,tag="checkpoints",responses((status=200,description="updated",body=crate::models::checkpoint::CheckpointResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_checkpoint(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -160,6 +164,7 @@ pub async fn update_checkpoint(
 }
 
 /// `DELETE /api/v1/checkpoints/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/checkpoints/{id}",tag="checkpoints",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_checkpoint(
     State(state): State<AppState>,
     Path(id): Path<i64>,

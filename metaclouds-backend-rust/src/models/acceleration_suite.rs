@@ -56,7 +56,7 @@ impl SoftDelete for AccelerationSuite {
 }
 
 /// 组合查询返回的嵌套关联对象详情。
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SuiteAssociations {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dataset: Option<serde_json::Value>,
@@ -69,7 +69,7 @@ pub struct SuiteAssociations {
 }
 
 /// 对外 AccelerationSuite 视图（含关联对象详情）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize)]
 pub struct AccelerationSuiteResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

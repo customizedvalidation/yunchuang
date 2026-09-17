@@ -87,7 +87,7 @@ impl SoftDelete for Alert {
 }
 
 /// 对外 Alert 视图。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AlertResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

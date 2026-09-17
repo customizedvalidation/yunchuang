@@ -1,0 +1,51 @@
+# ==============================================================================
+# Metaclouds Backend (Rust) — Docker Compose 生产覆盖文件
+# ==============================================================================
+# 用法（在 docker-compose.yml 基础上叠加）：
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# 与基础 docker-compose.yml 的差异：
+#   - 不暴露 postgres/redis 端口到宿主（仅内部网络）
+#   - 关闭 K8s 调度器模拟、提高日志级别
+#   - 镜像 tag 使用固定版本（非 latest）
+#   - 资源限制
+#   - 移除本地数据卷绑定（生产用云存储 / 托管 DB）
+#
+# ⚠️ 生产环境敏感凭据（JWT_SECRET / DATABASE_URL 密码）必须通过
+#   .env 文件或 CI/CD Secret 注入，切勿硬编码在此文件中。
+# ==============================================================================
+
+services:
+  metaclouds-backend:
+    # 生产镜像 tag：CI 注入 git SHA，禁止 latest
+    image: ghcr.io/customizedvalidation/yunchuang/backend-rust:${IMAGE_TAG:-latest}
+    build: !reset []
+    environment:
+      SERVER_ENV: production
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+      K8S_ENABLED: "true"
+      K8S_SIMULATION_MODE: "false"
+      SCHEDULER_ENABLED: "true"
+    # 生产不映射 DB/Redis 端口（仅集群内访问）
+    # 宿主端口仍映射 8001 用于调试；生产建议通过 Ingress/LB 暴露
+    ports: !override
+      - "127.0.0.1:8001:8000"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  postgres:
+    # 生产不暴露 DB 端口到宿主
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required in production}
+
+  redis:
+    # 生产不暴露 Redis 端口到宿主
+    ports: !reset []

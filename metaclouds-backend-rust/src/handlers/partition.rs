@@ -23,7 +23,7 @@ use crate::services::partition_permission as permission_service;
 use serde_json::Value;
 
 /// 分页 + 搜索 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct PartitionListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -34,7 +34,7 @@ pub struct PartitionListQuery {
 }
 
 /// `POST /api/v1/partitions` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreatePartitionRequest {
     pub cluster_id: i64,
     #[validate(length(min = 1, message = "name is required"))]
@@ -60,7 +60,7 @@ pub struct CreatePartitionRequest {
 }
 
 /// `PUT /api/v1/partitions/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdatePartitionRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -75,7 +75,7 @@ pub struct UpdatePartitionRequest {
 }
 
 /// 分页分区列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct PartitionPage {
     pub data: Vec<PartitionResponse>,
     pub total: i64,
@@ -85,7 +85,7 @@ pub struct PartitionPage {
 }
 
 /// `POST /api/v1/partitions/:id/permissions` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct GrantPermissionRequest {
     pub user_id: i64,
     #[serde(default)]
@@ -101,6 +101,7 @@ fn default_permission_type() -> String {
 }
 
 /// `GET /api/v1/partitions` — 分页列表（搜索 + 过滤）。
+#[utoipa::path(get,path="/api/v1/partitions",tag="partitions",responses((status=200,description="paginated partitions",body=PartitionPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_partitions(
     State(state): State<AppState>,
     Query(q): Query<PartitionListQuery>,
@@ -126,6 +127,7 @@ pub async fn list_partitions(
 }
 
 /// `GET /api/v1/partitions/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/partitions/{id}",tag="partitions",responses((status=200,description="partition",body=crate::models::partition::PartitionResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_partition(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -135,6 +137,7 @@ pub async fn get_partition(
 }
 
 /// `POST /api/v1/partitions` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/partitions",request_body=CreatePartitionRequest,tag="partitions",responses((status=201,description="created",body=crate::models::partition::PartitionResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_partition(
     State(state): State<AppState>,
     Json(body): Json<CreatePartitionRequest>,
@@ -163,6 +166,7 @@ pub async fn create_partition(
 }
 
 /// `PUT /api/v1/partitions/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/partitions/{id}",request_body=UpdatePartitionRequest,tag="partitions",responses((status=200,description="updated",body=crate::models::partition::PartitionResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_partition(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -186,6 +190,7 @@ pub async fn update_partition(
 }
 
 /// `DELETE /api/v1/partitions/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/partitions/{id}",tag="partitions",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_partition(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -195,6 +200,7 @@ pub async fn delete_partition(
 }
 
 /// `GET /api/v1/partitions/:id/resources` — 分区资源使用情况。
+#[utoipa::path(get,path="/api/v1/partitions/{id}/resources",tag="partitions",responses((status=200,description="partition resources",body=crate::services::partition::PartitionResources),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_partition_resources(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -204,6 +210,7 @@ pub async fn get_partition_resources(
 }
 
 /// `POST /api/v1/partitions/:id/permissions` — 授权（201）。
+#[utoipa::path(post,path="/api/v1/partitions/{id}/permissions",request_body=GrantPermissionRequest,tag="partitions",responses((status=201,description="granted",body=crate::models::partition_permission::PartitionPermissionResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn grant_permission(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -232,6 +239,7 @@ pub async fn grant_permission(
 }
 
 /// `DELETE /api/v1/partitions/:id/permissions/:permId` — 撤销授权，204。
+#[utoipa::path(delete,path="/api/v1/partitions/{id}/permissions/{perm_id}",tag="partitions",params(("id"=i64,Path,description="partition id"),("perm_id"=i64,Path,description="permission id")),responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn revoke_permission(
     State(state): State<AppState>,
     Path((_id, perm_id)): Path<(i64, i64)>,

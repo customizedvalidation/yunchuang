@@ -1,27 +1,38 @@
 # metaclouds-backend-rust
 
 Rust rewrite of the Metaclouds backend, API-compatible with the Go v1 backend
-(`metaclouds-backend/`). Phase 0 (Spike), Phase 1 (infrastructure skeleton), and
-Phase 2 (domain layer B1-B6) are complete. The project covers auth, user CRUD,
-tenants, clusters, resources, topology, K8s mock, jobs, GPUs, partitions, quotas,
-schedulers, datasets, checkpoints, acceleration suites, alerts, security policies,
-and monitoring dashboards — **193 tests, all passing**.
+(`metaclouds-backend/`). Phase 0 (Spike), Phase 1 (infrastructure skeleton),
+Phase 2 (domain layer B1-B6), and Phase 3 (cross-cutting capabilities) are complete.
+The project covers auth, user CRUD, tenants, clusters, resources, topology, K8s mock,
+jobs, GPUs, partitions, quotas, schedulers, datasets, checkpoints, acceleration suites,
+alerts, security policies, monitoring dashboards, Redis caching, scheduled tasks,
+Prometheus metrics, OpenTelemetry tracing, OpenAPI docs, and Docker/K8s deployment —
+**241 tests, all passing** (1 ignored Postgres smoke test).
 
 ## Architecture
 
 ```
 src/
-├── main.rs              # binary entrypoint (loads config, starts server)
+├── main.rs              # binary entrypoint (loads config, starts server, scheduler, tracing)
 ├── lib.rs               # library entrypoint (exposed for integration tests)
-├── config.rs            # env loading + validation (~60 fields, 1:1 with Go config.go)
+├── config.rs            # env loading + validation (~65 fields, 1:1 with Go config.go)
 ├── db.rs                # DatabasePool (Sqlite/Postgres), migrations, admin seed
 ├── error.rs             # AppError + ErrorCode (thiserror, 9+ codes)
 ├── response.rs          # JSON envelope (success/data/message/code/timestamp)
-├── routes.rs            # router assembly — all B1-B6 domains unified here
+├── routes.rs            # router assembly — all B1-B6 domains + /metrics + /swagger-ui
+├── cache/                # P3-01: Redis cache layer
+│   ├── mod.rs           # Cache trait definition
+│   ├── redis.rs         # RedisCache (ConnectionManager) + NoopCache fallback
+│   └── session.rs        # session jti store / revocation
+├── scheduler/            # P3-02: tokio-cron-scheduler
+│   ├── mod.rs           # Scheduler init / shutdown
+│   └── tasks.rs          # sample-training + sample-inference jobs
 ├── middleware/
 │   ├── mod.rs           # apply_core_stack() — composes the full middleware chain
 │   ├── request_id.rs    # X-Request-ID propagation + tracing span
+│   ├── tracing.rs       # P3-04: trace_id/span_id injection, W3C traceparent
 │   ├── request_logger.rs# method/path/status/duration_ms structured log
+│   ├── metrics.rs       # P3-03: HTTP request CounterVec/HistogramVec/in-flight Gauge
 │   ├── timing.rs        # X-Response-Time header
 │   ├── security_headers.rs # CSP/HSTS/X-Frame-Options/… (env-aware)
 │   ├── error_handler.rs # 404/405 plain-text → JSON envelope
@@ -66,7 +77,7 @@ src/
 Aligned with Go `middlewares/stack.go::ApplyCoreStack`:
 
 ```
-request_id → request_logger → timing → security_headers → error_handler → panic_recover → handler
+request_id → tracing → request_logger → metrics → timing → security_headers → error_handler → panic_recover → handler
 ```
 
 CSRF (`csrf_protect`) is layered on protected routes *after* `jwt_auth`: it
@@ -112,7 +123,11 @@ cookie is present; Bearer-token clients are exempt.
 - jsonwebtoken 9 (HS256) + argon2 0.5 + bcrypt 0.15 (dual-read)
 - tower-cookies 0.11 (axum 0.8 / axum-core 0.5 compatible)
 - validator 0.18
-- tracing + tracing-subscriber (JSON)
+- redis 0.27 (ConnectionManager, P3-01)
+- tokio-cron-scheduler 0.13 (P3-02)
+- prometheus 0.13 (CounterVec / HistogramVec / Gauge, P3-03)
+- tracing + tracing-subscriber + opentelemetry + opentelemetry_sdk (P3-04)
+- utoipa 5 + utoipa-swagger-ui 9 (P3-05)
 - thiserror 2 + anyhow 1
 - dotenvy 0.15, chrono 0.4, uuid 1
 
@@ -403,6 +418,89 @@ All routes are under `/api/v1`. JWT = `Authorization: Bearer <token>` or
 | GET    | `/monitoring/alert-rules`             | JWT | 16 alert rule definitions |
 | POST   | `/monitoring/alert-rules/evaluate`    | JWT + `monitoring:write` | evaluate all rules |
 
+### Observability endpoints (P3)
+
+| Method | Path                  | Auth | Notes |
+|--------|-----------------------|------|-------|
+| GET    | `/metrics`            | public | Prometheus text format, 13 business + 3 HTTP metrics |
+| GET    | `/swagger-ui/`        | public | Interactive Swagger UI |
+| GET    | `/api-docs/openapi.json` | public | OpenAPI 3.1.0 spec (61 paths / 107 methods) |
+
+## Observability & Operations
+
+### Redis Cache Layer (P3-01)
+
+- `Cache` trait in `src/cache/mod.rs` with two implementations:
+  - **`RedisCache`**: backed by `redis::aio::ConnectionManager`, key prefix `metaclouds:`, 5s connection timeout (aligned with Go)
+  - **`NoopCache`**: graceful fallback when Redis is disabled or unreachable (all operations are no-ops)
+- Session jti storage / revocation in `src/cache/session.rs`
+- Config: `REDIS_ENABLED`, `REDIS_URL`, `REDIS_HOST/PORT/PASSWORD/DB`
+- 16 tests covering NoopCache behavior, URL building, prefix handling, TTL conversion, jti lifecycle
+
+### Scheduled Tasks (P3-02)
+
+- Built on `tokio-cron-scheduler`, 7-field cron expressions (seconds first), UTC timezone
+- Two default jobs (registered only in non-production):
+  - `sample-training`: `0 */30 * * * * *` (every 30 minutes)
+  - `sample-inference`: `0 0 */2 * * * *` (every 2 hours)
+- Panic isolation: a task panicking does not kill the scheduler loop
+- Startup / shutdown integration in `main.rs`
+- Migration reference: `docs/cron-migration-reference.md`
+- 8 tests covering trigger alignment, dev/prod job registration, panic isolation, start/shutdown
+
+### Prometheus Metrics (P3-03)
+
+- **`GET /metrics`** endpoint (no JWT required, aligned with Go)
+- 13 business Gauges with `metaclouds_` prefix:
+  `total_users`, `active_users`, `total_tenants`, `total_clusters`, `total_resources`,
+  `total_jobs`, `running_jobs`, `total_gpus`, `allocated_gpus`, `total_datasets`,
+  `total_alerts`, `active_alerts`, `system_uptime`
+- 3 HTTP metrics via middleware:
+  - `http_requests_total` (CounterVec, labels: method, path, status)
+  - `http_request_duration_seconds` (HistogramVec, buckets: 0.005~10s)
+  - `http_requests_in_flight` (Gauge)
+- Path normalization: dynamic segments (e.g. `/users/{id}`) are collapsed to template paths
+- 10 tests covering endpoint auth, metric presence, histogram buckets, label cardinality
+
+### Tracing + OpenTelemetry (P3-04)
+
+- **JSON structured logs**: `timestamp`, `level`, `target`, `message`, `trace_id`, `span_id`, `request_id`
+- **OpenTelemetry OTLP gRPC exporter**: disabled by default (`OTEL_EXPORTER_OTLP_ENDPOINT` unset → graceful no-op)
+- **W3C traceparent header propagation**: incoming `traceparent` header is inherited; otherwise a new trace_id is generated (32 hex chars)
+- **`X-Trace-Id` response header**: injected on every response by the tracing middleware
+- Middleware stack order: `request_id → tracing → request_logger → metrics → ...`
+- Slow query logging threshold configurable via `DB_SLOW_QUERY_THRESHOLD_MS`
+- 8 tests covering init/shutdown, OTEL disabled fallback, trace_id format, traceparent inheritance, response header presence
+
+### OpenAPI Documentation (P3-05)
+
+- **`GET /swagger-ui/`**: interactive Swagger UI (utoipa-swagger-ui 9, vendored for offline builds)
+- **`GET /api-docs/openapi.json`**: OpenAPI 3.1.0 spec (~291KB)
+- 107 handlers annotated with `#[utoipa::path]`, all request/response structs derive `ToSchema`
+- **61 paths / 107 methods** (Go reference: 28 paths / 44 methods)
+- Diff from Go: Rust adds users/alerts/k8s/acceleration start-stop domains; Go has datasets/caches CRUD, clusters/status, jobs/submit not yet implemented (Phase 2 backlog)
+- 5 tests covering swagger UI accessibility, spec validity, path/method counts, key schemas
+
+### Docker Deployment (P3-06)
+
+- **Multi-stage Dockerfile**: `rust:1.81-alpine` builder → `alpine:3.20` runtime
+- Runs as non-root UID 10001
+- `.dockerignore` excludes `target/`, `.env`, `*.db`
+- **Estimated image size**: 31–41 MB (critical at 40MB; LTO/strip/UPX optimizations recommended)
+- `docker-compose.yml`: backend + postgres + redis, port mapping `8001:8000`
+- `docker-compose.prod.yml`: production overrides
+
+### Kubernetes Deployment (P3-06)
+
+- 14 YAML manifests in `k8s/` (00-namespace → 13-kustomization)
+- **Deployment**: three probes (liveness/readiness/startup via `/metrics`), non-root, topology spread
+- **HPA**: autoscaling on CPU/memory
+- **PDB**: pod disruption budget
+- **NetworkPolicy**: ingress/egress rules
+- **Ingress**: TLS termination
+- **ServiceMonitor + PrometheusRule**: 16 alert rules
+- Validation script: `scripts/validate-k8s-yaml.ps1` (63 structural checks, all PASS)
+
 ## Conventions
 
 ### Response envelope
@@ -484,10 +582,11 @@ All jobs use `actions/cache` for the cargo registry and `target/` directory.
 
 ## Test coverage
 
-Phase 2 delivers **193 tests** across 26 suites (Phase 0/1: 73 + Phase 2 B1-B6: 120):
+**241 tests** across 32 suites (Phase 0/1: ~73 + Phase 2 B1-B6: ~120 + Phase 3: 47 + lib unit tests: ~13), all passing:
 
 | Suite              | Tests | Coverage area                        |
 |--------------------|-------|--------------------------------------|
+| `lib` (unit)       | 13    | auth/jwt/password/csrf, authz matrix, cache session |
 | `api_test`         | 11    | login / user CRUD / RBAC / envelope  |
 | `auth_test`        | 6     | JWT issue/verify / bcrypt dual-read  |
 | `config_test`      | 18    | defaults / validation / prod rules    |
@@ -501,7 +600,7 @@ Phase 2 delivers **193 tests** across 26 suites (Phase 0/1: 73 + Phase 2 B1-B6: 
 | `b2_cluster_test`  | 7     | cluster CRUD / search / soft-delete   |
 | `b2_k8s_test`      | 2     | mock pods/nodes/health shape + auth   |
 | `b2_resource_test` | 6     | resource CRUD / filter / RBAC         |
-| `b2_topology_test`| 3     | node CRUD / list filter              |
+| `b2_topology_test` | 3     | node CRUD / list filter              |
 | `b3_gpu_test`      | 8     | GPU device CRUD / allocate-release / filter |
 | `b3_job_test`      | 12    | job CRUD / state machine / cancel / stats / RBAC |
 | `b4_partition_test`| 7     | partition CRUD / grant-revoke / resources |
@@ -514,3 +613,9 @@ Phase 2 delivers **193 tests** across 26 suites (Phase 0/1: 73 + Phase 2 B1-B6: 
 | `b6_alert_test`    | 8     | alert CRUD / acknowledge-resolve / stats / filter |
 | `b6_monitoring_test`| 5    | dashboard 13 metrics / metrics filter / 16 alert rules / evaluate |
 | `b6_security_test` | 6     | policy CRUD / enable-disable / filter / RBAC |
+| `p3_redis_cache_test` | 16 | Cache trait / NoopCache / session jti / URL building / prefix / TTL |
+| `p3_cron_test`     | 8     | cron expressions / dev-prod job registration / panic isolation / start-shutdown |
+| `p3_metrics_test`  | 10    | /metrics endpoint / 13 business gauges / HTTP histogram / labels / no-auth |
+| `p3_tracing_test`  | 8     | JSON logs / X-Trace-Id / traceparent inheritance / OTEL disabled fallback |
+| `p3_openapi_test` | 5     | swagger UI / openapi.json / path+method counts / key schemas |
+| `postgres_smoke_test` | 0 (1 ignored) | Postgres connect — `#[ignore]`, runs in CI |

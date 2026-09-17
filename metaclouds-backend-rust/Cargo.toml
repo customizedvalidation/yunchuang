@@ -35,6 +35,25 @@ uuid = { version = "1", features = ["v4", "serde"] }
 tower = { version = "0.5", features = ["util"] }
 http = "1"
 
+# === Phase 3 横切能力依赖 ===
+# P3-01 Redis 会话/缓存
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "script"] }
+# P3-03 Prometheus 指标
+prometheus = "0.13"
+# P3-02 定时任务
+tokio-cron-scheduler = "0.10"
+# P3-04 tracing + OpenTelemetry
+opentelemetry = { version = "0.27", features = ["trace"] }
+# opentelemetry-sdk 自 0.27 起独立成 crate（TracerProvider/Sampler/Resource 所在），
+# 经 opentelemetry-otlp 传递引入并已在本地缓存，提升为直接依赖以便直接引用其类型。
+opentelemetry_sdk = { version = "0.27", features = ["trace", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }
+opentelemetry-semantic-conventions = "0.27"
+tracing-opentelemetry = "0.28"
+# P3-05 OpenAPI
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
+
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 

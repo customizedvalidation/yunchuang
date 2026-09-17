@@ -34,7 +34,7 @@ pub struct PartitionPermission {
 }
 
 /// 对外授权视图（与行同形，授权记录无软删除列需要剔除）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PartitionPermissionResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

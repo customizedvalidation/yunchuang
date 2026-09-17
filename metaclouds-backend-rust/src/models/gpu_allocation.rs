@@ -41,7 +41,7 @@ pub struct GpuAllocation {
 }
 
 /// 对外分配记录视图（剔除软删除列 `deleted_at`）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GpuAllocationResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

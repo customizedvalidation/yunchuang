@@ -18,14 +18,14 @@ use crate::response::{ApiResponse, WithStatus};
 use crate::services::tenant as tenant_service;
 
 /// 分页查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct TenantListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }
 
 /// `POST /api/v1/tenants` 请求体（对齐 Go `CreateTenantRequest`）。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateTenantRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -46,7 +46,7 @@ pub struct CreateTenantRequest {
 }
 
 /// `PUT /api/v1/tenants/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateTenantRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -62,7 +62,7 @@ pub struct UpdateTenantRequest {
 }
 
 /// 分页租户列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct TenantPage {
     pub data: Vec<TenantResponse>,
     pub total: i64,
@@ -72,6 +72,7 @@ pub struct TenantPage {
 }
 
 /// `GET /api/v1/tenants` — 分页列表。
+#[utoipa::path(get,path="/api/v1/tenants",tag="tenants",responses((status=200,description="paginated tenants",body=TenantPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_tenants(
     State(state): State<AppState>,
     Query(q): Query<TenantListQuery>,
@@ -91,6 +92,7 @@ pub async fn list_tenants(
 }
 
 /// `GET /api/v1/tenants/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/tenants/{id}",tag="tenants",responses((status=200,description="tenant",body=crate::models::tenant::TenantResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_tenant(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -100,6 +102,7 @@ pub async fn get_tenant(
 }
 
 /// `POST /api/v1/tenants` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/tenants",request_body=CreateTenantRequest,tag="tenants",responses((status=201,description="created",body=crate::models::tenant::TenantResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_tenant(
     State(state): State<AppState>,
     Json(body): Json<CreateTenantRequest>,
@@ -121,6 +124,7 @@ pub async fn create_tenant(
 }
 
 /// `PUT /api/v1/tenants/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/tenants/{id}",request_body=UpdateTenantRequest,tag="tenants",responses((status=200,description="updated",body=crate::models::tenant::TenantResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_tenant(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -141,6 +145,7 @@ pub async fn update_tenant(
 }
 
 /// `DELETE /api/v1/tenants/:id` — 软删除，成功 204（对齐 Go `response.NoContent`）。
+#[utoipa::path(delete,path="/api/v1/tenants/{id}",tag="tenants",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_tenant(
     State(state): State<AppState>,
     Path(id): Path<i64>,

@@ -1,0 +1,17 @@
+# ==============================================================================
+# 00-namespace.yaml — Metaclouds 命名空间
+# ==============================================================================
+# 所有 Metaclouds 工作负载部署在此命名空间下。
+# labels 供 NetworkPolicy / 监控发现 / 成本分摊使用。
+# ==============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metaclouds
+  labels:
+    app.kubernetes.io/name: metaclouds
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/managed-by: kustomize
+    environment: production
+    # 允许 Prometheus 在命名空间级别发现 scrape 目标
+    prometheus.io/scrape: "true"

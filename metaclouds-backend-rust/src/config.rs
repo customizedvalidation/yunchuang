@@ -52,6 +52,10 @@ pub struct Config {
     pub redis_port: String,
     pub redis_password: String,
     pub redis_db: i32,
+    /// 直连 Redis 连接串（`redis://[:password@]host:port/db`）。
+    /// 非空时优先于 host/port/password/db 拼装；为空则由 [`Self::get_redis_url`]
+    /// 从上面四个字段拼装。对齐任务 P3-01 的 `redis_url` 配置项。
+    pub redis_url: String,
 
     // ---- JWT ----
     pub jwt_secret: String,
@@ -81,6 +85,15 @@ pub struct Config {
     pub tracing_enabled: bool,
     pub tracing_service_name: String,
     pub jaeger_endpoint: String,
+    /// OpenTelemetry OTLP exporter 开关。本机无 collector 时默认关闭，
+    /// 启用后通过 gRPC（默认 4317）导出 span，连接失败仅告警不 panic。
+    pub otel_enabled: bool,
+    /// OTLP gRPC endpoint，对齐 `OTEL_EXPORTER_OTLP_ENDPOINT`。
+    pub otel_endpoint: String,
+    /// trace 采样率（0.0~1.0），parent-based + TraceIdRatioBased。
+    pub otel_sample_rate: f64,
+    /// SQL 慢查询阈值（毫秒），超过则打 warn 日志，对齐 Go 版阈值。
+    pub slow_query_threshold_ms: u64,
 
     // ---- 配置中心 ----
     pub config_center_enabled: bool,
@@ -151,6 +164,7 @@ impl Default for Config {
             redis_port: "6379".to_string(),
             redis_password: String::new(),
             redis_db: 0,
+            redis_url: String::new(),
             // JWT
             jwt_secret: String::new(),
             jwt_expiration_hours: 24,
@@ -174,6 +188,10 @@ impl Default for Config {
             tracing_enabled: false,
             tracing_service_name: "metaclouds-backend".to_string(),
             jaeger_endpoint: "http://localhost:14268/api/traces".to_string(),
+            otel_enabled: false,
+            otel_endpoint: "http://localhost:4317".to_string(),
+            otel_sample_rate: 1.0,
+            slow_query_threshold_ms: 500,
             // 配置中心
             config_center_enabled: false,
             config_center_endpoints: "localhost:2379".to_string(),
@@ -248,6 +266,7 @@ impl Config {
         cfg.redis_port = env_or("REDIS_PORT", "6379");
         cfg.redis_password = env_or("REDIS_PASSWORD", "");
         cfg.redis_db = env_int("REDIS_DB", 0) as i32;
+        cfg.redis_url = env_or("REDIS_URL", "");
 
         // JWT
         cfg.jwt_secret = env_or("JWT_SECRET", "");
@@ -278,6 +297,11 @@ impl Config {
         cfg.tracing_enabled = env_bool("TRACING_ENABLED", false);
         cfg.tracing_service_name = env_or("TRACING_SERVICE_NAME", "metaclouds-backend");
         cfg.jaeger_endpoint = env_or("JAEGER_ENDPOINT", "http://localhost:14268/api/traces");
+        // P3-04 OpenTelemetry OTLP（本机无 collector，默认关闭）。
+        cfg.otel_enabled = env_bool("OTEL_ENABLED", false);
+        cfg.otel_endpoint = env_or("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317");
+        cfg.otel_sample_rate = env_float("OTEL_SAMPLE_RATE", 1.0);
+        cfg.slow_query_threshold_ms = env_int("SLOW_QUERY_THRESHOLD_MS", 500) as u64;
 
         // 配置中心
         cfg.config_center_enabled = env_bool("CONFIG_CENTER_ENABLED", false);
@@ -421,6 +445,27 @@ impl Config {
         format!("{}:{}", self.redis_host, self.redis_port)
     }
 
+    /// Redis 连接串（供 redis-rs `Client::open`）。
+    ///
+    /// 优先使用显式配置的 [`Self::redis_url`]；否则从 host/port/password/db
+    /// 拼装 `redis://[password@]host:port/db`。
+    pub fn get_redis_url(&self) -> String {
+        if !self.redis_url.is_empty() {
+            return self.redis_url.clone();
+        }
+        let auth = if self.redis_password.is_empty() {
+            String::new()
+        } else {
+            format!(":{}@", self.redis_password)
+        };
+        format!(
+            "redis://{}{}/{}",
+            auth,
+            self.get_redis_addr(),
+            self.redis_db
+        )
+    }
+
     /// Prometheus 地址（对齐 Go `GetPrometheusURL`）。
     pub fn get_prometheus_url(&self) -> String {
         format!("http://localhost:{}", self.prometheus_port)
@@ -465,6 +510,15 @@ fn env_bool(key: &str, default: bool) -> bool {
 
 /// 读取整数环境变量；解析失败回退 `default`。
 fn env_int(key: &str, default: i64) -> i64 {
+    std::env::var(key)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+/// 读取浮点环境变量；解析失败回退 `default`。
+fn env_float(key: &str, default: f64) -> f64 {
     std::env::var(key)
         .ok()
         .filter(|v| !v.is_empty())

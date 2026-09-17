@@ -12,6 +12,7 @@ use crate::response::ApiResponse;
 use crate::services::k8s::{K8sClient, MockK8sClient};
 
 /// `GET /api/v1/k8s/clusters/:id/pods` — 列出 Pod（mock）。
+#[utoipa::path(get,path="/api/v1/k8s/clusters/{id}/pods",tag="k8s",responses((status=200,description="pods",body=Vec<crate::services::k8s::Pod>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_pods(
     State(_state): State<AppState>,
     Path(id): Path<i64>,
@@ -22,6 +23,7 @@ pub async fn list_pods(
 }
 
 /// `GET /api/v1/k8s/clusters/:id/nodes` — 列出节点（mock）。
+#[utoipa::path(get,path="/api/v1/k8s/clusters/{id}/nodes",tag="k8s",responses((status=200,description="nodes",body=Vec<crate::services::k8s::K8sNode>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_nodes(
     State(_state): State<AppState>,
     Path(id): Path<i64>,
@@ -32,6 +34,7 @@ pub async fn list_nodes(
 }
 
 /// `GET /api/v1/k8s/clusters/:id/health` — 集群健康（mock，字段对齐 Go ClusterStatus）。
+#[utoipa::path(get,path="/api/v1/k8s/clusters/{id}/health",tag="k8s",responses((status=200,description="cluster health",body=crate::services::k8s::ClusterHealth),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn cluster_health(
     State(_state): State<AppState>,
     Path(id): Path<i64>,

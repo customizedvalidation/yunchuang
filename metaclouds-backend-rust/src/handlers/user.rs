@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::user::{CreateUserRequest, UpdateUserRequest, User, UserResponse};
 use crate::response::{ApiResponse, WithStatus};
 
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct ListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -28,7 +28,18 @@ pub struct Paginated<T> {
     pub total_pages: u32,
 }
 
+/// OpenAPI 专用：用户分页响应（与 `Paginated<UserResponse>` JSON 同形）。
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct UsersPage {
+    pub data: Vec<UserResponse>,
+    pub total: i64,
+    pub page: u32,
+    pub page_size: u32,
+    pub total_pages: u32,
+}
+
 /// `GET /api/v1/users` — paginated list, optional `?search=` filter.
+#[utoipa::path(get,path="/api/v1/users",tag="users",responses((status=200,description="paginated users",body=UsersPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_users(
     State(state): State<AppState>,
     Query(q): Query<ListQuery>,
@@ -90,6 +101,7 @@ pub async fn list_users(
 }
 
 /// `POST /api/v1/users`
+#[utoipa::path(post,path="/api/v1/users",request_body=crate::models::user::CreateUserRequest,tag="users",responses((status=201,description="created",body=crate::models::user::UserResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_user(
     State(state): State<AppState>,
     Json(body): Json<CreateUserRequest>,
@@ -134,6 +146,7 @@ pub async fn create_user(
 }
 
 /// `GET /api/v1/users/:id`
+#[utoipa::path(get,path="/api/v1/users/{id}",tag="users",responses((status=200,description="user",body=crate::models::user::UserResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -147,6 +160,7 @@ pub async fn get_user(
 }
 
 /// `PUT /api/v1/users/:id`
+#[utoipa::path(put,path="/api/v1/users/{id}",request_body=crate::models::user::UpdateUserRequest,tag="users",responses((status=200,description="updated",body=crate::models::user::UserResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -198,6 +212,7 @@ pub async fn update_user(
 }
 
 /// `DELETE /api/v1/users/:id`
+#[utoipa::path(delete,path="/api/v1/users/{id}",tag="users",responses((status=200,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,

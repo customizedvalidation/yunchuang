@@ -42,7 +42,7 @@ pub struct UpdatePartitionInput {
 }
 
 /// 分区资源使用情况（对齐 get_partition_resources）。
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(utoipa::ToSchema, Debug, Clone, serde::Serialize)]
 pub struct PartitionResources {
     pub partition_id: i64,
     pub gpu_count: i64,

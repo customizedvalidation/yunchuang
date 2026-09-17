@@ -1,0 +1,37 @@
+# ==============================================================================
+# 13-kustomization.yaml — Kustomize 统一资源引用
+# ==============================================================================
+# 用法：
+#   kubectl apply -k k8s/
+#   kubectl kustomize k8s/    # 渲染后查看（本机无 kubectl，待 CI 验证）
+# ==============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: metaclouds-backend-rust
+
+resources:
+  - 00-namespace.yaml
+  - 01-configmap.yaml
+  - 02-secret.yaml
+  - 03-serviceaccount.yaml
+  - 04-role.yaml
+  - 05-deployment.yaml
+  - 06-service.yaml
+  - 07-hpa.yaml
+  - 08-pdb.yaml
+  - 09-networkpolicy.yaml
+  - 10-ingress.yaml
+  - 11-servicemonitor.yaml
+  - 12-prometheusrule.yaml
+
+# 公共 labels（自动注入到所有资源）
+commonLabels:
+  app.kubernetes.io/part-of: metaclouds
+  app.kubernetes.io/managed-by: kustomize
+
+# 镜像占位（生产环境通过 CI 覆盖 tag）
+images:
+  - name: ghcr.io/customizedvalidation/yunchuang/backend-rust
+    newTag: latest

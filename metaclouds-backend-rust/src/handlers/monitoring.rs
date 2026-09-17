@@ -16,19 +16,20 @@ use crate::response::ApiResponse;
 use crate::services::monitoring::{self, AlertRuleDef};
 
 /// `GET /api/v1/monitoring/metrics?name=...` 查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct MetricsQuery {
     pub name: Option<String>,
 }
 
 /// 规则列表响应包装。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct AlertRulesResponse {
     pub rules: Vec<AlertRuleDef>,
     pub total: usize,
 }
 
 /// `GET /api/v1/monitoring/dashboard` — 返回 13 个业务指标。
+#[utoipa::path(get,path="/api/v1/monitoring/dashboard",tag="monitoring",responses((status=200,description="dashboard metrics",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_dashboard(
     State(state): State<AppState>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
@@ -37,6 +38,7 @@ pub async fn get_dashboard(
 }
 
 /// `GET /api/v1/monitoring/metrics` — 全部指标或按 name 过滤。
+#[utoipa::path(get,path="/api/v1/monitoring/metrics",tag="monitoring",responses((status=200,description="metrics",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_metrics(
     State(state): State<AppState>,
     Query(q): Query<MetricsQuery>,
@@ -54,6 +56,7 @@ pub async fn get_metrics(
 }
 
 /// `GET /api/v1/monitoring/alert-rules` — 返回 16 条告警规则定义。
+#[utoipa::path(get,path="/api/v1/monitoring/alert-rules",tag="monitoring",responses((status=200,description="alert rules",body=AlertRulesResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_alert_rules() -> Json<ApiResponse<AlertRulesResponse>> {
     let rules = monitoring::list_alert_rules();
     let total = rules.len();
@@ -61,6 +64,7 @@ pub async fn list_alert_rules() -> Json<ApiResponse<AlertRulesResponse>> {
 }
 
 /// `POST /api/v1/monitoring/alert-rules/evaluate` — 评估规则。
+#[utoipa::path(post,path="/api/v1/monitoring/alert-rules/evaluate",tag="monitoring",responses((status=200,description="evaluation result",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn evaluate_alert_rules(
     State(state): State<AppState>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {

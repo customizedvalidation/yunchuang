@@ -12,7 +12,7 @@
 use crate::error::{AppError, AppResult};
 
 /// K8s Pod（对齐 Go `services.Pod`：name/status/node/gpus）。
-#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, serde::Serialize, PartialEq)]
 pub struct Pod {
     pub name: String,
     pub status: String,
@@ -21,7 +21,7 @@ pub struct Pod {
 }
 
 /// K8s 节点（只读观测面）。
-#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, serde::Serialize, PartialEq)]
 pub struct K8sNode {
     pub name: String,
     pub status: String,
@@ -40,7 +40,7 @@ pub struct Deployment {
 }
 
 /// 集群健康状态（对齐 Go `ClusterStatus` 字段名）。
-#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, serde::Serialize, PartialEq)]
 pub struct ClusterHealth {
     pub id: i64,
     pub name: String,

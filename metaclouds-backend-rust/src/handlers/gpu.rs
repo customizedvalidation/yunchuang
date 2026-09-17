@@ -24,7 +24,7 @@ use crate::response::{ApiResponse, WithStatus};
 use crate::services::gpu::{self, AllocateGpuInput, CreateGpuDeviceInput, UpdateGpuDeviceInput};
 
 /// 分页 + 过滤查询参数（设备列表）。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct GpuListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -34,7 +34,7 @@ pub struct GpuListQuery {
 }
 
 /// 分页 + 过滤查询参数（分配记录列表）。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct AllocationListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -44,7 +44,7 @@ pub struct AllocationListQuery {
 }
 
 /// `POST /api/v1/gpus` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateGpuDeviceRequest {
     #[serde(default)]
     pub cluster_id: Option<i64>,
@@ -83,7 +83,7 @@ pub struct CreateGpuDeviceRequest {
 }
 
 /// `PUT /api/v1/gpus/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateGpuDeviceRequest {
     pub node_name: Option<String>,
     pub vendor: Option<String>,
@@ -103,7 +103,7 @@ pub struct UpdateGpuDeviceRequest {
 }
 
 /// `POST /api/v1/gpus/allocations` 请求体（对应 Go `AllocateGPURequest`）。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct AllocateGpuRequest {
     #[serde(default)]
     pub job_id: Option<i64>,
@@ -120,7 +120,7 @@ pub struct AllocateGpuRequest {
 }
 
 /// 分页设备列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct GpuDevicePage {
     pub data: Vec<GpuDeviceResponse>,
     pub total: i64,
@@ -130,7 +130,7 @@ pub struct GpuDevicePage {
 }
 
 /// 分页分配记录响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct GpuAllocationPage {
     pub data: Vec<GpuAllocationResponse>,
     pub total: i64,
@@ -140,6 +140,7 @@ pub struct GpuAllocationPage {
 }
 
 /// `GET /api/v1/gpus` — 分页设备列表（cluster_id/vendor/status 过滤）。
+#[utoipa::path(get,path="/api/v1/gpus",tag="gpus",responses((status=200,description="paginated gpu devices",body=GpuDevicePage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_gpu_devices(
     State(state): State<AppState>,
     Query(q): Query<GpuListQuery>,
@@ -164,6 +165,7 @@ pub async fn list_gpu_devices(
 }
 
 /// `GET /api/v1/gpus/:id` — 设备详情。
+#[utoipa::path(get,path="/api/v1/gpus/{id}",tag="gpus",responses((status=200,description="gpu device",body=crate::models::gpu_device::GpuDeviceResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_gpu_device(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -173,6 +175,7 @@ pub async fn get_gpu_device(
 }
 
 /// `POST /api/v1/gpus` — 创建设备（201）。
+#[utoipa::path(post,path="/api/v1/gpus",request_body=CreateGpuDeviceRequest,tag="gpus",responses((status=201,description="created",body=crate::models::gpu_device::GpuDeviceResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_gpu_device(
     State(state): State<AppState>,
     Json(body): Json<CreateGpuDeviceRequest>,
@@ -205,6 +208,7 @@ pub async fn create_gpu_device(
 }
 
 /// `PUT /api/v1/gpus/:id` — 更新设备。
+#[utoipa::path(put,path="/api/v1/gpus/{id}",request_body=UpdateGpuDeviceRequest,tag="gpus",responses((status=200,description="updated",body=crate::models::gpu_device::GpuDeviceResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_gpu_device(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -233,6 +237,7 @@ pub async fn update_gpu_device(
 }
 
 /// `DELETE /api/v1/gpus/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/gpus/{id}",tag="gpus",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_gpu_device(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -242,6 +247,7 @@ pub async fn delete_gpu_device(
 }
 
 /// `GET /api/v1/gpus/allocations` — 分页分配记录列表（job_id/user_id/status 过滤）。
+#[utoipa::path(get,path="/api/v1/gpus/allocations",tag="gpus",responses((status=200,description="paginated allocations",body=GpuAllocationPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_allocations(
     State(state): State<AppState>,
     Query(q): Query<AllocationListQuery>,
@@ -266,6 +272,7 @@ pub async fn list_allocations(
 }
 
 /// `POST /api/v1/gpus/allocations` — 分配 GPU（201）。
+#[utoipa::path(post,path="/api/v1/gpus/allocations",request_body=AllocateGpuRequest,tag="gpus",responses((status=201,description="allocated",body=crate::models::gpu_allocation::GpuAllocationResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn allocate_gpu(
     State(state): State<AppState>,
     Json(body): Json<AllocateGpuRequest>,
@@ -287,6 +294,7 @@ pub async fn allocate_gpu(
 }
 
 /// `DELETE /api/v1/gpus/allocations/:id` — 释放分配，204。
+#[utoipa::path(delete,path="/api/v1/gpus/allocations/{id}",tag="gpus",responses((status=204,description="released"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn release_gpu(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -296,6 +304,7 @@ pub async fn release_gpu(
 }
 
 /// `GET /api/v1/gpus/utilization` — GPU 利用率汇总。
+#[utoipa::path(get,path="/api/v1/gpus/utilization",tag="gpus",responses((status=200,description="gpu utilization summary",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_gpu_utilization(
     State(state): State<AppState>,
     Query(q): Query<GpuListQuery>,

@@ -21,14 +21,14 @@ use serde_json::Value;
 // ---------------------------------------------------------------------------
 
 /// 连接测试结果。
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(utoipa::ToSchema, Debug, Clone, serde::Serialize)]
 pub struct ConnectionTest {
     pub status: String,
     pub latency_ms: i64,
 }
 
 /// 资源同步结果（mock）。
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(utoipa::ToSchema, Debug, Clone, serde::Serialize)]
 pub struct ResourceSync {
     pub total_nodes: i64,
     pub total_gpus: i64,

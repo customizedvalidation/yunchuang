@@ -1,0 +1,62 @@
+# ==============================================================================
+# .dockerignore —— 最小化 Docker 构建上下文
+# ==============================================================================
+# 排除所有与镜像构建无关的文件，加速上下文上传并避免泄露敏感信息。
+
+# ---- Rust 构建产物（容器内重新编译）----
+target/
+
+# ---- Git 仓库 ----
+.git/
+.gitignore
+.gitattributes
+
+# ---- 文档（不进镜像）----
+docs/
+*.md
+!README.md
+
+# ---- 测试与 CI ----
+tests/
+.github/
+
+# ---- 本地配置与敏感信息 ----
+.env
+.env.local
+.env.*.local
+
+# ---- 本地数据库文件 ----
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- 日志与临时文件 ----
+*.log
+logs/
+backups/
+
+# ---- 操作系统杂项 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 编辑器 / IDE ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- Node（如有前端静态资源，Rust 后端不需要）----
+node_modules/
+
+# ---- Cargo 本地缓存（容器内重新下载）----
+# .cargo/ 保留（可能含 config.toml 镜像源配置）
+# 但排除 target 已在上方
+
+# ---- 本任务交付物（K8s / 脚本 / Docker 编排不进镜像）----
+k8s/
+scripts/
+docker-compose*.yml
+Dockerfile
+.dockerignore

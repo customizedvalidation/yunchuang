@@ -55,7 +55,7 @@ impl SoftDelete for User {
 }
 
 /// Public-facing user view (no password hash).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserResponse {
     pub id: i64,
     pub username: String,
@@ -81,7 +81,7 @@ impl From<User> for UserResponse {
 }
 
 /// Body of `POST /api/v1/users`.
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateUserRequest {
     #[validate(length(min = 3, max = 64, message = "username must be 3..=64 chars"))]
     pub username: String,
@@ -96,7 +96,7 @@ pub struct CreateUserRequest {
 }
 
 /// Body of `PUT /api/v1/users/:id`. All fields optional; password is optional.
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateUserRequest {
     #[validate(length(min = 3, max = 64, message = "username must be 3..=64 chars"))]
     pub username: Option<String>,

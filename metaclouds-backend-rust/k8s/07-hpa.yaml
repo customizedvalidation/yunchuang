@@ -1,0 +1,57 @@
+# ==============================================================================
+# 07-hpa.yaml — HorizontalPodAutoscaler
+# ==============================================================================
+# 基于 CPU / 内存使用率自动扩缩容。
+#   - CPU 70% / Memory 80% 触发扩容
+#   - minReplicas: 2, maxReplicas: 10
+#   - 扩容稳定窗口 60s，缩容稳定窗口 300s
+#
+# 前置条件：集群已安装 metrics-server。
+# ==============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: metaclouds-backend-hpa
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/part-of: metaclouds
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: metaclouds-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+      selectPolicy: Min

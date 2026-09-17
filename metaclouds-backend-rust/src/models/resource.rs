@@ -72,7 +72,7 @@ impl SoftDelete for Resource {
 }
 
 /// 对外资源视图（剔除软删除列 `deleted_at`，对齐 Go `json:"-"`）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

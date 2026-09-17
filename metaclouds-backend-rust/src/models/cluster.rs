@@ -60,7 +60,7 @@ impl SoftDelete for Cluster {
 /// 对外集群视图（剔除软删除列 `deleted_at`，对齐 Go `json:"-"`）。
 ///
 /// `gpu_vendors` / `scheduler_types` 解包为裸 JSON（对齐 Go 侧本就是 JSON 字符串字段）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ClusterResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

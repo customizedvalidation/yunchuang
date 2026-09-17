@@ -18,7 +18,7 @@ use crate::response::{ApiResponse, WithStatus};
 use crate::services::resource as resource_service;
 
 /// 分页 + 搜索 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct ResourceListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -29,7 +29,7 @@ pub struct ResourceListQuery {
 }
 
 /// `POST /api/v1/resources` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateResourceRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -66,7 +66,7 @@ pub struct CreateResourceRequest {
 }
 
 /// `PUT /api/v1/resources/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateResourceRequest {
     pub status: Option<String>,
     #[validate(range(min = 0, message = "total must be >= 0"))]
@@ -81,7 +81,7 @@ pub struct UpdateResourceRequest {
 }
 
 /// 分页资源列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct ResourcePage {
     pub data: Vec<ResourceResponse>,
     pub total: i64,
@@ -91,6 +91,7 @@ pub struct ResourcePage {
 }
 
 /// `GET /api/v1/resources` — 分页列表（搜索 + type/cluster_id 过滤）。
+#[utoipa::path(get,path="/api/v1/resources",tag="resources",responses((status=200,description="paginated resources",body=ResourcePage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_resources(
     State(state): State<AppState>,
     Query(q): Query<ResourceListQuery>,
@@ -115,6 +116,7 @@ pub async fn list_resources(
 }
 
 /// `GET /api/v1/resources/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/resources/{id}",tag="resources",responses((status=200,description="resource",body=crate::models::resource::ResourceResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_resource(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -124,6 +126,7 @@ pub async fn get_resource(
 }
 
 /// `POST /api/v1/resources` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/resources",request_body=CreateResourceRequest,tag="resources",responses((status=201,description="created",body=crate::models::resource::ResourceResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_resource(
     State(state): State<AppState>,
     Json(body): Json<CreateResourceRequest>,
@@ -154,6 +157,7 @@ pub async fn create_resource(
 }
 
 /// `PUT /api/v1/resources/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/resources/{id}",request_body=UpdateResourceRequest,tag="resources",responses((status=200,description="updated",body=crate::models::resource::ResourceResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_resource(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -173,6 +177,7 @@ pub async fn update_resource(
 }
 
 /// `DELETE /api/v1/resources/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/resources/{id}",tag="resources",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_resource(
     State(state): State<AppState>,
     Path(id): Path<i64>,

@@ -1,0 +1,67 @@
+# ==============================================================================
+# 04-role.yaml — Role + RoleBinding（最小权限 RBAC）
+# ==============================================================================
+# 权限范围（对齐 Go 版 10-serviceaccount.yaml 的 scheduler Role）：
+#   - pods: get/list/watch（查看作业 Pod 状态）
+#   - pods/log: get（查看作业日志）
+#   - jobs: get/list/watch/create/delete（管理训练/推理作业）
+#   - events: get/list/watch（查看作业事件）
+#   - configmaps: get/list/watch（读取作业配置）
+#
+# 不授予 pods/create 或 pods/delete（作业通过 Job 资源管理），遵循最小权限。
+# ==============================================================================
+
+---
+# ------------------------------------------------------------------------------
+# 1. Role：后端作业调度器权限
+# ------------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: metaclouds-backend-scheduler
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/part-of: metaclouds
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+
+---
+# ------------------------------------------------------------------------------
+# 2. RoleBinding：将 scheduler Role 绑定到 metaclouds-backend SA
+# ------------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: metaclouds-backend-scheduler-binding
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/part-of: metaclouds
+subjects:
+  - kind: ServiceAccount
+    name: metaclouds-backend
+    namespace: metaclouds
+roleRef:
+  kind: Role
+  name: metaclouds-backend-scheduler
+  apiGroup: rbac.authorization.k8s.io

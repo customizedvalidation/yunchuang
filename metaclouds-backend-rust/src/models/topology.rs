@@ -62,7 +62,7 @@ impl SoftDelete for NodeTopology {
 }
 
 /// 对外节点视图（剔除 `deleted_at`）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TopologyResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

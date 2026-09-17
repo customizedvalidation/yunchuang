@@ -81,7 +81,7 @@ impl SoftDelete for SchedulerIntegration {
 }
 
 /// 对外调度器集成视图（剔除软删除列 `deleted_at` 与敏感 `credentials`，对齐 Go 脱敏惯例）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SchedulerIntegrationResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

@@ -46,7 +46,7 @@ pub struct QuotaRequest {
 }
 
 /// check_quota 结果：是否允许 + 超限项列表。
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(utoipa::ToSchema, Debug, Clone, serde::Serialize)]
 pub struct QuotaCheckResult {
     pub allowed: bool,
     pub exceeded: Vec<String>,

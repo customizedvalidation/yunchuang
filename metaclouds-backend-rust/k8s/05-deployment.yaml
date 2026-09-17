@@ -1,0 +1,189 @@
+# ==============================================================================
+# 05-deployment.yaml — 后端 Deployment（Rust）
+# ==============================================================================
+# Rust (axum + sqlx) 静态二进制，3 副本，滚动更新零宕机。
+#
+# 关键安全/稳定性配置（对齐验收标准）：
+#   - 非 root：runAsNonRoot=true, runAsUser=10001
+#   - readOnlyRootFilesystem=true（可写目录用 emptyDir 挂载）
+#   - allowPrivilegeEscalation=false, drop ALL capabilities
+#   - 三探针：startupProbe / livenessProbe / readinessProbe
+#   - 资源 limits/requests：CPU 500m/250m, Memory 512Mi/256Mi
+#   - topologySpreadConstraints：跨节点 + 跨可用区
+#   - 滚动更新：maxSurge=1, maxUnavailable=0
+#
+# ⚠️ 探针路径说明：Rust 后端根路径无 /health 端点（仅有 /metrics 和 /api/v1/*），
+#    且本任务禁止修改 src/。三探针统一使用 /metrics（无 JWT，返回 200）。
+#    后续 Phase 可在 Rust 端新增 /health 端点后切换回标准路径。
+#
+# 镜像 tag 通过 CI/CD 注入：
+#   kubectl set image deployment/metaclouds-backend \
+#     metaclouds-backend=ghcr.io/customizedvalidation/yunchuang/backend-rust:${GIT_SHA}
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metaclouds-backend
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/name: metaclouds-backend
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    metaclouds.io/description: "Metaclouds 算力调度平台后端 API（Rust 版）"
+spec:
+  replicas: 3
+  # 滚动更新策略：maxUnavailable=0 确保更新期间不减少可用副本
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: metaclouds
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: metaclouds
+        component: backend
+        app.kubernetes.io/name: metaclouds-backend
+        app.kubernetes.io/part-of: metaclouds
+        app.kubernetes.io/component: backend
+      annotations:
+        # Prometheus 自动发现 annotations（ServiceMonitor 也会抓取，此处为裸 Pod 发现兜底）
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+        # 配置变更时触发滚动更新（CI 注入 checksum）
+        metaclouds.io/config-checksum: "PLACEHOLDER"
+    spec:
+      serviceAccountName: metaclouds-backend
+      # Pod 级安全上下文：非 root + seccomp
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # 拓扑分布约束：跨节点均匀分布
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: metaclouds
+              component: backend
+        # 跨可用区分布
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: metaclouds
+              component: backend
+      # 优雅终止：给在途请求 30 秒
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: metaclouds-backend
+          # 镜像占位：CI 构建时注入真实 tag（如 git commit SHA），禁止 latest
+          image: ghcr.io/customizedvalidation/yunchuang/backend-rust:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          # 非敏感配置全部从 ConfigMap 注入
+          envFrom:
+            - configMapRef:
+                name: metaclouds-backend-config
+          # 敏感凭据从 Secret 注入
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: jwt-secret
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: database-url
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: redis-password
+          # 资源请求与限制（对齐验收标准：CPU 500m/250m, Memory 512Mi/256Mi）
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          # ---- 三探针（路径 /metrics，见文件头说明）----
+          # startupProbe：给慢启动留足时间，最多 30*5=150 秒
+          startupProbe:
+            httpGet:
+              path: /metrics
+              port: http
+              scheme: HTTP
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          # livenessProbe：进程存活检测，失败则重启
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          # readinessProbe：是否可接收流量，失败则从 Service 摘除
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          # 容器级安全上下文
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
+          # 只读根文件系统需要可写临时目录
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /run/metaclouds
+          # 优雅关闭钩子
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: "100Mi"
+        - name: run
+          emptyDir:
+            sizeLimit: "10Mi"

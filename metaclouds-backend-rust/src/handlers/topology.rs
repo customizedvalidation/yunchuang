@@ -18,7 +18,7 @@ use crate::response::{ApiResponse, WithStatus};
 use crate::services::topology as topology_service;
 
 /// 分页 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct NodeListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -27,7 +27,7 @@ pub struct NodeListQuery {
 }
 
 /// `POST /api/v1/topology/nodes` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateNodeRequest {
     #[validate(length(min = 1, message = "hostname is required"))]
     pub hostname: String,
@@ -52,7 +52,7 @@ pub struct CreateNodeRequest {
 }
 
 /// `PUT /api/v1/topology/nodes/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateNodeRequest {
     pub hostname: Option<String>,
     pub ip: Option<String>,
@@ -66,7 +66,7 @@ pub struct UpdateNodeRequest {
 }
 
 /// 分页节点列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct NodePage {
     pub data: Vec<TopologyResponse>,
     pub total: i64,
@@ -76,6 +76,7 @@ pub struct NodePage {
 }
 
 /// `GET /api/v1/topology/nodes` — 分页列表（cluster_id / role 过滤）。
+#[utoipa::path(get,path="/api/v1/topology",tag="topology",responses((status=200,description="paginated nodes",body=NodePage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_nodes(
     State(state): State<AppState>,
     Query(q): Query<NodeListQuery>,
@@ -94,6 +95,7 @@ pub async fn list_nodes(
 }
 
 /// `GET /api/v1/topology/nodes/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/topology/{id}",tag="topology",responses((status=200,description="node",body=crate::models::topology::TopologyResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_node(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -103,6 +105,7 @@ pub async fn get_node(
 }
 
 /// `POST /api/v1/topology/nodes` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/topology",request_body=CreateNodeRequest,tag="topology",responses((status=201,description="created",body=crate::models::topology::TopologyResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_node(
     State(state): State<AppState>,
     Json(body): Json<CreateNodeRequest>,
@@ -128,6 +131,7 @@ pub async fn create_node(
 }
 
 /// `PUT /api/v1/topology/nodes/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/topology/{id}",request_body=UpdateNodeRequest,tag="topology",responses((status=200,description="updated",body=crate::models::topology::TopologyResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_node(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -150,6 +154,7 @@ pub async fn update_node(
 }
 
 /// `DELETE /api/v1/topology/nodes/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/topology/{id}",tag="topology",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_node(
     State(state): State<AppState>,
     Path(id): Path<i64>,

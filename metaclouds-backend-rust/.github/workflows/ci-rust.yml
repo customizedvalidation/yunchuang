@@ -49,6 +49,51 @@ jobs:
       - name: cargo build (debug)
         run: cargo build
 
+  # Postgres 双驱动冒烟测试：使用 postgres:16 service 容器，
+  # 运行 #[ignore] 标记的 postgres_smoke_test（本机无 Postgres 时默认跳过）。
+  # 验证 JSONB / TIMESTAMPTZ / 软删除 / UPSERT 等 Postgres 方言关键路径。
+  test-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/test
+      USE_SQLITE: "false"
+      JWT_SECRET: "ci-jwt-secret-at-least-32-characters-long-pad"
+      # 冒烟测试全部用运行时 SQL（无 query! 宏），不依赖 sqlx 离线缓存。
+      SQLX_OFFLINE: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-pg-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-pg-
+
+      - name: Run Postgres smoke tests (--ignored)
+        run: cargo test --test postgres_smoke_test -- --ignored --nocapture
+
   # 覆盖率统计：初期只统计、不阻塞 PR，输出摘要与产物。
   coverage:
     runs-on: ubuntu-latest

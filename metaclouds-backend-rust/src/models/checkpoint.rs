@@ -55,7 +55,7 @@ impl SoftDelete for Checkpoint {
 }
 
 /// 对外 Checkpoint 视图。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CheckpointResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

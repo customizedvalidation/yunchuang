@@ -31,7 +31,7 @@ fn actor_from_claims(c: &Claims) -> Actor {
 }
 
 /// 分页 + 搜索 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct JobListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -44,7 +44,7 @@ pub struct JobListQuery {
 }
 
 /// `POST /api/v1/jobs` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateJobRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -68,7 +68,7 @@ pub struct CreateJobRequest {
 }
 
 /// `PUT /api/v1/jobs/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateJobRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -80,7 +80,7 @@ pub struct UpdateJobRequest {
 }
 
 /// 分页作业列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct JobPage {
     pub data: Vec<JobResponse>,
     pub total: i64,
@@ -90,6 +90,7 @@ pub struct JobPage {
 }
 
 /// `GET /api/v1/jobs` — 分页列表（搜索 + status/type/cluster_id/user_id 过滤）。
+#[utoipa::path(get,path="/api/v1/jobs",tag="jobs",responses((status=200,description="paginated jobs",body=JobPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_jobs(
     State(state): State<AppState>,
     claims: Claims,
@@ -118,6 +119,7 @@ pub async fn list_jobs(
 }
 
 /// `GET /api/v1/jobs/stats` — 按状态统计数量。
+#[utoipa::path(get,path="/api/v1/jobs/stats",tag="jobs",responses((status=200,description="job stats",body=std::collections::HashMap<String,i64>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_job_stats(
     State(state): State<AppState>,
     claims: Claims,
@@ -127,6 +129,7 @@ pub async fn get_job_stats(
 }
 
 /// `GET /api/v1/jobs/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/jobs/{id}",tag="jobs",responses((status=200,description="job",body=crate::models::job::JobResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_job(
     State(state): State<AppState>,
     claims: Claims,
@@ -137,6 +140,7 @@ pub async fn get_job(
 }
 
 /// `POST /api/v1/jobs` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/jobs",request_body=CreateJobRequest,tag="jobs",responses((status=201,description="created",body=crate::models::job::JobResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_job(
     State(state): State<AppState>,
     claims: Claims,
@@ -162,6 +166,7 @@ pub async fn create_job(
 }
 
 /// `PUT /api/v1/jobs/:id` — 更新（状态机校验）。
+#[utoipa::path(put,path="/api/v1/jobs/{id}",request_body=UpdateJobRequest,tag="jobs",responses((status=200,description="updated",body=crate::models::job::JobResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_job(
     State(state): State<AppState>,
     claims: Claims,
@@ -183,6 +188,7 @@ pub async fn update_job(
 }
 
 /// `DELETE /api/v1/jobs/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/jobs/{id}",tag="jobs",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_job(
     State(state): State<AppState>,
     claims: Claims,
@@ -193,6 +199,7 @@ pub async fn delete_job(
 }
 
 /// `POST /api/v1/jobs/:id/cancel` — 取消（仅 pending/running）。
+#[utoipa::path(post,path="/api/v1/jobs/{id}/cancel",tag="jobs",responses((status=200,description="cancelled",body=crate::models::job::JobResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn cancel_job(
     State(state): State<AppState>,
     claims: Claims,

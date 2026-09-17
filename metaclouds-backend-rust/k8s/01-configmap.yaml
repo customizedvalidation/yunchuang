@@ -1,0 +1,93 @@
+# ==============================================================================
+# 01-configmap.yaml — 后端非敏感环境变量
+# ==============================================================================
+# 所有非敏感配置通过 envFrom 注入 Pod。
+# 敏感凭据（JWT / DB 密码 / Redis 密码）见 02-secret.yaml。
+#
+# 环境变量名与 src/config.rs 中 env_or() 读取的键一一对应。
+# 端口统一为 8000（容器内），对齐 Service / Ingress / Prometheus annotations。
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metaclouds-backend-config
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/part-of: metaclouds
+data:
+  # ---- 服务器基础配置 ----
+  SERVER_HOST: "0.0.0.0"
+  SERVER_PORT: "8000"
+  SERVER_ENV: "production"
+
+  # ---- CORS ----
+  ALLOWED_ORIGINS: "https://app.metaclouds.example.com"
+  TRUSTED_PROXIES: "10.0.0.0/8"
+
+  # ---- 数据库（PostgreSQL）----
+  # Rust 端使用 DATABASE_URL 连接串；密码从 Secret 注入（见下方 stringData 注释）
+  # 完整连接串在 02-secret.yaml 中以 DATABASE_URL 形式提供（含密码）
+  USE_SQLITE: "false"
+  MEMORY_STORE_ENABLED: "false"
+  DATABASE_HOST: "postgresql.metaclouds.svc.cluster.local"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "metaclouds"
+  DATABASE_USER: "metaclouds_user"
+  DATABASE_SSL_MODE: "require"
+
+  # ---- Redis ----
+  REDIS_ENABLED: "true"
+  REDIS_HOST: "redis.metaclouds.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+
+  # ---- JWT（密钥本身在 Secret 中）----
+  JWT_EXPIRATION_HOURS: "24"
+  JWT_REFRESH_EXPIRATION_HOURS: "168"
+
+  # ---- 监控 / 可观测性 ----
+  PROMETHEUS_ENABLED: "true"
+  MONITORING_ENABLED: "true"
+  ALERT_ENABLED: "true"
+  METRICS_COLLECTION_INTERVAL_SECONDS: "15"
+  TRACING_ENABLED: "false"
+  TRACING_SERVICE_NAME: "metaclouds-backend-rust"
+  OTEL_ENABLED: "false"
+
+  # ---- K8s 集成 ----
+  K8S_ENABLED: "true"
+  K8S_NAMESPACE: "metaclouds"
+  K8S_SIMULATION_MODE: "false"
+  SCHEDULER_ENABLED: "true"
+  SCHEDULER_INTERVAL_SECONDS: "10"
+
+  # ---- 限流 / 熔断 ----
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_REQUESTS: "1000"
+  RATE_LIMIT_DURATION_SECONDS: "60"
+  CIRCUIT_BREAKER_ENABLED: "true"
+  CIRCUIT_BREAKER_THRESHOLD: "50"
+
+  # ---- 日志 ----
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  LOG_OUTPUT: "console"
+
+  # ---- HTTP 超时 ----
+  MAX_REQUEST_BODY_SIZE: "104857600"
+  READ_TIMEOUT_SECONDS: "30"
+  WRITE_TIMEOUT_SECONDS: "60"
+  IDLE_TIMEOUT_SECONDS: "120"
+
+  # ---- 功能开关 ----
+  FEATURE_GPU_ALLOCATION: "true"
+  FEATURE_JOB_SCHEDULER: "true"
+  FEATURE_MONITORING: "true"
+  FEATURE_SECURITY_POLICIES: "true"
+
+  # ---- 安全 ----
+  ALLOW_PUBLIC_REGISTRATION: "false"
+  COOKIE_SAME_SITE: "lax"
+  COOKIE_SECURE: "true"

@@ -18,7 +18,7 @@ use crate::response::{ApiResponse, WithStatus};
 use crate::services::cluster as cluster_service;
 
 /// 分页 + 搜索查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct ClusterListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -26,7 +26,7 @@ pub struct ClusterListQuery {
 }
 
 /// `POST /api/v1/clusters` 请求体（对齐 Go `CreateClusterRequest`）。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateClusterRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -50,7 +50,7 @@ pub struct CreateClusterRequest {
 }
 
 /// `PUT /api/v1/clusters/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateClusterRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -66,7 +66,7 @@ pub struct UpdateClusterRequest {
 }
 
 /// 分页集群列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct ClusterPage {
     pub data: Vec<ClusterResponse>,
     pub total: i64,
@@ -76,6 +76,7 @@ pub struct ClusterPage {
 }
 
 /// `GET /api/v1/clusters` — 分页列表（name 搜索）。
+#[utoipa::path(get,path="/api/v1/clusters",tag="clusters",responses((status=200,description="paginated clusters",body=ClusterPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_clusters(
     State(state): State<AppState>,
     Query(q): Query<ClusterListQuery>,
@@ -93,6 +94,7 @@ pub async fn list_clusters(
 }
 
 /// `GET /api/v1/clusters/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/clusters/{id}",tag="clusters",responses((status=200,description="cluster",body=crate::models::cluster::ClusterResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_cluster(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -102,6 +104,7 @@ pub async fn get_cluster(
 }
 
 /// `POST /api/v1/clusters` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/clusters",request_body=CreateClusterRequest,tag="clusters",responses((status=201,description="created",body=crate::models::cluster::ClusterResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_cluster(
     State(state): State<AppState>,
     Json(body): Json<CreateClusterRequest>,
@@ -126,6 +129,7 @@ pub async fn create_cluster(
 }
 
 /// `PUT /api/v1/clusters/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/clusters/{id}",request_body=UpdateClusterRequest,tag="clusters",responses((status=200,description="updated",body=crate::models::cluster::ClusterResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_cluster(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -149,6 +153,7 @@ pub async fn update_cluster(
 }
 
 /// `DELETE /api/v1/clusters/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/clusters/{id}",tag="clusters",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_cluster(
     State(state): State<AppState>,
     Path(id): Path<i64>,

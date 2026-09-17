@@ -52,7 +52,7 @@ impl SoftDelete for Dataset {
 }
 
 /// 对外 Dataset 视图（剔除 deleted_at）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DatasetResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

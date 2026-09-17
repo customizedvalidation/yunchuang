@@ -50,7 +50,7 @@ impl SoftDelete for Tenant {
 /// 对外租户视图（对齐 Go `models.Tenant` 的 JSON tag：`deleted_at` 为 `json:"-"`）。
 ///
 /// 与 [`Tenant`] 的区别：剔除软删除列 `deleted_at`，绝不回传给客户端。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TenantResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

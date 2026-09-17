@@ -1,0 +1,30 @@
+# ==============================================================================
+# 06-service.yaml — 后端 Service（ClusterIP）
+# ==============================================================================
+# 仅集群内部可访问，外部流量经 Ingress 进入。
+# 端口 8000 → 容器 8000（与 ConfigMap SERVER_PORT / Deployment containerPort 一致）。
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: metaclouds-backend
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/name: metaclouds-backend
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/component: backend
+  annotations:
+    metaclouds.io/description: "后端 API 服务，ClusterIP 仅集群内访问"
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: metaclouds
+    component: backend

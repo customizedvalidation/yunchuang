@@ -20,7 +20,7 @@ use crate::services::scheduler as scheduler_service;
 use serde_json::Value;
 
 /// 分页 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct SchedulerListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -30,7 +30,7 @@ pub struct SchedulerListQuery {
 }
 
 /// `POST /api/v1/schedulers` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateSchedulerRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -55,7 +55,7 @@ pub struct CreateSchedulerRequest {
 }
 
 /// `PUT /api/v1/schedulers/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateSchedulerRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -69,7 +69,7 @@ pub struct UpdateSchedulerRequest {
 }
 
 /// 分页调度器列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct SchedulerPage {
     pub data: Vec<SchedulerIntegrationResponse>,
     pub total: i64,
@@ -79,6 +79,7 @@ pub struct SchedulerPage {
 }
 
 /// `GET /api/v1/schedulers` — 分页列表（过滤）。
+#[utoipa::path(get,path="/api/v1/schedulers",tag="schedulers",responses((status=200,description="paginated schedulers",body=SchedulerPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_schedulers(
     State(state): State<AppState>,
     Query(q): Query<SchedulerListQuery>,
@@ -103,6 +104,7 @@ pub async fn list_schedulers(
 }
 
 /// `GET /api/v1/schedulers/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/schedulers/{id}",tag="schedulers",responses((status=200,description="scheduler",body=crate::models::scheduler_integration::SchedulerIntegrationResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_scheduler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -112,6 +114,7 @@ pub async fn get_scheduler(
 }
 
 /// `POST /api/v1/schedulers` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/schedulers",request_body=CreateSchedulerRequest,tag="schedulers",responses((status=201,description="created",body=crate::models::scheduler_integration::SchedulerIntegrationResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_scheduler(
     State(state): State<AppState>,
     Json(body): Json<CreateSchedulerRequest>,
@@ -141,6 +144,7 @@ pub async fn create_scheduler(
 }
 
 /// `PUT /api/v1/schedulers/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/schedulers/{id}",request_body=UpdateSchedulerRequest,tag="schedulers",responses((status=200,description="updated",body=crate::models::scheduler_integration::SchedulerIntegrationResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_scheduler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -163,6 +167,7 @@ pub async fn update_scheduler(
 }
 
 /// `DELETE /api/v1/schedulers/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/schedulers/{id}",tag="schedulers",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_scheduler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -172,6 +177,7 @@ pub async fn delete_scheduler(
 }
 
 /// `POST /api/v1/schedulers/:id/test-connection` — mock 测试连接。
+#[utoipa::path(post,path="/api/v1/schedulers/{id}/test-connection",tag="schedulers",responses((status=200,description="connection test",body=crate::services::scheduler::ConnectionTest),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn test_connection(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -181,6 +187,7 @@ pub async fn test_connection(
 }
 
 /// `POST /api/v1/schedulers/:id/sync` — mock 同步资源。
+#[utoipa::path(post,path="/api/v1/schedulers/{id}/sync",tag="schedulers",responses((status=200,description="sync result",body=crate::services::scheduler::ResourceSync),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn sync_resources(
     State(state): State<AppState>,
     Path(id): Path<i64>,

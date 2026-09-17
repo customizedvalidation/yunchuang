@@ -73,7 +73,7 @@ impl SoftDelete for GpuDevice {
 }
 
 /// 对外 GPU 设备视图（剔除软删除列）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GpuDeviceResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

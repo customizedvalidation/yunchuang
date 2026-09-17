@@ -18,7 +18,7 @@ use crate::response::{ApiResponse, WithStatus};
 use crate::services::dataset as dataset_service;
 
 /// 分页 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct DatasetListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -28,7 +28,7 @@ pub struct DatasetListQuery {
 }
 
 /// `POST /api/v1/datasets` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateDatasetRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -56,7 +56,7 @@ fn default_dataset_type() -> String {
 }
 
 /// `PUT /api/v1/datasets/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateDatasetRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -70,7 +70,7 @@ pub struct UpdateDatasetRequest {
 }
 
 /// 分页列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct DatasetPage {
     pub data: Vec<DatasetResponse>,
     pub total: i64,
@@ -80,6 +80,7 @@ pub struct DatasetPage {
 }
 
 /// `GET /api/v1/datasets` — 分页 + 过滤列表。
+#[utoipa::path(get,path="/api/v1/datasets",tag="datasets",responses((status=200,description="paginated datasets",body=DatasetPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_datasets(
     State(state): State<AppState>,
     Query(q): Query<DatasetListQuery>,
@@ -101,6 +102,7 @@ pub async fn list_datasets(
 }
 
 /// `GET /api/v1/datasets/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/datasets/{id}",tag="datasets",responses((status=200,description="dataset",body=crate::models::dataset::DatasetResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_dataset(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -110,6 +112,7 @@ pub async fn get_dataset(
 }
 
 /// `POST /api/v1/datasets` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/datasets",request_body=CreateDatasetRequest,tag="datasets",responses((status=201,description="created",body=crate::models::dataset::DatasetResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_dataset(
     State(state): State<AppState>,
     claims: Claims,
@@ -136,6 +139,7 @@ pub async fn create_dataset(
 }
 
 /// `PUT /api/v1/datasets/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/datasets/{id}",request_body=UpdateDatasetRequest,tag="datasets",responses((status=200,description="updated",body=crate::models::dataset::DatasetResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_dataset(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -157,6 +161,7 @@ pub async fn update_dataset(
 }
 
 /// `DELETE /api/v1/datasets/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/datasets/{id}",tag="datasets",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_dataset(
     State(state): State<AppState>,
     Path(id): Path<i64>,

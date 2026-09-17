@@ -109,7 +109,7 @@ impl SoftDelete for Job {
 }
 
 /// 对外作业视图（剔除软删除列 `deleted_at`，对齐 Go `json:"-"`）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

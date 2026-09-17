@@ -20,7 +20,7 @@ use crate::response::{ApiResponse, WithStatus};
 use crate::services::acceleration as acceleration_service;
 
 /// 分页 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct SuiteListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -29,7 +29,7 @@ pub struct SuiteListQuery {
 }
 
 /// `POST /api/v1/acceleration/suites` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateSuiteRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -58,7 +58,7 @@ fn default_suite_type() -> String {
 }
 
 /// `PUT /api/v1/acceleration/suites/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateSuiteRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -72,7 +72,7 @@ pub struct UpdateSuiteRequest {
 }
 
 /// 分页列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct SuitePage {
     pub data: Vec<AccelerationSuiteResponse>,
     pub total: i64,
@@ -82,6 +82,7 @@ pub struct SuitePage {
 }
 
 /// `GET /api/v1/acceleration/suites` — 分页列表。
+#[utoipa::path(get,path="/api/v1/acceleration",tag="acceleration",responses((status=200,description="paginated suites",body=SuitePage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_suites(
     State(state): State<AppState>,
     Query(q): Query<SuiteListQuery>,
@@ -103,6 +104,7 @@ pub async fn list_suites(
 }
 
 /// `GET /api/v1/acceleration/suites/:id` — 详情（含关联对象）。
+#[utoipa::path(get,path="/api/v1/acceleration/{id}",tag="acceleration",responses((status=200,description="suite",body=crate::models::acceleration_suite::AccelerationSuiteResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_suite(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -112,6 +114,7 @@ pub async fn get_suite(
 }
 
 /// `POST /api/v1/acceleration/suites` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/acceleration",request_body=CreateSuiteRequest,tag="acceleration",responses((status=201,description="created",body=crate::models::acceleration_suite::AccelerationSuiteResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_suite(
     State(state): State<AppState>,
     claims: Claims,
@@ -139,6 +142,7 @@ pub async fn create_suite(
 }
 
 /// `PUT /api/v1/acceleration/suites/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/acceleration/{id}",request_body=UpdateSuiteRequest,tag="acceleration",responses((status=200,description="updated",body=crate::models::acceleration_suite::AccelerationSuiteResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_suite(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -161,6 +165,7 @@ pub async fn update_suite(
 }
 
 /// `DELETE /api/v1/acceleration/suites/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/acceleration/{id}",tag="acceleration",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_suite(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -170,6 +175,7 @@ pub async fn delete_suite(
 }
 
 /// `POST /api/v1/acceleration/suites/:id/start` — 启动 suite。
+#[utoipa::path(post,path="/api/v1/acceleration/{id}/start",tag="acceleration",responses((status=200,description="started",body=crate::models::acceleration_suite::AccelerationSuiteResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn start_suite(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -179,6 +185,7 @@ pub async fn start_suite(
 }
 
 /// `POST /api/v1/acceleration/suites/:id/stop` — 停止 suite。
+#[utoipa::path(post,path="/api/v1/acceleration/{id}/stop",tag="acceleration",responses((status=200,description="stopped",body=crate::models::acceleration_suite::AccelerationSuiteResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn stop_suite(
     State(state): State<AppState>,
     Path(id): Path<i64>,

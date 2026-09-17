@@ -7,18 +7,20 @@
 //! 的逆序调用，使得请求的实际流向为：
 //!
 //! ```text
-//! request_id → request_logger → timing → security_headers → error_handler → panic_recover → handler
+//! request_id → tracing → request_logger → timing → security_headers → error_handler → panic_recover → handler
 //! ```
 
 use axum::middleware::from_fn;
 use axum::Router;
 
 pub mod error_handler;
+pub mod metrics;
 pub mod panic_recover;
 pub mod request_id;
 pub mod request_logger;
 pub mod security_headers;
 pub mod timing;
+pub mod tracing;
 
 /// 把核心中间件栈应用到给定路由器，返回新路由器。
 ///
@@ -36,7 +38,13 @@ where
         .layer(from_fn(error_handler::error_handler))
         .layer(from_fn(security_headers::security_headers))
         .layer(from_fn(timing::timing))
+        // HTTP 请求指标：包在 timing / security / error / panic 外侧，
+        // 确保即使 handler panic 或返回错误状态也能被计数。
+        .layer(from_fn(metrics::http_metrics_middleware))
         .layer(from_fn(request_logger::request_logger))
+        // 链路追踪：包在 request_id 内侧、request_logger / error_handler 外侧，
+        // 保证 trace_id 可被访问日志与错误日志关联，并写入 X-Trace-Id 响应头。
+        .layer(from_fn(tracing::trace_middleware))
         // 最后注册者位于最外层：最先拿到请求，分配并透传请求 ID。
         .layer(from_fn(request_id::set_request_id))
 }

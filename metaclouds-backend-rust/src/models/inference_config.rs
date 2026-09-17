@@ -56,7 +56,7 @@ impl SoftDelete for InferenceConfig {
 }
 
 /// 对外视图。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InferenceConfigResponse {
     pub id: i64,
     pub created_at: DateTime<Utc>,

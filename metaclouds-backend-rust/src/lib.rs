@@ -4,17 +4,21 @@
 
 pub mod auth;
 pub mod authz;
+pub mod cache;
 pub mod config;
 pub mod db;
 pub mod error;
 pub mod handlers;
+pub mod metrics;
 pub mod middleware;
 pub mod models;
+pub mod openapi;
 pub mod orm;
 pub mod response;
 pub mod routes;
+pub mod scheduler;
 pub mod services;
-
+pub mod tracing;
 use std::sync::Arc;
 use std::time::Duration;
 

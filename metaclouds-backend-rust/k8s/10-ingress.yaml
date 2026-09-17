@@ -1,0 +1,49 @@
+# ==============================================================================
+# 10-ingress.yaml — Ingress
+# ==============================================================================
+# 统一入口：app.metaclouds.example.com
+#   /api → metaclouds-backend:8000（API 前缀保留，后端路由为 /api/v1/...）
+#
+# TLS 由 cert-manager 自动签发（需集群已安装 cert-manager + ClusterIssuer）。
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: metaclouds-ingress
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    app.kubernetes.io/part-of: metaclouds
+  annotations:
+    # cert-manager 自动签发 TLS
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # 强制 HTTP → HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # 大文件上传（模型/数据集）
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    # WebSocket / SSE（作业日志流式输出）
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # 传递真实客户端 IP
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+    # 限速
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-burst: "200"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - app.metaclouds.example.com
+      secretName: metaclouds-tls
+  rules:
+    - host: app.metaclouds.example.com
+      http:
+        paths:
+          # 后端 API：/api 前缀保留，路由到 backend Service:8000
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: metaclouds-backend
+                port:
+                  number: 8000

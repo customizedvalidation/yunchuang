@@ -110,7 +110,7 @@ pub async fn get_metric(pool: &SqlitePool, name: &str) -> AppResult<serde_json::
 }
 
 /// 告警规则定义（对齐任务规格 16 条）。
-#[derive(Debug, Clone, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Clone, Serialize)]
 pub struct AlertRuleDef {
     pub id: i64,
     pub name: String,

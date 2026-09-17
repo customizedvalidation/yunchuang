@@ -1,0 +1,131 @@
+# ==============================================================================
+# Metaclouds Backend (Rust) — Docker Compose (本地开发 / 集成)
+# ==============================================================================
+# 用法：
+#   cp .env.example .env  # 按需修改
+#   docker compose up -d
+#   # 访问 http://localhost:8001 （宿主 8001，避免与 Go 版 8000 冲突）
+#   # 健康检查：curl http://localhost:8001/metrics
+#
+# 注意：
+#   - 容器内监听 8000（SERVER_PORT=8000），宿主映射到 8001
+#   - healthcheck 用 wget（alpine 基础镜像无 curl）
+#   - 本机无 Docker，待 CI/目标环境验证：docker compose config 校验语法
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # Metaclouds Backend (Rust)
+  # ----------------------------------------------------------------------------
+  metaclouds-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: metaclouds-backend-rust
+    ports:
+      # 宿主 8001 → 容器 8000（避免与 Go 版 8000 冲突）
+      - "8001:8000"
+    environment:
+      # ---- 服务器 ----
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8000"
+      SERVER_ENV: development
+      RUST_LOG: info
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+
+      # ---- 数据库（PostgreSQL）----
+      # Rust 端 main.rs 使用 DATABASE_URL 连接串；sqlx 双驱动已就绪
+      DATABASE_URL: postgresql://metaclouds_user:metaclouds_password@postgres:5432/metaclouds?sslmode=disable
+      USE_SQLITE: "false"
+      MEMORY_STORE_ENABLED: "false"
+
+      # ---- Redis ----
+      REDIS_ENABLED: "true"
+      REDIS_URL: redis://redis:6379/0
+
+      # ---- JWT（开发用，生产必须通过 .env 覆盖）----
+      JWT_SECRET: dev-secret-change-me-please-32-chars-minimum-xxxxxxxx
+      JWT_EXPIRATION_HOURS: "24"
+
+      # ---- 监控 ----
+      PROMETHEUS_ENABLED: "true"
+      MONITORING_ENABLED: "true"
+
+      # ---- K8s（本地开发关闭真实 K8s API）----
+      K8S_ENABLED: "false"
+      K8S_SIMULATION_MODE: "true"
+      SCHEDULER_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # 健康检查：Rust 后端无 /health 端点，使用 /metrics（无 JWT，返回 200）
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - metaclouds-net
+
+  # ----------------------------------------------------------------------------
+  # PostgreSQL 16（本地集成用）
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: metaclouds-postgres
+    environment:
+      POSTGRES_DB: metaclouds
+      POSTGRES_USER: metaclouds_user
+      POSTGRES_PASSWORD: metaclouds_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metaclouds_user -d metaclouds"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - metaclouds-net
+
+  # ----------------------------------------------------------------------------
+  # Redis 7（本地缓存 / 会话存储）
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: metaclouds-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - metaclouds-net
+
+# ==============================================================================
+# 数据卷
+# ==============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ==============================================================================
+# 网络
+# ==============================================================================
+networks:
+  metaclouds-net:
+    driver: bridge

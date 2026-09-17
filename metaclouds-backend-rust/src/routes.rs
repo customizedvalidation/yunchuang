@@ -66,7 +66,11 @@ use crate::handlers::tenant::{
 };
 use crate::handlers::topology::{create_node, delete_node, get_node, list_nodes, update_node};
 use crate::handlers::user::{create_user, delete_user, get_user, list_users, update_user};
+use crate::metrics::metrics_handler;
 use crate::middleware::apply_core_stack;
+use crate::openapi::ApiDoc;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 /// Build the full application router. `state` is shared with all handlers.
 pub fn build_router(state: AppState) -> Router {
@@ -405,10 +409,20 @@ pub fn build_router(state: AppState) -> Router {
             jwt_auth,
         ));
 
-    let api = Router::new()
+    // ── /metrics：Prometheus 文本格式端点（横切，无 JWT，对齐 Go）─────
+    // Prometheus scraper 直接抓取，不挂 JWT / CSRF 中间件。
+    let metrics_route = Router::new().route("/metrics", get(metrics_handler));
+
+    // ── Swagger UI + OpenAPI spec（横切，无 JWT，对齐 Go /api/docs）─────
+    // /swagger-ui 提供交互式文档；/api-docs/openapi.json 返回原始 OpenAPI 3.0 JSON。
+    let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
+
+    let app = Router::new()
+        .merge(metrics_route)
+        .merge(swagger)
         .nest("/api/v1", public.merge(protected))
         .layer(CookieManagerLayer::new());
 
-    // 应用核心中间件栈（request_id/request_logger/timing/security_headers/error_handler/panic_recover）
-    apply_core_stack(api).with_state(state)
+    // 应用核心中间件栈（request_id/request_logger/timing/metrics/security_headers/error_handler/panic_recover）
+    apply_core_stack(app).with_state(state)
 }

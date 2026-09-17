@@ -19,7 +19,7 @@ use crate::services::quota as quota_service;
 use crate::services::quota::QuotaRequest;
 
 /// 分页 + 过滤查询参数。
-#[derive(Debug, Deserialize)]
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct QuotaListQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
@@ -29,7 +29,7 @@ pub struct QuotaListQuery {
 }
 
 /// `POST /api/v1/quotas` 请求体。
-#[derive(Debug, Deserialize, Validate)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct CreateQuotaRequest {
     #[validate(length(min = 1, message = "name is required"))]
     pub name: String,
@@ -51,7 +51,7 @@ pub struct CreateQuotaRequest {
 }
 
 /// `PUT /api/v1/quotas/:id` 请求体（全部可选）。
-#[derive(Debug, Deserialize, Validate, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Validate, Default)]
 pub struct UpdateQuotaRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -63,7 +63,7 @@ pub struct UpdateQuotaRequest {
 }
 
 /// `POST /api/v1/quotas/:id/check` 请求体（资源请求量）。
-#[derive(Debug, Deserialize, Default)]
+#[derive(utoipa::ToSchema, Debug, Deserialize, Default)]
 pub struct CheckQuotaRequest {
     #[serde(default)]
     pub gpu: Option<i64>,
@@ -76,7 +76,7 @@ pub struct CheckQuotaRequest {
 }
 
 /// 分页配额列表响应内层。
-#[derive(Debug, Serialize)]
+#[derive(utoipa::ToSchema, Debug, Serialize)]
 pub struct QuotaPage {
     pub data: Vec<ResourceQuotaResponse>,
     pub total: i64,
@@ -95,6 +95,7 @@ fn req_from_body(b: &CheckQuotaRequest) -> QuotaRequest {
 }
 
 /// `GET /api/v1/quotas` — 分页列表（过滤）。
+#[utoipa::path(get,path="/api/v1/quotas",tag="quotas",responses((status=200,description="paginated quotas",body=QuotaPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_quotas(
     State(state): State<AppState>,
     Query(q): Query<QuotaListQuery>,
@@ -119,6 +120,7 @@ pub async fn list_quotas(
 }
 
 /// `GET /api/v1/quotas/:id` — 详情。
+#[utoipa::path(get,path="/api/v1/quotas/{id}",tag="quotas",responses((status=200,description="quota",body=crate::models::resource_quota::ResourceQuotaResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_quota(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -128,6 +130,7 @@ pub async fn get_quota(
 }
 
 /// `POST /api/v1/quotas` — 创建（201）。
+#[utoipa::path(post,path="/api/v1/quotas",request_body=CreateQuotaRequest,tag="quotas",responses((status=201,description="created",body=crate::models::resource_quota::ResourceQuotaResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_quota(
     State(state): State<AppState>,
     Json(body): Json<CreateQuotaRequest>,
@@ -152,6 +155,7 @@ pub async fn create_quota(
 }
 
 /// `PUT /api/v1/quotas/:id` — 更新。
+#[utoipa::path(put,path="/api/v1/quotas/{id}",request_body=UpdateQuotaRequest,tag="quotas",responses((status=200,description="updated",body=crate::models::resource_quota::ResourceQuotaResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn update_quota(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -172,6 +176,7 @@ pub async fn update_quota(
 }
 
 /// `DELETE /api/v1/quotas/:id` — 软删除，204。
+#[utoipa::path(delete,path="/api/v1/quotas/{id}",tag="quotas",responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn delete_quota(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -181,6 +186,7 @@ pub async fn delete_quota(
 }
 
 /// `POST /api/v1/quotas/:id/check` — 检查是否超限。
+#[utoipa::path(post,path="/api/v1/quotas/{id}/check",request_body=CheckQuotaRequest,tag="quotas",responses((status=200,description="check result",body=crate::services::quota::QuotaCheckResult),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn check_quota(
     State(state): State<AppState>,
     Path(id): Path<i64>,

@@ -1,0 +1,238 @@
+# ==============================================================================
+# 12-prometheusrule.yaml — PrometheusRule（16 告警规则）
+# ==============================================================================
+# 对齐 Go 版 alerts.yml 的 16 条告警规则，覆盖：
+#   GPU / CPU / 内存 / 磁盘 / Job / 集群 / 配额 / 安全 / 登录 / API / 数据库 / Redis 等。
+#
+# 前置条件：Prometheus Operator 已安装，Prometheus CR 中 ruleSelector 匹配
+#   labels: release: prometheus。
+#
+# 告警分级：
+#   critical — 立即响应（服务不可用 / 数据风险）
+#   warning  — 30 分钟内响应（性能降级 / 容量风险）
+# ==============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: metaclouds-alerts
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    app.kubernetes.io/part-of: metaclouds
+    release: prometheus
+spec:
+  groups:
+    - name: metaclouds.alerts
+      rules:
+        # ------------------------------------------------------------------
+        # 1. GPU 高利用率（>90% 持续 5 分钟）
+        # ------------------------------------------------------------------
+        - alert: GPUHighUtilization
+          expr: metaclouds_gpu_utilization_percent > 90
+          for: 5m
+          labels:
+            severity: warning
+            category: gpu
+          annotations:
+            summary: "GPU 利用率过高"
+            description: "GPU 利用率 {{ $value | humanize }}% 超过阈值 90%，持续 5 分钟。实例: {{ $labels.instance }}"
+
+        # ------------------------------------------------------------------
+        # 2. CPU 高利用率（>85% 持续 5 分钟）
+        # ------------------------------------------------------------------
+        - alert: CPUHighUtilization
+          expr: 100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+          for: 5m
+          labels:
+            severity: warning
+            category: cpu
+          annotations:
+            summary: "CPU 利用率过高"
+            description: "节点 CPU 利用率 {{ $value | humanize }}% 超过阈值 85%，持续 5 分钟。实例: {{ $labels.instance }}"
+
+        # ------------------------------------------------------------------
+        # 3. 内存高利用率（>80% 持续 5 分钟）
+        # ------------------------------------------------------------------
+        - alert: MemoryHighUtilization
+          expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 80
+          for: 5m
+          labels:
+            severity: warning
+            category: memory
+          annotations:
+            summary: "内存利用率过高"
+            description: "节点内存利用率 {{ $value | humanize }}% 超过阈值 80%，持续 5 分钟。实例: {{ $labels.instance }}"
+
+        # ------------------------------------------------------------------
+        # 4. 磁盘空间不足（可用 <10%）
+        # ------------------------------------------------------------------
+        - alert: StorageLow
+          expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 < 10
+          for: 10m
+          labels:
+            severity: critical
+            category: storage
+          annotations:
+            summary: "磁盘空间不足"
+            description: "节点 {{ $labels.instance }} 挂载点 {{ $labels.mountpoint }} 可用空间 {{ $value | humanize }}% 低于 10%。"
+
+        # ------------------------------------------------------------------
+        # 5. Job 队列堆积（pending jobs > 50）
+        # ------------------------------------------------------------------
+        - alert: JobQueueLength
+          expr: metaclouds_jobs_pending > 50
+          for: 5m
+          labels:
+            severity: warning
+            category: job
+          annotations:
+            summary: "作业队列堆积"
+            description: "待处理作业数 {{ $value }} 超过阈值 50，持续 5 分钟。"
+
+        # ------------------------------------------------------------------
+        # 6. GPU 不可用（可用 GPU 数 = 0）
+        # ------------------------------------------------------------------
+        - alert: GPUUnavailable
+          expr: metaclouds_gpu_available_count == 0
+          for: 2m
+          labels:
+            severity: critical
+            category: gpu
+          annotations:
+            summary: "GPU 资源不可用"
+            description: "集群中可用 GPU 数量为 0，无法调度 GPU 作业。"
+
+        # ------------------------------------------------------------------
+        # 7. Pod 崩溃重启（restart count > 5）
+        # ------------------------------------------------------------------
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace="metaclouds"}[15m]) > 5
+          for: 0m
+          labels:
+            severity: warning
+            category: cluster
+          annotations:
+            summary: "Pod 崩溃重启"
+            description: "Pod {{ $labels.pod }} 容器 {{ $labels.container }} 在 15 分钟内重启 {{ $value }} 次。"
+
+        # ------------------------------------------------------------------
+        # 8. API 高错误率（5xx > 5%）
+        # ------------------------------------------------------------------
+        - alert: HighErrorRate
+          expr: |
+            sum(rate(metaclouds_http_requests_total{status=~"5.."}[5m])) by (job)
+              /
+            sum(rate(metaclouds_http_requests_total[5m])) by (job) * 100 > 5
+          for: 5m
+          labels:
+            severity: critical
+            category: api
+          annotations:
+            summary: "API 错误率过高"
+            description: "5xx 错误率 {{ $value | humanize }}% 超过阈值 5%，持续 5 分钟。"
+
+        # ------------------------------------------------------------------
+        # 9. API 高延迟（P99 > 2s）
+        # ------------------------------------------------------------------
+        - alert: HighLatency
+          expr: histogram_quantile(0.99, sum(rate(metaclouds_http_request_duration_seconds_bucket[5m])) by (le)) > 2
+          for: 5m
+          labels:
+            severity: warning
+            category: api
+          annotations:
+            summary: "API 延迟过高"
+            description: "P99 延迟 {{ $value | humanizeDuration }} 超过 2s，持续 5 分钟。"
+
+        # ------------------------------------------------------------------
+        # 10. 请求量骤降（可能服务中断）
+        # ------------------------------------------------------------------
+        - alert: RequestRateDrop
+          expr: |
+            sum(rate(metaclouds_http_requests_total[5m])) by (job) <
+              sum(rate(metaclouds_http_requests_total[1h])) by (job) * 0.3
+          for: 10m
+          labels:
+            severity: warning
+            category: api
+          annotations:
+            summary: "API 请求量骤降"
+            description: "当前请求率仅为 1 小时均值的 30%，可能存在流量异常或服务中断。"
+
+        # ------------------------------------------------------------------
+        # 11. 数据库连接池耗尽
+        # ------------------------------------------------------------------
+        - alert: DatabaseConnectionPoolExhausted
+          expr: metaclouds_db_connections_in_use / metaclouds_db_connections_max > 0.9
+          for: 5m
+          labels:
+            severity: critical
+            category: database
+          annotations:
+            summary: "数据库连接池耗尽"
+            description: "数据库连接使用率 {{ $value | humanizePercentage }} 超过 90%，新请求可能被拒绝。"
+
+        # ------------------------------------------------------------------
+        # 12. Redis 连接失败
+        # ------------------------------------------------------------------
+        - alert: RedisConnectionDown
+          expr: redis_connected_clients == 0 or up{job="redis"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            category: cache
+          annotations:
+            summary: "Redis 不可用"
+            description: "Redis 无活跃连接或 up=0，会话/缓存可能受影响。实例: {{ $labels.instance }}"
+
+        # ------------------------------------------------------------------
+        # 13. TLS 证书即将过期（<7 天）
+        # ------------------------------------------------------------------
+        - alert: CertificateExpiringSoon
+          expr: (certmanager_certificate_expiration_timestamp_seconds - time()) / 86400 < 7
+          for: 0m
+          labels:
+            severity: warning
+            category: security
+          annotations:
+            summary: "TLS 证书即将过期"
+            description: "证书 {{ $labels.name }} 将在 {{ $value | humanize }} 天后过期。"
+
+        # ------------------------------------------------------------------
+        # 14. 登录失败次数激增（暴力破解嫌疑）
+        # ------------------------------------------------------------------
+        - alert: FailedLoginSpike
+          expr: sum(rate(metaclouds_auth_login_failures_total[5m])) by (job) > 10
+          for: 5m
+          labels:
+            severity: warning
+            category: security
+          annotations:
+            summary: "登录失败次数异常"
+            description: "5 分钟内登录失败率 {{ $value | humanize }} 次/秒，超过阈值 10 次/秒，疑似暴力破解。"
+
+        # ------------------------------------------------------------------
+        # 15. 资源配额超限
+        # ------------------------------------------------------------------
+        - alert: ResourceQuotaExceeded
+          expr: kube_resourcequota{namespace="metaclouds", type="hard"} / kube_resourcequota{namespace="metaclouds", type="used"} > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            category: quota
+          annotations:
+            summary: "资源配额接近上限"
+            description: "命名空间 metaclouds 的 {{ $labels.resource }} 配额使用率超过 90%。"
+
+        # ------------------------------------------------------------------
+        # 16. Pod 长时间未就绪（>5 分钟）
+        # ------------------------------------------------------------------
+        - alert: PodNotReady
+          expr: kube_pod_status_ready{namespace="metaclouds", condition="false"} == 1
+          for: 5m
+          labels:
+            severity: warning
+            category: cluster
+          annotations:
+            summary: "Pod 长时间未就绪"
+            description: "Pod {{ $labels.pod }} 在命名空间 metaclouds 中超过 5 分钟未就绪。"

@@ -1,0 +1,33 @@
+# ==============================================================================
+# 11-servicemonitor.yaml — Prometheus ServiceMonitor
+# ==============================================================================
+# Prometheus Operator 自动发现并抓取 /metrics 端点。
+# 前置条件：集群已安装 Prometheus Operator（CRD: servicemonitors.monitoring.coreos.com）。
+#
+# 抓取间隔 15s，与 ConfigMap 中 METRICS_COLLECTION_INTERVAL_SECONDS 对齐。
+# ==============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: metaclouds-backend
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: backend
+    app.kubernetes.io/part-of: metaclouds
+    # 必须匹配 Prometheus CR 中的 serviceMonitorSelector（通常为 release: prometheus）
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: metaclouds
+      component: backend
+  namespaceSelector:
+    matchNames:
+      - metaclouds
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      scheme: http
