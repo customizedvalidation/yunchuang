@@ -13,6 +13,7 @@ pub mod models;
 pub mod orm;
 pub mod response;
 pub mod routes;
+pub mod services;
 
 use std::sync::Arc;
 use std::time::Duration;

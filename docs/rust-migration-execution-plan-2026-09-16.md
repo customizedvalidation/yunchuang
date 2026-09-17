@@ -334,6 +334,35 @@
 
 **Phase 2 并行图示（见 §5）。**
 
+> ### Phase 2 完成状态（2026-09-17）
+>
+> **✅ 全部六批（B1-B6）已完成并整合验证。**
+>
+> | 批次 | 领域 | 模型/服务/路由 | 新测试数 | L1/L2 Golden |
+> |---|---|---|---|---|
+> | B1 | 基础域: Tenant / User / Auth(change_password) / RBAC | models::tenant, services::tenant, handlers::tenant + auth::handler::change_password | 25 (auth 13 + tenant 12) | L1/L2 ✅ |
+> | B2 | 资源域: Resource / Cluster / Topology / K8s(mock) | models::resource/cluster/topology, services::resource/cluster/topology/k8s, handlers::resource/cluster/topology/k8s | 18 (cluster 7 + k8s 2 + resource 6 + topology 3) | L1/L2 ✅ |
+> | B3 | 作业域: Job / GPUDevice / GPUAllocation | models::job/gpu_device/gpu_allocation, services::job/gpu, handlers::job/gpu | 20 (job 12 + gpu 8) | L1/L2 ✅ |
+> | B4 | 调度域: Partition / PartitionPermission / ResourceQuota / SchedulerIntegration | models::partition/partition_permission/resource_quota/scheduler_integration, services::partition/partition_permission/quota/scheduler, handlers::partition/quota/scheduler | 18 (partition 7 + quota 6 + scheduler 5) | L1/L2 ✅ |
+> | B5 | 数据加速域: Dataset / FluidCache / TrainingConfig / InferenceConfig / AccelerationSuite / Checkpoint | models::dataset/fluid_cache/training_config/inference_config/acceleration_suite/checkpoint, services::dataset/acceleration/checkpoint, handlers::dataset/checkpoint/acceleration | 20 (acceleration 7 + checkpoint 4 + dataset 7 + fluid/training 2) | L1/L2 ✅ |
+> | B6 | 治理域: Alert / SecurityPolicy / Monitoring(13 指标 + 16 告警规则) | models::alert/security_policy, services::alert/security/monitoring, handlers::alert/security/monitoring | 19 (alert 8 + monitoring 5 + security 6) | L1/L2 ✅ |
+> | **合计** | | | **120** | |
+>
+> **整合验证结果**：
+> - `cargo fmt --check` ✅
+> - `cargo clippy --all-targets -- -D warnings` ✅ 零警告
+> - `cargo test` 全量 **193 passed / 0 failed**（Phase 0/1 旧 73 + B1-B6 新 120）
+> - 端到端冒烟（:8001）：登录 200 → Bearer token → 30 个 GET 端点全 200 → 未认证 401 ✅
+> - 统一路由注册：`src/routes.rs` 注册全部 B1-B6 handler，路径/方法/权限对齐 Go routes.go（含 21 个 Vue3 别名路由中的 GPU/Topology 别名）
+>
+> **遗留项**：
+> 1. **FluidCache HTTP handler 未注册**：Go 版有 `/datasets/{id}/caches/*` 和 `/fluid-caches/*` 路由（7 个写操作 + 别名），Rust B5 批次交付了 model/service/unit test 但未产出 handler 层，routes.rs 暂未挂载。
+> 2. **Postgres 双驱动测试未真实执行**：当前全部测试在 SQLite/内存模式通过；Postgres 连接需 CI 环境（testcontainers 或本地 PG），留待 Phase 3 P3-01 或 CI 矩阵补跑。
+> 3. **Partition 部分 Go 路由无 Rust handler**：Go 的 `PUT /partitions/:id/priority`、`PUT /partitions/:id/max-runtime`、`GET /partitions/:id/permissions`（列表）在 Rust 中未实现 handler；Rust 额外提供了 `GET /partitions/:id/resources`。
+> 4. **K8s controller 路由映射差异**：Go 将 `clusters/:id/status`、`resources/gpu`、`jobs/:id/submit`、`jobs/:id/status` 路由到 K8s controller；Rust B2 的 K8s handler 是独立 mock 端点 `/k8s/clusters/{id}/pods|nodes|health`，上述 4 个 Go 路由暂无 Rust handler。
+> 5. **routes.rs 刚统一注册，需进一步 Golden L3 RBAC 矩阵对比**：当前端到端冒烟仅验证 admin 角色 200/401；manager/user 角色的 403 矩阵需 P4-01 阶段用遍历器系统比对。
+> 6. **Alert 权限常量**：`alert:read`/`alert:write` 未在 `authz::permissions` 中定义常量（B6 handler 文档引用），routes.rs 中使用字符串字面量。admin 短路放行不影响冒烟，但 P4 RBAC 矩阵需补常量。
+
 ---
 
 ## 5. 并行批次图
@@ -611,17 +640,21 @@ docs/golden-api-baseline/
 
 ---
 
-## 13. 本轮（Phase 0）已完成 / 进行中状态
+## 13. 本轮已完成 / 进行中状态
 
 | 项 | 状态 |
 |---|---|
 | 可行性评估报告（上游） | ✅ 已完成 |
 | 本执行计划文档 | ✅ 本文件 |
-| 选型 Spike（P0-01） | 🟡 进行中 |
-| PoC 登录 + User CRUD（P0-02） | 🟡 进行中 |
-| Golden 抓取脚本与目录（P0-03） | 🟡 进行中（目录规划已就绪） |
-| 团队 ramp-up（P0-04） | ⚪ 待启动 |
-| Rust 仓库骨架 `metaclouds-backend-rust/` | ⚪ 待初始化 |
+| 选型 Spike（P0-01） | ✅ 已完成（Axum 0.8 + sqlx + sqlx-cli migrate） |
+| PoC 登录 + User CRUD（P0-02） | ✅ 已完成 |
+| Golden 抓取脚本与目录（P0-03） | ✅ 已完成 |
+| 团队 ramp-up（P0-04） | ✅ 融入日常 |
+| Rust 仓库骨架 `metaclouds-backend-rust/` | ✅ 已初始化 |
+| Phase 1 基础设施骨架（P1-01 ~ P1-08） | ✅ 已完成（61 测试，3 pd） |
+| Phase 2 领域六批（B1-B6） | ✅ 已完成（120 新测试，统一路由注册，端到端冒烟通过） |
+| Phase 3 横切能力（P3-01 ~ P3-06） | ⚪ 待启动 |
+| Phase 4 验收切换（P4-01 ~ P4-06） | ⚪ 待启动 |
 
 ---
 

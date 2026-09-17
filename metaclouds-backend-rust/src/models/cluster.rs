@@ -57,6 +57,54 @@ impl SoftDelete for Cluster {
     }
 }
 
+/// 对外集群视图（剔除软删除列 `deleted_at`，对齐 Go `json:"-"`）。
+///
+/// `gpu_vendors` / `scheduler_types` 解包为裸 JSON（对齐 Go 侧本就是 JSON 字符串字段）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClusterResponse {
+    pub id: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub name: String,
+    pub description: String,
+    pub status: String,
+    pub nodes: i64,
+    pub gpus: i64,
+    pub cpus: i64,
+    pub memory: i64,
+    pub storage: i64,
+    pub network_type: String,
+    pub location: String,
+    pub gpu_vendors: Vec<String>,
+    pub scheduler_types: Vec<String>,
+    pub multi_cluster_enabled: bool,
+    pub federation_id: String,
+}
+
+impl From<Cluster> for ClusterResponse {
+    fn from(c: Cluster) -> Self {
+        Self {
+            id: c.id,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+            name: c.name,
+            description: c.description,
+            status: c.status,
+            nodes: c.nodes,
+            gpus: c.gpus,
+            cpus: c.cpus,
+            memory: c.memory,
+            storage: c.storage,
+            network_type: c.network_type,
+            location: c.location,
+            gpu_vendors: c.gpu_vendors.0,
+            scheduler_types: c.scheduler_types.0,
+            multi_cluster_enabled: c.multi_cluster_enabled,
+            federation_id: c.federation_id,
+        }
+    }
+}
+
 /// 创建集群入参。
 pub struct NewCluster<'a> {
     pub name: &'a str,

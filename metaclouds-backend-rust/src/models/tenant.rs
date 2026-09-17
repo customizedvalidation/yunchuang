@@ -47,6 +47,40 @@ impl SoftDelete for Tenant {
     }
 }
 
+/// 对外租户视图（对齐 Go `models.Tenant` 的 JSON tag：`deleted_at` 为 `json:"-"`）。
+///
+/// 与 [`Tenant`] 的区别：剔除软删除列 `deleted_at`，绝不回传给客户端。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TenantResponse {
+    pub id: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub name: String,
+    pub description: String,
+    pub status: String,
+    pub gpu_quota: i64,
+    pub cpu_quota: i64,
+    pub memory_quota: i64,
+    pub storage_quota: i64,
+}
+
+impl From<Tenant> for TenantResponse {
+    fn from(t: Tenant) -> Self {
+        Self {
+            id: t.id,
+            created_at: t.created_at,
+            updated_at: t.updated_at,
+            name: t.name,
+            description: t.description,
+            status: t.status,
+            gpu_quota: t.gpu_quota,
+            cpu_quota: t.cpu_quota,
+            memory_quota: t.memory_quota,
+            storage_quota: t.storage_quota,
+        }
+    }
+}
+
 /// 创建租户入参。
 pub struct NewTenant<'a> {
     pub name: &'a str,

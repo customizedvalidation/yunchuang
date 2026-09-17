@@ -1,0 +1,203 @@
+//! HTTP handlers for `/api/v1/jobs`（对齐 Go `controllers/job_controller.go`）。
+//!
+//! 仅做参数提取 / 校验 / 响应封装；CRUD / 状态机 / 取消 / 统计在 [`crate::services::job`]。
+//! 路由上：列表/详情/统计需 JWT + `job:read`，创建/更新/删除/取消需 JWT + `job:write`。
+//!
+//! 调用方身份（tenant_id / user_id / is_admin）一律取自 JWT claims，不采信请求体
+//! （对齐 Go `CreateJobForUser`：防止伪造租户/用户归属）。
+
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::Json;
+use serde::Deserialize;
+use serde::Serialize;
+use validator::Validate;
+
+use crate::auth::jwt::Claims;
+use crate::auth::middleware::AppState;
+use crate::error::AppResult;
+use crate::models::job::JobResponse;
+use crate::orm::PaginationParams;
+use crate::response::{ApiResponse, WithStatus};
+use crate::services::job::{self, Actor, CreateJobInput, UpdateJobInput};
+
+/// 从 JWT claims 构造服务层 Actor。
+fn actor_from_claims(c: &Claims) -> Actor {
+    Actor {
+        tenant_id: c.tenant_id as i64,
+        user_id: c.user_id as i64,
+        is_admin: c.role == "admin",
+    }
+}
+
+/// 分页 + 搜索 + 过滤查询参数。
+#[derive(Debug, Deserialize)]
+pub struct JobListQuery {
+    pub page: Option<u32>,
+    pub page_size: Option<u32>,
+    pub search: Option<String>,
+    pub status: Option<String>,
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
+    pub cluster_id: Option<i64>,
+    pub user_id: Option<i64>,
+}
+
+/// `POST /api/v1/jobs` 请求体。
+#[derive(Debug, Deserialize, Validate)]
+pub struct CreateJobRequest {
+    #[validate(length(min = 1, message = "name is required"))]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(rename = "type")]
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub priority: Option<i64>,
+    #[serde(default)]
+    pub gpus: Option<i64>,
+    #[serde(default)]
+    pub cpus: Option<i64>,
+    #[serde(default)]
+    pub memory: Option<i64>,
+    #[serde(default)]
+    pub duration: Option<i64>,
+    #[serde(default)]
+    pub cluster_id: Option<i64>,
+}
+
+/// `PUT /api/v1/jobs/:id` 请求体（全部可选）。
+#[derive(Debug, Deserialize, Validate, Default)]
+pub struct UpdateJobRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub status: Option<String>,
+    pub priority: Option<i64>,
+    pub progress: Option<i64>,
+    pub output_path: Option<String>,
+    pub error_msg: Option<String>,
+}
+
+/// 分页作业列表响应内层。
+#[derive(Debug, Serialize)]
+pub struct JobPage {
+    pub data: Vec<JobResponse>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub total_pages: i64,
+}
+
+/// `GET /api/v1/jobs` — 分页列表（搜索 + status/type/cluster_id/user_id 过滤）。
+pub async fn list_jobs(
+    State(state): State<AppState>,
+    claims: Claims,
+    Query(q): Query<JobListQuery>,
+) -> AppResult<Json<ApiResponse<JobPage>>> {
+    let params =
+        PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
+    let res = job::list_jobs(
+        &state.pool,
+        params,
+        q.status.as_deref(),
+        q.kind.as_deref(),
+        q.cluster_id,
+        q.user_id,
+        q.search.as_deref(),
+        actor_from_claims(&claims),
+    )
+    .await?;
+    Ok(Json(ApiResponse::success(JobPage {
+        data: res.data,
+        total: res.total,
+        page: res.page,
+        page_size: res.page_size,
+        total_pages: res.total_pages,
+    })))
+}
+
+/// `GET /api/v1/jobs/stats` — 按状态统计数量。
+pub async fn get_job_stats(
+    State(state): State<AppState>,
+    claims: Claims,
+) -> AppResult<Json<ApiResponse<std::collections::HashMap<String, i64>>>> {
+    let stats = job::get_job_stats(&state.pool, actor_from_claims(&claims)).await?;
+    Ok(Json(ApiResponse::success(stats)))
+}
+
+/// `GET /api/v1/jobs/:id` — 详情。
+pub async fn get_job(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<i64>,
+) -> AppResult<Json<ApiResponse<JobResponse>>> {
+    let j = job::get_job(&state.pool, id, actor_from_claims(&claims)).await?;
+    Ok(Json(ApiResponse::success(j)))
+}
+
+/// `POST /api/v1/jobs` — 创建（201）。
+pub async fn create_job(
+    State(state): State<AppState>,
+    claims: Claims,
+    Json(body): Json<CreateJobRequest>,
+) -> AppResult<WithStatus<JobResponse>> {
+    body.validate()?;
+    let input = CreateJobInput {
+        name: body.name,
+        description: body.description,
+        kind: body.kind,
+        priority: body.priority.unwrap_or(0),
+        gpus: body.gpus.unwrap_or(0),
+        cpus: body.cpus.unwrap_or(0),
+        memory: body.memory.unwrap_or(0),
+        duration: body.duration.unwrap_or(0),
+        cluster_id: body.cluster_id.unwrap_or(0),
+    };
+    let j = job::create_job(&state.pool, input, actor_from_claims(&claims)).await?;
+    Ok(WithStatus {
+        status: StatusCode::CREATED,
+        inner: ApiResponse::success(j),
+    })
+}
+
+/// `PUT /api/v1/jobs/:id` — 更新（状态机校验）。
+pub async fn update_job(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdateJobRequest>,
+) -> AppResult<Json<ApiResponse<JobResponse>>> {
+    body.validate()?;
+    let input = UpdateJobInput {
+        name: body.name,
+        description: body.description,
+        status: body.status,
+        priority: body.priority,
+        progress: body.progress,
+        output_path: body.output_path,
+        error_msg: body.error_msg,
+    };
+    let j = job::update_job(&state.pool, id, input, actor_from_claims(&claims)).await?;
+    Ok(Json(ApiResponse::success(j)))
+}
+
+/// `DELETE /api/v1/jobs/:id` — 软删除，204。
+pub async fn delete_job(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<i64>,
+) -> AppResult<StatusCode> {
+    job::delete_job(&state.pool, id, actor_from_claims(&claims)).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /api/v1/jobs/:id/cancel` — 取消（仅 pending/running）。
+pub async fn cancel_job(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<i64>,
+) -> AppResult<Json<ApiResponse<JobResponse>>> {
+    let j = job::cancel_job(&state.pool, id, actor_from_claims(&claims)).await?;
+    Ok(Json(ApiResponse::success(j)))
+}

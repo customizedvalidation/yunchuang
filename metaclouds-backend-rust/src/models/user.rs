@@ -28,6 +28,9 @@ pub struct User {
     pub tenant_id: i64,
     /// 软删除时间；None 表示未删除（对齐 GORM gorm.DeletedAt）。
     pub deleted_at: Option<DateTime<Utc>>,
+    /// 最近一次成功登录时间。Go 版未持久化该列；B1 按任务要求记录，
+    /// 登录成功时由服务层刷新，不对外暴露。
+    pub last_login_at: Option<DateTime<Utc>>,
 }
 
 // GORM 行为显式化：插入自动填 created_at/updated_at，更新只刷 updated_at。
@@ -137,6 +140,7 @@ pub async fn create(pool: &SqlitePool, input: NewUser<'_>) -> AppResult<User> {
         role: input.role.to_string(),
         tenant_id: input.tenant_id,
         deleted_at: None,
+        last_login_at: None,
     };
     // 对齐 GORM：插入前统一刷一次时间戳。
     user.before_insert();
@@ -206,6 +210,16 @@ pub async fn list(
 /// 刷新 updated_at（任意字段更新后调用）。
 pub async fn touch_updated_at(pool: &SqlitePool, id: i64) -> AppResult<()> {
     sqlx::query("UPDATE users SET updated_at = ?1 WHERE id = ?2")
+        .bind(Utc::now())
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// 记录一次成功登录时间（登录成功时调用，仅写 last_login_at）。
+pub async fn touch_last_login(pool: &SqlitePool, id: i64) -> AppResult<()> {
+    sqlx::query("UPDATE users SET last_login_at = ?1 WHERE id = ?2")
         .bind(Utc::now())
         .bind(id)
         .execute(pool)

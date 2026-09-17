@@ -1,10 +1,11 @@
 # metaclouds-backend-rust
 
 Rust rewrite of the Metaclouds backend, API-compatible with the Go v1 backend
-(`metaclouds-backend/`). Phase 0 (Spike) and Phase 1 (infrastructure skeleton)
-are complete. The project currently covers auth, user CRUD, and the full
-cross-cutting middleware stack; domain modules (clusters, jobs, resources, …)
-are planned for Phase 2.
+(`metaclouds-backend/`). Phase 0 (Spike), Phase 1 (infrastructure skeleton), and
+Phase 2 (domain layer B1-B6) are complete. The project covers auth, user CRUD,
+tenants, clusters, resources, topology, K8s mock, jobs, GPUs, partitions, quotas,
+schedulers, datasets, checkpoints, acceleration suites, alerts, security policies,
+and monitoring dashboards — **193 tests, all passing**.
 
 ## Architecture
 
@@ -16,7 +17,7 @@ src/
 ├── db.rs                # DatabasePool (Sqlite/Postgres), migrations, admin seed
 ├── error.rs             # AppError + ErrorCode (thiserror, 9+ codes)
 ├── response.rs          # JSON envelope (success/data/message/code/timestamp)
-├── routes.rs            # router assembly (public vs protected, CSRF layer)
+├── routes.rs            # router assembly — all B1-B6 domains unified here
 ├── middleware/
 │   ├── mod.rs           # apply_core_stack() — composes the full middleware chain
 │   ├── request_id.rs    # X-Request-ID propagation + tracing span
@@ -27,21 +28,37 @@ src/
 │   └── panic_recover.rs # catch panic → 500 envelope
 ├── auth/
 │   ├── password.rs      # argon2id hash + bcrypt dual-read (Go migration compat)
-│   ├── jwt.rs           # HS256 issue/verify + Claims (user_id/username/email/role/tenant_id/exp/iat/jti)
-│   ├── csrf.rs          # double-submit token (csrf_token cookie + X-CSRF-Token header)
-│   ├── middleware.rs    # jwt_auth + require_permission + AppState
-│   └── handler.rs       # login / logout / refresh / profile / csrf
+│   ├── jwt.rs            # HS256 issue/verify + Claims
+│   ├── csrf.rs           # double-submit token (csrf_token cookie + X-CSRF-Token header)
+│   ├── middleware.rs     # jwt_auth + require_permission + AppState + 30 permission constants
+│   └── handler.rs        # login / logout / refresh / profile / csrf / change_password
 ├── authz/
-│   └── mod.rs           # 30 permission constants + Role enum + role-permission matrix
+│   └── mod.rs            # 30 permission constants + role-permission matrix
 ├── orm/
-│   └── mod.rs           # HasTimestamps / SoftDelete / Pagination / Json<T> (GORM parity layer)
-├── models/
-│   ├── mod.rs
-│   ├── user.rs          # User + UserResponse + DTOs (HasTimestamps + SoftDelete)
-│   ├── tenant.rs        # Tenant + CRUD (ORM layer demo)
-│   └── cluster.rs       # Cluster + CRUD (ORM layer demo)
-└── handlers/
-    └── user.rs          # CRUD + pagination + search
+│   └── mod.rs            # HasTimestamps / SoftDelete / Pagination / Json<T> (GORM parity layer)
+├── models/               # domain models (sqlx FromRow + Response DTOs)
+│   ├── user.rs, tenant.rs, cluster.rs, resource.rs, topology.rs
+│   ├── job.rs, gpu_device.rs, gpu_allocation.rs
+│   ├── partition.rs, partition_permission.rs, resource_quota.rs, scheduler_integration.rs
+│   ├── dataset.rs, fluid_cache.rs, checkpoint.rs
+│   ├── training_config.rs, inference_config.rs, acceleration_suite.rs
+│   ├── alert.rs, security_policy.rs
+│   └── k8s.rs
+├── services/             # business logic (pure, no HTTP)
+│   ├── auth.rs, tenant.rs, user.rs
+│   ├── cluster.rs, resource.rs, topology.rs, k8s.rs (MockK8sClient)
+│   ├── job.rs, gpu.rs
+│   ├── partition.rs, partition_permission.rs, quota.rs, scheduler.rs
+│   ├── dataset.rs, checkpoint.rs, acceleration.rs
+│   ├── alert.rs, security.rs, monitoring.rs (13 dashboard metrics + 16 alert rules)
+│   └── fluid_cache.rs, training_config.rs, inference_config.rs
+└── handlers/             # HTTP extractors + response envelope
+    ├── user.rs, tenant.rs, cluster.rs, resource.rs, topology.rs, k8s.rs
+    ├── job.rs, gpu.rs
+    ├── partition.rs, quota.rs, scheduler.rs
+    ├── dataset.rs, checkpoint.rs, acceleration.rs
+    ├── alert.rs, security.rs, monitoring.rs
+    └── mod.rs
 ```
 
 ### Middleware stack order
@@ -69,8 +86,24 @@ cookie is present; Bearer-token clients are exempt.
 | `middlewares/csrf.go`  | `src/auth/csrf.rs`              |
 | `controllers/auth.go`  | `src/auth/handler.rs`           |
 | `controllers/user.go`  | `src/handlers/user.rs`          |
-| `models/`              | `src/models/` + `src/orm/`     |
-| `migrations/`          | `migrations/`                    |
+| `controllers/tenant.go`| `src/handlers/tenant.rs`        |
+| `controllers/cluster.go`| `src/handlers/cluster.rs`      |
+| `controllers/resource.go`| `src/handlers/resource.rs`    |
+| `controllers/topology.go`| `src/handlers/topology.rs`    |
+| `controllers/k8s.go`   | `src/handlers/k8s.rs`           |
+| `controllers/job.go`   | `src/handlers/job.rs`           |
+| `controllers/gpu.go`   | `src/handlers/gpu.rs`           |
+| `controllers/partition.go`| `src/handlers/partition.rs` |
+| `controllers/quota.go` | `src/handlers/quota.rs`         |
+| `controllers/scheduler.go`| `src/handlers/scheduler.rs` |
+| `controllers/dataset.go`| `src/handlers/dataset.rs`      |
+| `controllers/checkpoint.go`| `src/handlers/checkpoint.rs` |
+| `controllers/acceleration.go`| `src/handlers/acceleration.rs` |
+| `controllers/alert.go` | `src/handlers/alert.rs`         |
+| `controllers/security.go`| `src/handlers/security.rs`    |
+| `controllers/monitoring.go`| `src/handlers/monitoring.rs` |
+| `models/`               | `src/models/` + `src/orm/`     |
+| `migrations/`           | `migrations/`                    |
 
 ## Tech stack
 
@@ -150,18 +183,225 @@ Key variables (full list in `src/config.rs`, ~60 fields 1:1 with Go `config.go`)
 
 ## Endpoints
 
-| Method | Path                      | Auth                | Notes                                        |
-|--------|---------------------------|---------------------|----------------------------------------------|
-| POST   | `/api/v1/auth/login`      | public              | sets `access_token` + `csrf_token` cookies  |
-| POST   | `/api/v1/auth/logout`     | JWT                 | clears cookies                               |
-| POST   | `/api/v1/auth/refresh`    | JWT                 | re-issues token + cookies                    |
-| GET    | `/api/v1/auth/profile`    | JWT                 | current user                                 |
-| GET    | `/api/v1/auth/csrf`       | JWT                 | returns `csrf_token` from cookie             |
-| GET    | `/api/v1/users`           | JWT + `admin`       | `?page=&page_size=&search=`                  |
-| POST   | `/api/v1/users`           | JWT + `admin`       | 201 on success                               |
-| GET    | `/api/v1/users/{id}`      | JWT + `admin`       | 404 if missing                               |
-| PUT    | `/api/v1/users/{id}`      | JWT + `admin`       | partial update                               |
-| DELETE | `/api/v1/users/{id}`      | JWT + `admin`       | 200 on success (soft-delete in ORM layer)   |
+All routes are under `/api/v1`. JWT = `Authorization: Bearer <token>` or
+`access_token` cookie. Permission column shows the RBAC permission required
+(beyond JWT); `admin` role short-circuits all permissions.
+
+### Auth (B1)
+
+| Method | Path                     | Auth | Notes |
+|--------|--------------------------|------|-------|
+| POST   | `/auth/login`            | public | sets `access_token` + `csrf_token` cookies |
+| POST   | `/auth/logout`           | JWT | clears cookies |
+| POST   | `/auth/refresh`          | JWT | re-issues token + cookies |
+| GET    | `/auth/profile`          | JWT | current user |
+| GET    | `/auth/csrf`             | JWT | returns `csrf_token` from cookie |
+| PUT    | `/auth/change-password`  | JWT | self-service password change |
+
+### Users (B1, admin only)
+
+| Method | Path               | Auth | Notes |
+|--------|--------------------|------|-------|
+| GET    | `/users`           | JWT + `admin` | `?page=&page_size=&search=` |
+| POST   | `/users`           | JWT + `admin` | 201 |
+| GET    | `/users/{id}`      | JWT + `admin` | |
+| PUT    | `/users/{id}`      | JWT + `admin` | |
+| DELETE | `/users/{id}`      | JWT + `admin` | soft-delete |
+
+### Tenants (B1)
+
+| Method | Path           | Auth | Notes |
+|--------|----------------|------|-------|
+| GET    | `/tenants`     | JWT + `tenant:read` | paginated |
+| POST   | `/tenants`     | JWT + `tenant:write` | 201 |
+| GET    | `/tenants/{id}` | JWT + `tenant:read` | |
+| PUT    | `/tenants/{id}` | JWT + `tenant:write` | |
+| DELETE | `/tenants/{id}` | JWT + `tenant:write` | 204 soft-delete |
+
+### Clusters (B2)
+
+| Method | Path              | Auth | Notes |
+|--------|-------------------|------|-------|
+| GET    | `/clusters`       | JWT | list + search |
+| POST   | `/clusters`       | JWT + `cluster:write` | 201 |
+| GET    | `/clusters/{id}`  | JWT | |
+| PUT    | `/clusters/{id}`  | JWT + `cluster:write` | |
+| DELETE | `/clusters/{id}`  | JWT + `cluster:write` | 204 |
+
+### Resources (B2)
+
+| Method | Path              | Auth | Notes |
+|--------|-------------------|------|-------|
+| GET    | `/resources`      | JWT | list + filter |
+| POST   | `/resources`      | JWT + `resource:write` | 201 |
+| GET    | `/resources/{id}` | JWT | |
+| PUT    | `/resources/{id}` | JWT + `resource:write` | |
+| DELETE | `/resources/{id}` | JWT + `resource:write` | 204 |
+
+### Topology (B2)
+
+| Method | Path                      | Auth | Notes |
+|--------|---------------------------|------|-------|
+| GET    | `/topology`               | JWT | node list |
+| POST   | `/topology`               | JWT + `topology:write` | 201 |
+| GET    | `/topology/{id}`          | JWT | |
+| PUT    | `/topology/{id}`          | JWT + `topology:write` | |
+| DELETE | `/topology/{id}`          | JWT + `topology:write` | 204 |
+| GET    | `/topology/nodes`         | JWT | Vue3 alias |
+| POST   | `/topology/nodes`         | JWT + `topology:write` | alias |
+| GET    | `/topology/nodes/{id}`    | JWT | alias |
+| PUT    | `/topology/nodes/{id}`    | JWT + `topology:write` | alias |
+| DELETE | `/topology/nodes/{id}`    | JWT + `topology:write` | alias |
+
+### K8s Mock (B2)
+
+| Method | Path                            | Auth | Notes |
+|--------|---------------------------------|------|-------|
+| GET    | `/k8s/clusters/{id}/pods`       | JWT | mock pods |
+| GET    | `/k8s/clusters/{id}/nodes`      | JWT | mock nodes |
+| GET    | `/k8s/clusters/{id}/health`     | JWT | mock health |
+
+### Jobs (B3)
+
+| Method | Path                | Auth | Notes |
+|--------|---------------------|------|-------|
+| GET    | `/jobs`             | JWT | list + filter |
+| GET    | `/jobs/stats`       | JWT | count by status |
+| POST   | `/jobs`             | JWT + `job:write` | 201 |
+| GET    | `/jobs/{id}`        | JWT | |
+| PUT    | `/jobs/{id}`        | JWT + `job:write` | state machine |
+| DELETE | `/jobs/{id}`        | JWT + `job:write` | 204 |
+| POST   | `/jobs/{id}/cancel` | JWT + `job:write` | |
+
+### GPUs (B3)
+
+| Method | Path                          | Auth | Notes |
+|--------|-------------------------------|------|-------|
+| GET    | `/gpus`                       | JWT | device list |
+| POST   | `/gpus`                       | JWT + `gpu:write` | 201 |
+| GET    | `/gpus/{id}`                  | JWT | |
+| PUT    | `/gpus/{id}`                  | JWT + `gpu:write` | |
+| DELETE | `/gpus/{id}`                  | JWT + `gpu:write` | 204 |
+| GET    | `/gpus/allocations`           | JWT | allocation records |
+| POST   | `/gpus/allocations`           | JWT + `job:write` | 201 allocate |
+| DELETE | `/gpus/allocations/{id}`      | JWT + `job:write` | 204 release |
+| GET    | `/gpus/utilization`           | JWT | utilization summary |
+
+#### GPU Vue3 aliases (`/gpu/...`)
+
+| Method | Path                              | Auth |
+|--------|-----------------------------------|------|
+| GET    | `/gpu/devices`                    | JWT |
+| POST   | `/gpu/devices`                    | JWT + `gpu:write` |
+| GET    | `/gpu/devices/{id}`               | JWT |
+| PUT    | `/gpu/devices/{id}`               | JWT + `gpu:write` |
+| DELETE | `/gpu/devices/{id}`               | JWT + `gpu:write` |
+| GET    | `/gpu/allocations`                | JWT |
+| POST   | `/gpu/allocations`                | JWT + `job:write` |
+| POST   | `/gpu/allocations/{id}/release`   | JWT + `job:write` |
+| GET    | `/gpu/utilization`                | JWT |
+
+### Partitions (B4)
+
+| Method | Path                              | Auth | Notes |
+|--------|-----------------------------------|------|-------|
+| GET    | `/partitions`                     | JWT | list + filter |
+| POST   | `/partitions`                     | JWT + `partition:write` | 201 |
+| GET    | `/partitions/{id}`                | JWT | |
+| PUT    | `/partitions/{id}`                | JWT + `partition:write` | |
+| DELETE | `/partitions/{id}`                | JWT + `partition:write` | 204 |
+| GET    | `/partitions/{id}/resources`      | JWT | resource usage |
+| POST   | `/partitions/{id}/permissions`    | JWT + `partition:write` | grant |
+| DELETE | `/partitions/{id}/permissions/{perm_id}` | JWT + `partition:write` | revoke |
+
+### Quotas (B4)
+
+| Method | Path                  | Auth | Notes |
+|--------|-----------------------|------|-------|
+| GET    | `/quotas`             | JWT | list + filter |
+| POST   | `/quotas`             | JWT + `quota:write` | 201 |
+| GET    | `/quotas/{id}`        | JWT | |
+| PUT    | `/quotas/{id}`        | JWT + `quota:write` | |
+| DELETE | `/quotas/{id}`        | JWT + `quota:write` | 204 |
+| POST   | `/quotas/{id}/check`  | JWT | check against usage |
+
+### Schedulers (B4)
+
+| Method | Path                          | Auth | Notes |
+|--------|-------------------------------|------|-------|
+| GET    | `/schedulers`                 | JWT | list + filter |
+| POST   | `/schedulers`                 | JWT + `scheduler:write` | 201 |
+| GET    | `/schedulers/{id}`            | JWT | |
+| PUT    | `/schedulers/{id}`            | JWT + `scheduler:write` | |
+| DELETE | `/schedulers/{id}`            | JWT + `scheduler:write` | 204 |
+| POST   | `/schedulers/{id}/sync`       | JWT + `scheduler:write` | mock sync |
+| POST   | `/schedulers/{id}/test-connection` | JWT + `scheduler:write` | mock test |
+
+### Datasets (B5)
+
+| Method | Path              | Auth | Notes |
+|--------|-------------------|------|-------|
+| GET    | `/datasets`       | JWT | list + filter |
+| POST   | `/datasets`       | JWT + `dataset:write` | 201 |
+| GET    | `/datasets/{id}`  | JWT | |
+| PUT    | `/datasets/{id}`  | JWT + `dataset:write` | |
+| DELETE | `/datasets/{id}`  | JWT + `dataset:write` | 204 |
+
+### Checkpoints (B5)
+
+| Method | Path                | Auth | Notes |
+|--------|---------------------|------|-------|
+| GET    | `/checkpoints`      | JWT | list + filter |
+| POST   | `/checkpoints`      | JWT + `checkpoint:write` | 201 |
+| GET    | `/checkpoints/{id}` | JWT | |
+| PUT    | `/checkpoints/{id}` | JWT + `checkpoint:write` | |
+| DELETE | `/checkpoints/{id}` | JWT + `checkpoint:write` | 204 |
+
+### Acceleration (B5)
+
+| Method | Path                        | Auth | Notes |
+|--------|-----------------------------|------|-------|
+| GET    | `/acceleration`             | JWT | suite list |
+| POST   | `/acceleration`             | JWT + `acceleration:write` | 201 |
+| GET    | `/acceleration/{id}`        | JWT | |
+| PUT    | `/acceleration/{id}`        | JWT + `acceleration:write` | |
+| DELETE | `/acceleration/{id}`        | JWT + `acceleration:write` | 204 |
+| POST   | `/acceleration/{id}/start`  | JWT + `acceleration:write` | |
+| POST   | `/acceleration/{id}/stop`   | JWT + `acceleration:write` | |
+
+### Alerts (B6)
+
+| Method | Path                      | Auth | Notes |
+|--------|---------------------------|------|-------|
+| GET    | `/alerts`                 | JWT | list + filter |
+| GET    | `/alerts/stats`           | JWT | alert stats |
+| POST   | `/alerts`                 | JWT + `alert:write` | 201 |
+| GET    | `/alerts/{id}`            | JWT | |
+| PUT    | `/alerts/{id}`            | JWT + `alert:write` | |
+| DELETE | `/alerts/{id}`            | JWT + `alert:write` | 204 |
+| POST   | `/alerts/{id}/acknowledge` | JWT + `alert:write` | |
+| POST   | `/alerts/{id}/resolve`    | JWT + `alert:write` | |
+
+### Security Policies (B6)
+
+| Method | Path                              | Auth | Notes |
+|--------|-----------------------------------|------|-------|
+| GET    | `/security/policies`              | JWT | list + filter |
+| POST   | `/security/policies`              | JWT + `security:write` | 201 |
+| GET    | `/security/policies/{id}`         | JWT | |
+| PUT    | `/security/policies/{id}`         | JWT + `security:write` | |
+| DELETE | `/security/policies/{id}`         | JWT + `security:write` | 204 |
+| POST   | `/security/policies/{id}/enable`  | JWT + `security:write` | |
+| POST   | `/security/policies/{id}/disable` | JWT + `security:write` | |
+
+### Monitoring (B6)
+
+| Method | Path                                  | Auth | Notes |
+|--------|---------------------------------------|------|-------|
+| GET    | `/monitoring/dashboard`               | JWT | 13 business metrics |
+| GET    | `/monitoring/metrics`                 | JWT | metrics, `?name=` filter |
+| GET    | `/monitoring/alert-rules`             | JWT | 16 alert rule definitions |
+| POST   | `/monitoring/alert-rules/evaluate`    | JWT + `monitoring:write` | evaluate all rules |
 
 ## Conventions
 
@@ -244,15 +484,33 @@ All jobs use `actions/cache` for the cargo registry and `target/` directory.
 
 ## Test coverage
 
-Phase 1 delivers 61 tests across 8 suites:
+Phase 2 delivers **193 tests** across 26 suites (Phase 0/1: 73 + Phase 2 B1-B6: 120):
 
-| Suite          | Tests | Coverage area                        |
-|----------------|-------|--------------------------------------|
-| `api_test`     | 11    | login / user CRUD / RBAC / envelope |
-| `auth_test`    | 6     | JWT issue/verify / bcrypt dual-read |
-| `config_test`  | 18    | defaults / validation / prod rules  |
-| `db_test`      | 5     | pool / migrations / seed             |
-| `error_test`   | 4     | 6 error codes + envelope shape       |
-| `middleware_test` | 4  | request_id / timing / security_headers |
-| `orm_test`     | 8     | timestamps / soft-delete / pagination / 3 models |
-| `rbac_test`    | 5     | permission matrix allow/deny         |
+| Suite              | Tests | Coverage area                        |
+|--------------------|-------|--------------------------------------|
+| `api_test`         | 11    | login / user CRUD / RBAC / envelope  |
+| `auth_test`        | 6     | JWT issue/verify / bcrypt dual-read  |
+| `config_test`      | 18    | defaults / validation / prod rules    |
+| `db_test`          | 5     | pool / migrations / seed             |
+| `error_test`       | 4     | 6 error codes + envelope shape       |
+| `middleware_test`  | 4     | request_id / timing / security_headers |
+| `orm_test`         | 8     | timestamps / soft-delete / pagination / models |
+| `rbac_test`        | 5     | permission matrix allow/deny          |
+| `b1_auth_test`     | 13    | login / logout / refresh / profile / change-password / lockout |
+| `b1_tenant_test`   | 12    | tenant CRUD / pagination / RBAC       |
+| `b2_cluster_test`  | 7     | cluster CRUD / search / soft-delete   |
+| `b2_k8s_test`      | 2     | mock pods/nodes/health shape + auth   |
+| `b2_resource_test` | 6     | resource CRUD / filter / RBAC         |
+| `b2_topology_test`| 3     | node CRUD / list filter              |
+| `b3_gpu_test`      | 8     | GPU device CRUD / allocate-release / filter |
+| `b3_job_test`      | 12    | job CRUD / state machine / cancel / stats / RBAC |
+| `b4_partition_test`| 7     | partition CRUD / grant-revoke / resources |
+| `b4_quota_test`    | 6     | quota CRUD / check / filter / RBAC    |
+| `b4_scheduler_test`| 5     | scheduler CRUD / test-connection / sync |
+| `b5_acceleration_test` | 7 | suite CRUD / start-stop / pagination |
+| `b5_checkpoint_test`| 4    | checkpoint CRUD / filter by job       |
+| `b5_dataset_test`  | 7     | dataset CRUD / filter / pagination    |
+| `b5_fluid_training_test` | 2 | FluidCache + TrainingConfig basic CRUD |
+| `b6_alert_test`    | 8     | alert CRUD / acknowledge-resolve / stats / filter |
+| `b6_monitoring_test`| 5    | dashboard 13 metrics / metrics filter / 16 alert rules / evaluate |
+| `b6_security_test` | 6     | policy CRUD / enable-disable / filter / RBAC |
