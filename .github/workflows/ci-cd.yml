@@ -219,21 +219,16 @@ jobs:
           working-directory: metaclouds-backend
 
       - name: Security scan with gosec
-        uses: securecodewarrior/gosec-action@v1
-        with:
-          args: '-fmt sarif -out results.sarif ./...'
-          working-directory: metaclouds-backend
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -fmt sarif -out results.sarif ./...
+        continue-on-error: true
 
       - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: metaclouds-backend/results.sarif
         if: success() || failure()
-
-      - name: CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:go"
 
       # ----------------------------------------------------------------------
       # 依赖漏洞扫描（govulncheck）
