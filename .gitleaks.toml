@@ -1,0 +1,30 @@
+# Gitleaks 配置（Metaclouds monorepo）
+# 用途：allowlist 放行测试/CI/示例占位值，保留对真实凭据泄漏的检测能力。
+# 规则说明：以下模式均为代码库中明确的占位符（无真实凭据价值），
+# 其余 high-entropy 命中（真实 token/password/API key）仍会使 CI 失败。
+
+title = "Metaclouds gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test / CI / example placeholder strings - not real credentials"
+regexes = [
+  # CI workflow 与 CI 配置中的 JWT 占位密钥
+  '''ci-jwt-secret-at-least-32''',
+  # Rust 单元测试/集成测试中的占位密钥（各测试文件自构 JWT）
+  '''concurrency-secret-at-least-32''',
+  '''sec-mw-secret-at-least-32''',
+  '''b2-topology-secret-at-least-32''',
+  '''b4-partition-secret-at-least-32''',
+  '''b4-scheduler-secret-at-least-32''',
+  '''b5-accel-secret-at-least-32''',
+  '''interop-secret-at-least-32''',
+  '''test-secret-at-least-32''',
+  # Go 端到端测试的占位账号密码
+  '''Th1sIsA-T3st-''',
+  # K8s 清单示例 Secret（base64 编码的 CHANGEME-* 占位值，仅用于演示）
+  '''Q0hBTkdFTUUtand0LXNlY3JldA==''',
+  '''Q0hBTkdFTUUtcmVkaXMtcGFzc3dvcmQ=''',
+]
