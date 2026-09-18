@@ -78,8 +78,6 @@ jobs:
 
       - name: Detect secrets (gitleaks)
         uses: gitleaks/gitleaks-action@v3.0.0
-        with:
-          config: .gitleaks.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
