@@ -80,6 +80,8 @@ jobs:
         uses: gitleaks/gitleaks-action@v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: gitleaks.toml
+          GITLEAKS_VERSION: 8.18.4
 
   # ============================================================================
   # Job 2: 后端测试与质量检查
