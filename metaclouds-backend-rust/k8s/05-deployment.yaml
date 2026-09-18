@@ -12,9 +12,9 @@
 #   - topologySpreadConstraints：跨节点 + 跨可用区
 #   - 滚动更新：maxSurge=1, maxUnavailable=0
 #
-# ⚠️ 探针路径说明：Rust 后端根路径无 /health 端点（仅有 /metrics 和 /api/v1/*），
-#    且本任务禁止修改 src/。三探针统一使用 /metrics（无 JWT，返回 200）。
-#    后续 Phase 可在 Rust 端新增 /health 端点后切换回标准路径。
+# ⚠️ 探针路径说明：Rust 后端已新增根级 `/health` 端点（无 JWT，返回 200），
+#    三探针（startup/liveness/readiness）统一使用 `/health`，与 Go 版对齐。
+#    `/metrics` 仅供 Prometheus scraper 抓取。
 #
 # 镜像 tag 通过 CI/CD 注入：
 #   kubectl set image deployment/metaclouds-backend \
@@ -128,11 +128,11 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
-          # ---- 三探针（路径 /metrics，见文件头说明）----
+          # ---- 三探针（路径 /health，见文件头说明）----
           # startupProbe：给慢启动留足时间，最多 30*5=150 秒
           startupProbe:
             httpGet:
-              path: /metrics
+              path: /health
               port: http
               scheme: HTTP
             periodSeconds: 5
@@ -141,7 +141,7 @@ spec:
           # livenessProbe：进程存活检测，失败则重启
           livenessProbe:
             httpGet:
-              path: /metrics
+              path: /health
               port: http
               scheme: HTTP
             initialDelaySeconds: 30
@@ -152,7 +152,7 @@ spec:
           # readinessProbe：是否可接收流量，失败则从 Service 摘除
           readinessProbe:
             httpGet:
-              path: /metrics
+              path: /health
               port: http
               scheme: HTTP
             initialDelaySeconds: 5

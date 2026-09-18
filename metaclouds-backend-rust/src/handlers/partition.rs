@@ -89,6 +89,19 @@ fn default_permission_type() -> String {
     "read".to_string()
 }
 
+/// `PUT /api/v1/partitions/:id/priority` 请求体（对齐 Go `UpdatePriorityRequest`）。
+#[derive(Debug, Deserialize)]
+pub struct UpdatePriorityRequest {
+    pub priority: i64,
+}
+
+/// `PUT /api/v1/partitions/:id/max-runtime` 请求体（对齐 Go `UpdateMaxRuntimeRequest`，
+/// 字段名逐字为 `max_runtime_minutes`）。
+#[derive(Debug, Deserialize)]
+pub struct UpdateMaxRuntimeRequest {
+    pub max_runtime_minutes: i64,
+}
+
 /// `GET /api/v1/partitions` — 分页列表（搜索 + 过滤）。
 #[utoipa::path(get,path="/api/v1/partitions",tag="partitions",responses((status=200,description="partitions",body=Vec<crate::models::partition::PartitionResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_partitions(
@@ -229,4 +242,37 @@ pub async fn revoke_permission(
 ) -> AppResult<StatusCode> {
     permission_service::revoke_permission(&state.pool, perm_id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// `PUT /api/v1/partitions/:id/priority` — 更新调度优先级（对齐 Go `UpdatePriority`）。
+pub async fn update_priority(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdatePriorityRequest>,
+) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
+    partition_service::update_priority(&state.pool, id, body.priority).await?;
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "message": "priority updated",
+    }))))
+}
+
+/// `PUT /api/v1/partitions/:id/max-runtime` — 更新最大运行时长（对齐 Go `UpdateMaxRuntime`）。
+pub async fn update_max_runtime(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdateMaxRuntimeRequest>,
+) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
+    partition_service::update_max_runtime(&state.pool, id, body.max_runtime_minutes).await?;
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "message": "max runtime updated",
+    }))))
+}
+
+/// `GET /api/v1/partitions/:id/permissions` — 列出分区授权（对齐 Go `GetPermissions`，JWT）。
+pub async fn list_partition_permissions(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> AppResult<Json<ApiResponse<Vec<PartitionPermissionResponse>>>> {
+    let perms = permission_service::list_permissions_by_partition(&state.pool, id).await?;
+    Ok(Json(ApiResponse::success(perms)))
 }

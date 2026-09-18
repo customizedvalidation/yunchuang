@@ -186,6 +186,40 @@ pub async fn update_partition(
     Ok(p.into())
 }
 
+/// 更新分区调度优先级（对齐 Go `UpdatePartitionPriority`）。
+pub async fn update_priority(pool: &SqlitePool, id: i64, priority: i64) -> AppResult<()> {
+    let _ = partition::get_by_id(pool, id, false)
+        .await?
+        .ok_or_else(|| AppError::not_found("partition not found"))?;
+    let now = chrono::Utc::now();
+    sqlx::query(
+        "UPDATE partitions SET priority = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
+    )
+    .bind(priority)
+    .bind(now)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// 更新分区最大运行时长（分钟，对齐 Go `UpdatePartitionMaxRuntime`）。
+pub async fn update_max_runtime(pool: &SqlitePool, id: i64, minutes: i64) -> AppResult<()> {
+    let _ = partition::get_by_id(pool, id, false)
+        .await?
+        .ok_or_else(|| AppError::not_found("partition not found"))?;
+    let now = chrono::Utc::now();
+    sqlx::query(
+        "UPDATE partitions SET max_runtime_minutes = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
+    )
+    .bind(minutes)
+    .bind(now)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// 软删除分区（404 若不存在或已软删除）。
 pub async fn delete_partition(pool: &SqlitePool, id: i64) -> AppResult<()> {
     let hit = partition::soft_delete(pool, id).await?;

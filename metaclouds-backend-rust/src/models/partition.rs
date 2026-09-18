@@ -46,6 +46,10 @@ pub struct Partition {
     pub cpu_cores: f64,
     pub memory_gb: f64,
     pub status: String,
+    /// 调度优先级（0 默认，越大越优先；对齐 Go `Partition.Priority`）。
+    pub priority: i64,
+    /// 最大运行时长（分钟），0 = 不限时；对齐 Go `Partition.MaxRuntimeMinutes`。
+    pub max_runtime_minutes: i64,
     /// 节点选择器，以 JSON TEXT 落库（如 `{"gpu":"nvidia"}`）。
     pub node_selector: Json<Value>,
     /// 分区标签，以 JSON TEXT 落库。
@@ -85,6 +89,8 @@ pub struct PartitionResponse {
     pub cpu_cores: f64,
     pub memory_gb: f64,
     pub status: String,
+    pub priority: i64,
+    pub max_runtime_minutes: i64,
     pub node_selector: Value,
     pub labels: Value,
     pub tenant_id: Option<i64>,
@@ -104,6 +110,8 @@ impl From<Partition> for PartitionResponse {
             cpu_cores: p.cpu_cores,
             memory_gb: p.memory_gb,
             status: p.status,
+            priority: p.priority,
+            max_runtime_minutes: p.max_runtime_minutes,
             node_selector: p.node_selector.0,
             labels: p.labels.0,
             tenant_id: p.tenant_id,

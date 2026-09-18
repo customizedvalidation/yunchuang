@@ -1,18 +1,34 @@
+# syntax=docker/dockerfile:1
 # ==============================================================================
-# Metaclouds Backend (Rust) — Dockerfile (multi-stage build)
+# Metaclouds Backend (Rust) — Dockerfile (multi-stage build, C8 优化版)
 # ==============================================================================
-# 目标：运行时镜像 ≤ 40 MB（alpine 基础 ~7MB + strip 后二进制 ~25-30MB）。
+# 目标：运行时镜像 ≤ 35 MB（alpine:3.20 ~7MB + ca-certificates ~1MB + tzdata ~3MB
+#       + strip 后二进制 ~20-25MB）。
 #
-# 构建策略对齐 Go 版 docker/Dockerfile：
-#   - Builder 阶段：先拷贝 Cargo.toml + Cargo.lock 构建依赖层（缓存优化）
-#   - Runtime 阶段：alpine:3.20 + 非 root 用户（UID 10001）+ 只读必要目录
+# 相对 P3-06 初版的 C8 优化点：
+#   1. 基础镜像评估：Cargo.toml 使用 runtime-tokio-rustls（纯 Rust TLS，不链接
+#      OpenSSL），redis/tonic 均为纯 Rust 实现，无 glibc 依赖 → 继续用
+#      rust:*-alpine（musl）builder + alpine:3.20 runtime，比 debian-slim(~80MB)
+#      小一个数量级。
+#   2. BuildKit 缓存挂载：RUN --mount=type=cache 复用 cargo registry 与 target/
+#      目录，重复构建跳过依赖编译（需 Docker BuildKit，见下方语法指令头）。
+#   3. 层合并：runtime 阶段 apk 安装 / 时区 / 建用户 / 建目录合并为更少 RUN 层。
+#   4. strip 二进制：builder 阶段编译后 strip，去除调试符号（alpine binutils）。
+#   5. 非 root 用户：UID 10001（对齐 Go 版 K8s securityContext）。
+#   6. 只读根文件系统：配合 K8s readOnlyRootFilesystem: true，/tmp 与
+#      /run/metaclouds 通过 emptyDir 挂载。
 #
-# 构建命令（本机无 Docker，待 CI/目标环境执行）：
-#   docker build -t ghcr.io/customizedvalidation/yunchuang/backend-rust:latest .
-#   docker images | grep backend-rust   # 验证大小 ≤ 40MB
+# 【重要】本机无 Docker，未实际构建。以上大小为静态估算，
+#         待 CI/目标环境 `docker build` 实测确认（验收标准 #6）。
 #
-# Rust TLS 说明：Cargo.toml 使用 runtime-tokio-rustls（纯 Rust TLS），
-#   无需 OpenSSL，可静态链接到 musl，运行时不依赖 libssl。
+# 构建命令（需 BuildKit；Docker 18.09+ 默认开启）：
+#   DOCKER_BUILDKIT=1 docker build -t ghcr.io/customizedvalidation/yunchuang/backend-rust:latest .
+#   docker images | grep backend-rust   # 验证大小 ≤ 35MB
+#
+# Rust TLS 说明：sqlx 启用 runtime-tokio-rustls（纯 Rust TLS），opentelemetry-otlp
+#   grpc-tonic 走 rustls，运行时不依赖 libssl / glibc，可静态链接 musl。
+#   openssl-dev 仅在 builder 安装，供部分 crate 的 build.rs 探测 pkg-config，
+#   不进入 runtime 镜像。
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -20,9 +36,11 @@
 # ------------------------------------------------------------------------------
 FROM rust:1.81-alpine AS builder
 
-# musl-tools 提供 musl-gcc；pkg-config 供 crate 探测；openssl-dev 兜底
-# （虽然 rustls 不链接 OpenSSL，但部分 crate 的 build.rs 仍会探测 pkg-config）。
-RUN apk add --no-cache musl-dev pkg-config openssl-dev binutils
+# musl-dev 提供 musl-gcc；pkg-config 供 crate 探测；binutils 提供 strip；
+# openssl-dev 兜底（rustls 不链接 OpenSSL，但 build.rs 可能探测）。
+# 一次性安装并清理 apk 缓存，减小 builder 层（builder 不进最终镜像）。
+RUN apk add --no-cache musl-dev pkg-config openssl-dev binutils && \
+    rm -rf /var/cache/apk/*
 
 WORKDIR /app
 
@@ -31,8 +49,14 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 
 # 占位源码：让 cargo 认为 lib/bin target 存在以便预编译全部依赖。
-# 真实 src/ 复制后会因 mtime 变化触发重编译（见下方 touch）。
-RUN mkdir -p src && \
+# 使用 BuildKit cache mount 复用 cargo registry 与 target 目录：
+#   target=/usr/local/cargo/registry —— crates.io 下载缓存
+#   target=/app/target               —— 编译产物缓存
+# 注意：cache mount 仅在 BuildKit 下生效；非 BuildKit 构建会忽略 --mount 行
+#       （需 Dockerfile 首行 `# syntax=docker/dockerfile:1` 启用前沿前端）。
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/target \
+    mkdir -p src && \
     echo "pub fn main() {}" > src/main.rs && \
     echo "// placeholder" > src/lib.rs && \
     cargo build --release && \
@@ -42,44 +66,48 @@ RUN mkdir -p src && \
 COPY . .
 
 # touch 占位文件使 cargo 认为源码已变更，触发针对真实代码的重编译。
-RUN touch src/main.rs src/lib.rs && \
+# 再次使用 cache mount 复用依赖编译产物，仅重编本 crate。
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/target \
+    touch src/main.rs src/lib.rs && \
     cargo build --release && \
     # strip 二进制：去除调试符号与符号表，显著减小体积
-    strip /app/target/release/metaclouds-backend-rust || \
-    strip /app/target/release/metaclouds-backend
+    # （metaclouds-backend-rust 为当前 bin 名；兜底尝试 metaclouds-backend）
+    (strip /app/target/release/metaclouds-backend-rust || \
+     strip /app/target/release/metaclouds-backend)
 
 # ------------------------------------------------------------------------------
 # Stage 2: Runtime —— alpine:3.20（最小化运行时）
 # ------------------------------------------------------------------------------
 FROM alpine:3.20
 
-# 运行时依赖：
-#   ca-certificates — HTTPS 出站（OTLP/Jaeger/GitHub API）
-#   tzdata          — 时区数据（日志时间戳对齐 Asia/Shanghai）
-#   libgcc          — Rust 运行时（musl 静态链接通常不需要，但兜底）
-#   wget            — docker-compose healthcheck（alpine 无 curl）
+# 合并多个 RUN 为单层（层合并优化）：
+#   - apk 安装运行时依赖：ca-certificates(HTTPS 出站) / tzdata(时区) / wget(健康检查)
+#   - 设置时区 Asia/Shanghai
+#   - 创建非 root 用户 appuser(UID 10001) 与 appgroup(GID 10001)
+#   - 创建可写目录 /tmp、/run/metaclouds 并 chown
+#   - 清理 apk 缓存减小层体积
+# libgcc 注释：musl 静态链接通常不需要，保留兜底说明不强制安装。
+#
+# 只读根文件系统：K8s Deployment securityContext 设
+#   readOnlyRootFilesystem: true，/tmp 与 /run/metaclouds 须以 emptyDir 挂载，
+#   否则非 root 进程无法写入。
 RUN apk add --no-cache ca-certificates tzdata wget && \
-    # 设置时区
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
-    # 清理 apk 缓存减小体积
+    addgroup -g 10001 appgroup && \
+    adduser -u 10001 -G appgroup -s /sbin/nologin -D appuser && \
+    mkdir -p /tmp /run/metaclouds && \
+    chown -R appuser:appgroup /tmp /run/metaclouds /app && \
     rm -rf /var/cache/apk/*
 
 WORKDIR /app
 
-# 创建非 root 用户（UID 10001，对齐 Go 版 K8s 安全上下文）
-RUN addgroup -g 10001 appgroup && \
-    adduser -u 10001 -G appgroup -s /sbin/nologin -D appuser
-
-# 从 builder 阶段拷贝 release 二进制
+# 从 builder 阶段拷贝 strip 后的 release 二进制
 COPY --from=builder /app/target/release/metaclouds-backend-rust /usr/local/bin/metaclouds-backend
 
 # 拷贝示例配置（容器内不作为运行配置，仅作参考）
 COPY .env.example /app/.env.example
-
-# 创建可写临时目录（K8s readOnlyRootFilesystem 需要 emptyDir 挂载到 /tmp）
-RUN mkdir -p /tmp /run/metaclouds && \
-    chown -R appuser:appgroup /tmp /run/metaclouds /app
 
 # 容器监听端口 8000（对齐 Go 版和 K8s Service；Rust 默认 8001 但通过 SERVER_PORT=8000 覆盖）
 EXPOSE 8000

@@ -33,20 +33,28 @@ use crate::handlers::cluster::{
 use crate::handlers::dataset::{
     create_dataset, delete_dataset, get_dataset, list_datasets, update_dataset,
 };
+use crate::handlers::fluid_cache::{
+    create_fluid_cache, delete_fluid_cache, disable_fluid_cache, enable_fluid_cache,
+    list_fluid_caches, prefetch_fluid_cache, update_fluid_cache,
+};
 use crate::handlers::gpu::{
     allocate_gpu, create_gpu_device, delete_gpu_device, get_gpu_device, get_gpu_utilization,
     list_allocations, list_gpu_devices, release_gpu, update_gpu_device,
 };
+use crate::handlers::health::health;
 use crate::handlers::job::{
     cancel_job, create_job, delete_job, get_job, get_job_stats, list_jobs, update_job,
 };
-use crate::handlers::k8s::{cluster_health, list_nodes as k8s_list_nodes, list_pods};
+use crate::handlers::k8s::{
+    cluster_health, cluster_status, list_nodes as k8s_list_nodes, list_pods,
+};
 use crate::handlers::monitoring::{
     evaluate_alert_rules, get_dashboard, get_metrics, list_alert_rules,
 };
 use crate::handlers::partition::{
     create_partition, delete_partition, get_partition, get_partition_resources, grant_permission,
-    list_partitions, revoke_permission, update_partition,
+    list_partition_permissions, list_partitions, revoke_permission, update_max_runtime,
+    update_partition, update_priority,
 };
 use crate::handlers::quota::{
     check_quota, create_quota, delete_quota, get_quota, list_quotas, update_quota,
@@ -113,9 +121,11 @@ pub fn build_router(state: AppState) -> Router {
     let tenants = tenants_read.merge(tenants_write);
 
     // ── Clusters (B2): read=JWT, write=cluster:write ───────────────────
+    // GET /clusters/:id/status 对齐 Go k8sController.GetClusterStatus（JWT，无额外权限）。
     let clusters_read = Router::new()
         .route("/clusters", get(list_clusters))
-        .route("/clusters/{id}", get(get_cluster));
+        .route("/clusters/{id}", get(get_cluster))
+        .route("/clusters/{id}/status", get(cluster_status));
     let clusters_write = Router::new()
         .route("/clusters", post(create_cluster))
         .route("/clusters/{id}", put(update_cluster).delete(delete_cluster))
@@ -234,16 +244,25 @@ pub fn build_router(state: AppState) -> Router {
         .merge(gpu_alias_alloc_write);
 
     // ── Partitions (B4): read=JWT, write=partition:write ───────────────
+    // 对齐 Go partitions 组：GET /:id/permissions（JWT）、
+    // PUT /:id/priority、PUT /:id/max-runtime（partition:write）。
+    // Go 无 GET /:id/priority 与 GET /:id/max-runtime，故不补。
     let partitions_read = Router::new()
         .route("/partitions", get(list_partitions))
         .route("/partitions/{id}", get(get_partition))
-        .route("/partitions/{id}/resources", get(get_partition_resources));
+        .route("/partitions/{id}/resources", get(get_partition_resources))
+        .route(
+            "/partitions/{id}/permissions",
+            get(list_partition_permissions),
+        );
     let partitions_write = Router::new()
         .route("/partitions", post(create_partition))
         .route(
             "/partitions/{id}",
             put(update_partition).delete(delete_partition),
         )
+        .route("/partitions/{id}/priority", put(update_priority))
+        .route("/partitions/{id}/max-runtime", put(update_max_runtime))
         .route("/partitions/{id}/permissions", post(grant_permission))
         .route(
             "/partitions/{id}/permissions/{perm_id}",
@@ -289,12 +308,32 @@ pub fn build_router(state: AppState) -> Router {
     let schedulers = schedulers_read.merge(schedulers_write);
 
     // ── Datasets (B5): read=JWT, write=dataset:write ──────────────────
+    // FluidCache 对齐 Go：嵌套在 datasets 下（/datasets/:id/caches、Vue 别名
+    // /datasets/:id/fluid-caches），并在顶层 /fluid-caches/:cacheId 上提供
+    // update/delete/enable/disable/prefetch。Go 无顶层 list/detail/create，故不补。
     let datasets_read = Router::new()
         .route("/datasets", get(list_datasets))
-        .route("/datasets/{id}", get(get_dataset));
+        .route("/datasets/{id}", get(get_dataset))
+        .route("/datasets/{id}/caches", get(list_fluid_caches))
+        .route("/datasets/{id}/fluid-caches", get(list_fluid_caches));
     let datasets_write = Router::new()
         .route("/datasets", post(create_dataset))
         .route("/datasets/{id}", put(update_dataset).delete(delete_dataset))
+        .route("/datasets/{id}/caches", post(create_fluid_cache))
+        .route("/datasets/{id}/fluid-caches", post(create_fluid_cache))
+        .route(
+            "/fluid-caches/{cache_id}",
+            put(update_fluid_cache).delete(delete_fluid_cache),
+        )
+        .route("/fluid-caches/{cache_id}/enable", post(enable_fluid_cache))
+        .route(
+            "/fluid-caches/{cache_id}/disable",
+            post(disable_fluid_cache),
+        )
+        .route(
+            "/fluid-caches/{cache_id}/prefetch",
+            post(prefetch_fluid_cache),
+        )
         .route_layer(axum::middleware::from_fn_with_state(
             permissions::DATASET_WRITE.to_string(),
             require_permission,
@@ -343,7 +382,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/alerts/{id}/acknowledge", post(acknowledge_alert))
         .route("/alerts/{id}/resolve", post(resolve_alert))
         .route_layer(axum::middleware::from_fn_with_state(
-            "alert:write".to_string(),
+            permissions::ALERT_WRITE.to_string(),
             require_permission,
         ));
     let alerts = alerts_read.merge(alerts_write);
@@ -414,11 +453,16 @@ pub fn build_router(state: AppState) -> Router {
     // Prometheus scraper 直接抓取，不挂 JWT / CSRF 中间件。
     let metrics_route = Router::new().route("/metrics", get(metrics_handler));
 
+    // ── /health：存活/就绪探针（根级，无 /api/v1 前缀，无 JWT，对齐 Go）──
+    // K8s livenessProbe/readinessProbe 直接抓取。
+    let health_route = Router::new().route("/health", get(health));
+
     // ── Swagger UI + OpenAPI spec（横切，无 JWT，对齐 Go /api/docs）─────
     // /swagger-ui 提供交互式文档；/api-docs/openapi.json 返回原始 OpenAPI 3.0 JSON。
     let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
 
     let app = Router::new()
+        .merge(health_route)
         .merge(metrics_route)
         .merge(swagger)
         .nest("/api/v1", public.merge(protected))

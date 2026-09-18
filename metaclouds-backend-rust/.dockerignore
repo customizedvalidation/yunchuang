@@ -27,13 +27,23 @@ tests/
 
 # ---- 本地数据库文件 ----
 *.db
+*.db.bak
 *.sqlite
 *.sqlite3
 
 # ---- 日志与临时文件 ----
 *.log
+*.pid
+*.tmp
 logs/
 backups/
+
+# ---- 压测/临时可执行文件（本地构建产物，不进镜像）----
+bench.exe
+bench
+
+# ---- C 类运维优化中间产物目录（不进镜像）----
+scripts/p4work/
 
 # ---- 操作系统杂项 ----
 .DS_Store

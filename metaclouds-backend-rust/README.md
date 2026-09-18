@@ -1,17 +1,20 @@
 # metaclouds-backend-rust
 
 Rust rewrite of the Metaclouds backend, API-compatible with the Go v1 backend
-(`metaclouds-backend/`). **Phase 0 through Phase 4 are all complete.**
+(`metaclouds-backend/`). **Phase 0 through Phase 4 and all A/B/C legacy items are complete.**
 The project covers auth, user CRUD, tenants, clusters, resources, topology, K8s mock,
 jobs, GPUs, partitions, quotas, schedulers, datasets, checkpoints, acceleration suites,
 alerts, security policies, monitoring dashboards, Redis caching, scheduled tasks,
 Prometheus metrics, OpenTelemetry tracing, OpenAPI docs, and Docker/K8s deployment —
-**241 tests, all passing** (1 ignored Postgres smoke test).
+**269 tests, all passing** (1 ignored Postgres smoke test).
 
 **Project status**: Phase 4 acceptance and cutover planning complete. Golden regression
 (P4-01), shadow dual-track (P4-02), performance benchmark (P4-03), test mapping (P4-04),
 Runbook v2 + migration guide (P4-05), and cutover plan + Go retirement checklist (P4-06)
-all delivered. Awaiting target-environment shadow observation and grayscale cutover.
+all delivered. A/B/C legacy items (9) closed: `/health` endpoint, FluidCache handler
+registration, Partition missing routes, K8s read-only route, alert permission constants,
++15 security/concurrency tests, Postgres dual-driver CI check, Dockerfile optimization,
+runbook performance chapter. Awaiting target-environment shadow observation and grayscale cutover.
 
 ## Architecture
 
@@ -246,6 +249,7 @@ All routes are under `/api/v1`. JWT = `Authorization: Bearer <token>` or
 | GET    | `/clusters/{id}`  | JWT | |
 | PUT    | `/clusters/{id}`  | JWT + `cluster:write` | |
 | DELETE | `/clusters/{id}`  | JWT + `cluster:write` | 204 |
+| GET    | `/clusters/{id}/status` | JWT | K8s read-only cluster status (Go route) |
 
 ### Resources (B2)
 
@@ -330,6 +334,9 @@ All routes are under `/api/v1`. JWT = `Authorization: Bearer <token>` or
 | PUT    | `/partitions/{id}`                | JWT + `partition:write` | |
 | DELETE | `/partitions/{id}`                | JWT + `partition:write` | 204 |
 | GET    | `/partitions/{id}/resources`      | JWT | resource usage |
+| PUT    | `/partitions/{id}/priority`       | JWT + `partition:write` | scheduling priority (Go route) |
+| PUT    | `/partitions/{id}/max-runtime`   | JWT + `partition:write` | max runtime limit (Go route) |
+| GET    | `/partitions/{id}/permissions`   | JWT | permission list (Go route) |
 | POST   | `/partitions/{id}/permissions`    | JWT + `partition:write` | grant |
 | DELETE | `/partitions/{id}/permissions/{perm_id}` | JWT + `partition:write` | revoke |
 
@@ -365,6 +372,18 @@ All routes are under `/api/v1`. JWT = `Authorization: Bearer <token>` or
 | GET    | `/datasets/{id}`  | JWT | |
 | PUT    | `/datasets/{id}`  | JWT + `dataset:write` | |
 | DELETE | `/datasets/{id}`  | JWT + `dataset:write` | 204 |
+
+### FluidCaches (B5, nested under datasets)
+
+| Method | Path                          | Auth | Notes |
+|--------|-------------------------------|------|-------|
+| GET    | `/datasets/{id}/caches`       | JWT | list caches for a dataset (Go route) |
+| POST   | `/datasets/{id}/caches`       | JWT + `dataset:write` | create cache |
+| GET    | `/datasets/{id}/caches/{cache_id}` | JWT | cache detail |
+| PUT    | `/datasets/{id}/caches/{cache_id}` | JWT + `dataset:write` | update cache |
+| DELETE | `/datasets/{id}/caches/{cache_id}` | JWT + `dataset:write` | delete cache |
+
+> Note: Go has no top-level `/fluid-caches` list; `GET /fluid-caches` returns 404 by design.
 
 ### Checkpoints (B5)
 
@@ -426,6 +445,7 @@ All routes are under `/api/v1`. JWT = `Authorization: Bearer <token>` or
 
 | Method | Path                  | Auth | Notes |
 |--------|-----------------------|------|-------|
+| GET    | `/health`             | public | root-level liveness probe, `{status, version, uptime}` |
 | GET    | `/metrics`            | public | Prometheus text format, 13 business + 3 HTTP metrics |
 | GET    | `/swagger-ui/`        | public | Interactive Swagger UI |
 | GET    | `/api-docs/openapi.json` | public | OpenAPI 3.1.0 spec (61 paths / 107 methods) |
@@ -482,7 +502,7 @@ All routes are under `/api/v1`. JWT = `Authorization: Bearer <token>` or
 - **`GET /api-docs/openapi.json`**: OpenAPI 3.1.0 spec (~291KB)
 - 107 handlers annotated with `#[utoipa::path]`, all request/response structs derive `ToSchema`
 - **61 paths / 107 methods** (Go reference: 28 paths / 44 methods)
-- Diff from Go: Rust adds users/alerts/k8s/acceleration start-stop domains; Go has datasets/caches CRUD, clusters/status, jobs/submit not yet implemented (Phase 2 backlog)
+- Diff from Go: Rust adds users/alerts/k8s/acceleration start-stop domains; Go's datasets/caches, clusters/status, partition priority/max-runtime/permissions are now implemented (legacy closure A2/A3/A4)
 - 5 tests covering swagger UI accessibility, spec validity, path/method counts, key schemas
 
 ### Docker Deployment (P3-06)
@@ -490,14 +510,14 @@ All routes are under `/api/v1`. JWT = `Authorization: Bearer <token>` or
 - **Multi-stage Dockerfile**: `rust:1.81-alpine` builder → `alpine:3.20` runtime
 - Runs as non-root UID 10001
 - `.dockerignore` excludes `target/`, `.env`, `*.db`
-- **Estimated image size**: 31–41 MB (critical at 40MB; LTO/strip/UPX optimizations recommended)
+- **Estimated image size**: 25–35 MB (BuildKit cache mount + layer merge + strip; pending CI measurement)
 - `docker-compose.yml`: backend + postgres + redis, port mapping `8001:8000`
 - `docker-compose.prod.yml`: production overrides
 
 ### Kubernetes Deployment (P3-06)
 
 - 14 YAML manifests in `k8s/` (00-namespace → 13-kustomization)
-- **Deployment**: three probes (liveness/readiness/startup via `/metrics`), non-root, topology spread
+- **Deployment**: three probes (liveness/readiness/startup via `/health`), non-root, topology spread
 - **HPA**: autoscaling on CPU/memory
 - **PDB**: pod disruption budget
 - **NetworkPolicy**: ingress/egress rules
@@ -535,13 +555,21 @@ Scripts: `scripts/golden-compare.ps1`, `scripts/shadow-compare.ps1`,
 
 - `cargo fmt --check`: PASS
 - `cargo clippy --all-targets -- -D warnings`: PASS (zero warnings)
-- `cargo test`: **241 passed, 0 failed, 1 ignored** (Postgres smoke test)
+- `cargo test`: **269 passed, 0 failed, 1 ignored** (Postgres smoke test)
 
 ### Cutover path
 
 Target-environment steps: shadow dual-track 5 business days (P0/P1=0) -> grayscale
 10% -> 50% -> 100% -> 1-week stable observation -> Go service retirement.
 See `docs/cutover-plan.md` and `docs/go-retirement-checklist.md`.
+
+### Production performance
+
+Phase 4 P4-03 benchmark found SQLite file locks as the mid-concurrency bottleneck;
+PostgreSQL adoption is the highest-impact optimization. See the
+[production performance tuning chapter](docs/runbook-v2-rust.md#8-生产性能优化)
+in the runbook for benchmark numbers, connection-pool tuning, index gaps,
+caching, login-endpoint and alert thresholds.
 
 ## Conventions
 
@@ -624,7 +652,7 @@ All jobs use `actions/cache` for the cargo registry and `target/` directory.
 
 ## Test coverage
 
-**241 tests** across 32 suites (Phase 0/1: ~73 + Phase 2 B1-B6: ~120 + Phase 3: 47 + lib unit tests: ~13), all passing:
+**269 tests** across 35 suites (Phase 0/1: ~73 + Phase 2 B1-B6: ~120 + Phase 3: 47 + legacy closure: 15 + lib unit tests: ~14), all passing:
 
 | Suite              | Tests | Coverage area                        |
 |--------------------|-------|--------------------------------------|
@@ -660,4 +688,6 @@ All jobs use `actions/cache` for the cargo registry and `target/` directory.
 | `p3_metrics_test`  | 10    | /metrics endpoint / 13 business gauges / HTTP histogram / labels / no-auth |
 | `p3_tracing_test`  | 8     | JSON logs / X-Trace-Id / traceparent inheritance / OTEL disabled fallback |
 | `p3_openapi_test` | 5     | swagger UI / openapi.json / path+method counts / key schemas |
+| `security_middleware_test` | 11 | CSRF double-submit / security headers / request-id / panic 500 / 401 |
+| `rbac_alert_test` | 3     | alert permission constants / read JWT-only / write permission matrix |
 | `postgres_smoke_test` | 0 (1 ignored) | Postgres connect — `#[ignore]`, runs in CI |

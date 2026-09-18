@@ -612,7 +612,142 @@ Cookie 属性确认（开发模式）：
 
 ---
 
-## 8. 监控告警
+## 8. 生产性能优化
+
+> 本章基于 Phase 4 P4-03 压测报告（`docs/performance-benchmark.md`）结论编写，
+> 数据均来自该报告，不臆造新数据。核心结论：**SQLite 文件锁是中并发瓶颈，
+> PostgreSQL 接入是最高影响优化**。
+
+### 8.1 Phase 4 压测结论摘要
+
+压测对象：Rust 版（SQLite 文件库）vs Go 版（内存存储），6 个端点，并发度 10 / 50。
+
+| 并发 | 指标 | Rust (SQLite) | Go (内存存储) | 结论 |
+|------|------|---------------|---------------|------|
+| conc=10 | 单条查询吞吐 | 7556 req/s | 6339 req/s | Rust 单查询占优 ~1.19x，内存略低 |
+| conc=50 | 整体吞吐 | 仅较 conc=10 增 1.04x | 领先 Rust 1.4x–2.3x | Go 全面领先 |
+| conc=50 | 登录吞吐 | 50 req/s | 169 req/s | argon2id CPU 密集，登录端点受限 |
+
+**关键诊断**：
+
+- **低并发(10)**：Rust 单条查询占优（7556 vs 6339 req/s），内存占用略低——说明
+  Rust 运行时本身不弱，瓶颈不在语言。
+- **中并发(50)**：Go 全面领先 1.4x–2.3x，主因是 **Go 用内存存储 vs Rust 用
+  SQLite 文件锁**。
+- **Rust 扩展性差**：conc=10→50 吞吐仅增 1.04x，远低于线性预期——典型的
+  SQLite **单写者文件锁（database-level lock）**瓶颈：写事务串行化，读阻塞于写。
+
+### 8.2 PostgreSQL 接入对性能的影响
+
+| 场景 | 适用 | 说明 |
+|------|------|------|
+| SQLite | 开发 / 测试 / 小规模单实例 | 零依赖、零运维；单写者文件锁，中并发即瓶颈 |
+| PostgreSQL | 生产 / 多实例 / 高并发 | 连接池 + 行级锁 / MVCC 替代文件锁，支持水平扩展 |
+
+**预期提升**：中并发(conc=50)吞吐 **2–5x**（连接池复用 + PostgreSQL MVCC/行级锁
+替代 SQLite 文件锁）。这是 C 类运维优化中**单项影响最大**的动作。
+
+**迁移步骤**：
+
+1. 配置 `DATABASE_URL=postgres://<user>:<pwd>@<host>:5432/<db>`
+2. 设 `USE_SQLITE=false`、`MEMORY_STORE_ENABLED=false`
+3. 设生产安全约束：`DATABASE_SSL_MODE=require`、`SERVER_ENV=production`
+4. 启动时自动执行 `sqlx::migrate!("./migrations")`（见 §4.3）
+5. 如需数据迁移：单独编写 ETL 脚本从 SQLite 文件导出→导入 PostgreSQL
+   （Rust 版与 Go 版本就不共享数据，见 §6.3）
+
+### 8.3 连接池调优（sqlx PgPool）
+
+sqlx 默认 `max_connections=10`，生产需上调。对照 Go 版参数
+（max_open=100 / max_idle=20 / max_lifetime=300s），Rust 版在 `src/db.rs`
+中通过 `PgPoolOptions` 对齐：
+
+| 参数 | sqlx 方法 | 建议值 | 说明 |
+|------|-----------|--------|------|
+| 最大连接 | `max_connections()` | 20–50 | 生产起步 20；按 DB 实例 max_connections 与 Pod 副本数反推 |
+| 最小空闲连接 | `min_connections()` | 5–10 | 避免冷启动新建连接抖动 |
+| 获取超时 | `acquire_timeout()` | 3–5s | 连接池耗尽时快速失败，避免请求堆积 |
+| 空闲超时 | `idle_timeout()` | 300s（5min） | 对齐 Go max_idle_time |
+| 连接生命周期 | `max_lifetime()` | 1800s（30min） | 定期回收，防 DB 侧/网络中间件断连 |
+
+> **注意**：以上为 `src/db.rs` 中 PgPool 构造的调优方向，属代码侧改动（本次
+> C8/C9 不改源码，仅给出建议值）。连接池使用率 >80% 应告警（见 §8.7）。
+
+### 8.4 索引建议
+
+对照 `migrations/` 现有索引梳理（已存在 ✅ / 建议补充 ⬇）：
+
+**已有索引（无需重复创建）**：
+
+- ✅ users(username)、users(email)、users(last_login_at)
+- ✅ jobs(status, cluster_id, user_id)、jobs(tenant_id)、jobs(type)
+- ✅ gpu_devices(cluster_id, status)
+- ✅ gpu_allocations(job_id, status)、gpu_allocations(device_id)
+- ✅ alerts(status, severity)、alerts(type, cluster_id)、alerts(tenant_id)
+- ✅ resources(cluster_id)、resources(type)、resources(status)
+- ✅ partitions(cluster_id, status)、resource_quotas(tenant_id, partition_id)
+- ✅ acceleration_suites(tenant_id, status)、checkpoints(tenant_id, job_id)
+
+**建议新增索引（高频查询但当前缺失）**：
+
+| 表 | 建议索引 | 服务的查询 |
+|----|----------|-----------|
+| tenants | `CREATE INDEX idx_tenants_name ON tenants (name);` | 租户按 name 搜索/列表 |
+| clusters | `CREATE INDEX idx_clusters_name ON clusters (name);` | 集群按 name 搜索（/clusters list + search） |
+| clusters | `CREATE INDEX idx_clusters_tenant_id ON clusters (tenant_id);` | 按租户过滤集群 |
+| jobs | `CREATE INDEX idx_jobs_tenant_status_created ON jobs (tenant_id, status, created_at DESC);` | Dashboard 作业统计 / 按租户+状态+时间倒序列表（现有 idx_jobs_tenant_id 仅单列，覆盖不了 status+排序） |
+
+> 新增索引需以后续迁移文件（如 `009_perf_indexes.sql`）落地，遵循 §5.2
+> 向后兼容原则（CREATE INDEX IF NOT EXISTS，不 DROP/ALTER 已有列）。
+
+### 8.5 缓存优化
+
+Redis 缓存层已在 P3-01 实现，未启用时 `NoopCache` 优雅降级（见 §3.3）。
+
+**建议缓存对象与 TTL**：
+
+| 缓存对象 | 建议 TTL | 说明 |
+|----------|----------|------|
+| 用户会话 jti / 登出令牌黑名单 | 对齐 JWT 有效期 | P3-01 `src/cache/session.rs` 已实现 |
+| 租户配置 | 60s | 变更低频，读多 |
+| 集群状态（/clusters、/k8s/.../health） | 10–30s | 短 TTL，容忍短暂陈旧 |
+| Dashboard 统计（/monitoring/dashboard 13 指标） | 30s | 避免每次看板刷新打全表 count |
+
+**命中率监控**：在 `/metrics` 中暴露 `cache_hit_rate`（建议
+`rate(cache_hits_total[5m]) / rate(cache_requests_total[5m])`），命中率 <80% 告警
+（对应 §9 告警规则 #8 LowRedisCacheHit）。
+
+### 8.6 JWT / 认证端点优化
+
+压测数据：conc=50 时登录端点 Rust 50 req/s vs Go 169 req/s。根因：**argon2id
+是 CPU 密集型哈希**，每个登录请求都做一次 argon2id 计算，单核串行成为吞吐天花板。
+
+**优化建议**：
+
+1. **登录结果短 TTL 缓存**：对同一用户名的登录校验结果做 5s 短 TTL 缓存，
+   削峰（注意安全：仅缓存"认证失败/成功"的短时结论，不缓存密码本身）。
+2. **连接池复用**：见 §8.3，登录也走连接池，避免每请求新建 PG 连接。
+3. **哈希成本权衡**：argon2id 安全性高但慢；Go 版用 bcrypt。Rust 版已实现
+   argon2id + bcrypt 双读（见 §9 安全清单），新密码继续用 argon2id 保安全；
+   若登录吞吐成为瓶颈，可在生产适当调低 argon2id 时间/内存成本参数，
+   或对非敏感场景评估更轻量方案。**不建议为吞吐牺牲主密码哈希安全级别**。
+
+### 8.7 监控告警阈值（性能相关）
+
+在 §9 告警规则基础上，补充生产性能告警阈值：
+
+| 指标 | 告警阈值 | 级别 | 说明 |
+|------|----------|------|------|
+| P99 延迟 | `> 500ms` 持续 5m | warning | `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 0.5` |
+| 错误率（5xx） | `> 1%` | critical | `rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01` |
+| 连接池使用率 | `> 80%` 持续 5m | warning | 已借出连接 / max_connections；接近上限需调大 max_connections 或扩容 |
+| CPU 使用率 | `> 80%` 持续 5m | warning | 对应 §9 #16 CPUSaturation（阈值 85%）；按 HPA 触发扩容 |
+
+> 上述阈值为建议起点，上线后按实际流量基线调整。
+
+---
+
+## 9. 监控告警
 
 ### 8.1 业务指标（13 个 Gauge）
 
@@ -672,7 +807,7 @@ Cookie 属性确认（开发模式）：
 
 ---
 
-## 9. 安全清单
+## 10. 安全清单
 
 | 项目 | 实现 | 配置 |
 |------|------|------|

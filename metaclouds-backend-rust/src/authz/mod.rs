@@ -51,6 +51,13 @@ pub mod permissions {
     pub const DATASET_WRITE: &str = "dataset:write";
     pub const CHECKPOINT_READ: &str = "checkpoint:read";
     pub const CHECKPOINT_WRITE: &str = "checkpoint:write";
+
+    // A 类遗留：alert 端点写操作的正式常量，替代 routes.rs 中的字符串字面量。
+    // 注意：Go `pkg/authz/authz.go` 并未定义 alert:* 权限（Go 的告警解析走
+    // monitoring:write）。这里仅把 Rust 侧既有 "/alerts" 路由所用字面量收敛为常量，
+    // 不改判权矩阵（Go 也未把 alert 权限授予 manager/user，admin 短路放行）。
+    pub const ALERT_READ: &str = "alert:read";
+    pub const ALERT_WRITE: &str = "alert:write";
 }
 
 /// 角色枚举，对齐 Go `RoleAdmin/RoleManager/RoleUser`。

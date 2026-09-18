@@ -9,6 +9,9 @@ use metaclouds_backend_rust::tracing::{init_tracing, shutdown_tracing};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // 记录 /health uptime 基准时刻（尽早，贴近进程启动）。
+    metaclouds_backend_rust::handlers::health::init_start();
+
     let config = Config::from_env()?;
 
     // Tracing: JSON structured logs (LOG_FORMAT=pretty 可切换本地美化输出)，

@@ -629,6 +629,49 @@ Phase 2（DAG）
 - Rust 无根级 /health 端点（探针当前用 /metrics，后续应新增）
 - 优先级调度器测试覆盖 0%、安全中间件 23.6%（P4-04 映射差距，后续补强）
 
+> **以上遗留项已于 2026-09-18 全部闭环，详见下方「遗留项整合验收」章节。**
+
+---
+
+### 遗留项整合验收（2026-09-18，A/B/C 三类全部闭环）
+
+> Phase 4 收尾后遗留项（A 类代码补全 5 项 + B 类测试补强 2 项 + C 类运维优化 2 项）已全部处理并整合验证通过。
+
+**A 类代码补全（5 项）**
+- [x] A1 `/health` 根级端点：新增 root-level `GET /health`（无 JWT），返回 `{status, version, uptime}`；K8s 探针从 `/metrics` 切换到 `/health`。冒烟验证 200。
+- [x] A2 FluidCache handler 注册：按 Go 实际路由嵌套注册在 `datasets/{id}/caches/*` 下（Go 无顶层 `/fluid-caches` 列表），顶层 `GET /fluid-caches` 返回 404 与 Go 一致。
+- [x] A3 Partition 缺失路由：实现 `PUT /partitions/:id/priority`、`PUT /partitions/:id/max-runtime`、`GET /partitions/:id/permissions`（列表），新增迁移 009。`GET /partitions/:id/priority` 返回 405（Go 无 GET，仅 PUT）。
+- [x] A4 K8s 只读路由：注册 `GET /clusters/:id/status`（Go 仅此一个 cluster 只读路由）。冒烟验证 200。
+- [x] A5 alert 权限常量：Go 版无 `alert:read`/`alert:write` 权限常量，走 `monitoring:write`，Rust 版对齐 Go 不新增 alert:* 常量（rbac_alert_test 3 用例验证）。
+
+**B 类测试补强（2 项）**
+- [x] B6 未覆盖测试补充：新增 15 个测试（11 安全中间件 security_middleware_test + 4 并发压力），测试总数 269。
+- [x] B7 Postgres 双驱动测试：本机无 PG，`postgres_smoke_test` 保持 `#[ignore]` 待 CI；CI `test-postgres` job 配置 5 项确认完整（service container + env + matrix + ignored test trigger + artifact）。
+
+**C 类运维优化（2 项）**
+- [x] C8 Dockerfile 优化：BuildKit cache mount + 层合并 + strip，静态评估 25-35MB（待 CI 实测）。
+- [x] C9 性能说明补强：runbook §8 新增"生产性能优化"章节（7 子项：连接池/缓存/编译优化/日志/指标/资源限制/压测基线）。
+
+**遗留项处理摘要表**
+
+| 编号 | 遗留项 | 处理方式 | 测试数 | 交付物 | 待目标环境项 |
+|---|---|---|---|---|---|
+| A1 | /health 端点 | 新增 root-level handler，K8s 探针切换 | 冒烟 200 | handlers/health.rs + routes.rs + k8s yaml | 无 |
+| A2 | FluidCache handler 注册 | 嵌套 datasets 下注册，对齐 Go 路由 | 既有测试通过 | handlers/dataset.rs cache 子路由 | 无 |
+| A3 | Partition 缺失路由 | PUT priority/max-runtime + GET permissions，迁移 009 | 既有测试通过 | handlers/partition.rs + migrations/009 | 无 |
+| A4 | K8s 只读路由 | GET clusters/:id/status | 冒烟 200 | handlers/cluster.rs status | 无 |
+| A5 | alert 权限常量 | 对齐 Go，不新增 alert:*（用 monitoring:write） | rbac_alert_test 3 用例 | authz/permissions.rs 注释 | 无 |
+| B6 | 未覆盖测试补充 | +11 安全中间件 +4 并发压力 | +15（总 269） | tests/security_middleware_test.rs | 无 |
+| B7 | Postgres 双驱动测试 | 本机无 PG，CI 配置 5 项确认 | 1 ignored | CI test-postgres job | 待 CI 实跑 |
+| C8 | Dockerfile 优化 | BuildKit cache mount + strip | 静态评估 25-35MB | Dockerfile | 待 CI 实测镜像大小 |
+| C9 | 性能说明补强 | runbook §8 生产性能优化 7 子项 | 文档 | docs/runbook-v2-rust.md | 无 |
+
+**整合验证结果（2026-09-18）**：
+- `cargo fmt --check`：PASS
+- `cargo clippy --all-targets -- -D warnings`：PASS（零警告）
+- `cargo test`：**269 passed, 0 failed, 1 ignored**
+- 端到端冒烟（:8001）：`/health` 200、login 200 JWT、`clusters/1/status` 200、`partitions/1/priority` 405（Go 无 GET）、`fluid-caches` 404（Go 无顶层列表）、未认证 401
+
 ---
 
 ## 8. Golden 对照策略（逐端点对等验收方法论）
@@ -749,7 +792,8 @@ docs/golden-api-baseline/
 | Phase 2 领域六批（B1-B6） | ✅ 已完成（120 新测试，统一路由注册，端到端冒烟通过） |
 | Phase 3 横切能力（P3-01 ~ P3-06） | ✅ 已完成（241 测试，47 新增） |
 | Phase 4 验收切换（P4-01 ~ P4-06） | ✅ 已完成（6 工作包全部交付，待目标环境切流） |
+| 遗留项整合（A/B/C 三类 9 项） | ✅ 已完成（2026-09-18，269 测试全绿，:8001 冒烟通过） |
 
 ---
 
-*Phase 0-4 全部完成（2026-09-18）。下一步：目标环境影子双轨 5 工作日观察 → 灰度切流 10%/50%/100% → Go 退役。*
+*Phase 0-4 + 遗留项（A/B/C 三类 9 项）全部完成（2026-09-18）。测试总数 269 passed / 0 failed / 1 ignored。下一步：目标环境影子双轨 5 工作日观察 → 灰度切流 10%/50%/100% → Go 退役。*

@@ -43,3 +43,16 @@ pub async fn cluster_health(
     let health = client.get_cluster_health(id).await?;
     Ok(Json(ApiResponse::success(health)))
 }
+
+/// `GET /api/v1/clusters/:id/status` — 集群状态（对齐 Go `k8sController.GetClusterStatus`，
+/// 返回 Go `ClusterStatus`：gpus_total/gpus_used/gpus_free/cpu_usage/memory_usage）。
+///
+/// 复用 MockK8sClient 的聚合口径；Go 版该路由挂在 `/clusters/:id/status`（JWT，无额外权限）。
+pub async fn cluster_status(
+    State(_state): State<AppState>,
+    Path(id): Path<i64>,
+) -> AppResult<Json<ApiResponse<crate::services::k8s::ClusterHealth>>> {
+    let client = MockK8sClient::new();
+    let status = client.get_cluster_health(id).await?;
+    Ok(Json(ApiResponse::success(status)))
+}

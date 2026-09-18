@@ -129,3 +129,35 @@ pub async fn delete_fluid_cache(pool: &SqlitePool, id: i64) -> AppResult<()> {
     }
     Ok(())
 }
+
+/// 切换缓存状态（enable→active，disable→inactive，对齐 Go acceleration_extensions.go）。
+///
+/// 404 若缓存不存在或已软删除。
+pub async fn set_status(pool: &SqlitePool, id: i64, status: &str) -> AppResult<FluidCacheResponse> {
+    fluid_cache::get_by_id(pool, id, false)
+        .await?
+        .ok_or_else(|| AppError::not_found("fluid cache not found"))?;
+
+    let now = chrono::Utc::now();
+    sqlx::query(
+        "UPDATE fluid_caches SET status = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
+    )
+    .bind(status)
+    .bind(now)
+    .bind(id)
+    .execute(pool)
+    .await?;
+
+    let cache = fluid_cache::get_by_id(pool, id, false)
+        .await?
+        .ok_or_else(|| AppError::internal("fluid cache disappeared after status update"))?;
+    Ok(cache.into())
+}
+
+/// 触发预取（对齐 Go TriggerPrefetch：当前为占位实现，仅校验存在性）。
+pub async fn trigger_prefetch(pool: &SqlitePool, id: i64) -> AppResult<()> {
+    fluid_cache::get_by_id(pool, id, false)
+        .await?
+        .ok_or_else(|| AppError::not_found("fluid cache not found"))?;
+    Ok(())
+}
