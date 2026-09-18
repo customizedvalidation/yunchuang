@@ -69,6 +69,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Run checkov for Infrastructure as Code scanning
         uses: bridgecrewio/checkov-action@v12
@@ -77,11 +79,11 @@ jobs:
           soft_fail: true
 
       - name: Detect secrets (gitleaks)
-        uses: gitleaks/gitleaks-action@v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: gitleaks.toml
-          GITLEAKS_VERSION: 8.18.4
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
+          chmod +x /tmp/gitleaks
+          /tmp/gitleaks detect --source . --config gitleaks.toml --no-banner --verbose
 
   # ============================================================================
   # Job 2: 后端测试与质量检查
