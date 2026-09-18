@@ -76,11 +76,10 @@ jobs:
           directory: .
           soft_fail: true
 
-      - name: Detect secrets
-        uses: IBM/secrets-detection-action@v1.1.1
-        with:
+      - name: Detect secrets (gitleaks)
+        uses: gitleaks/gitleaks-action@v3.0.0
+        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          scanType: all
 
   # ============================================================================
   # Job 2: 后端测试与质量检查
@@ -692,3 +691,173 @@ jobs:
           echo "Staging: $STAGING_STATUS"
           echo "Production: $PROD_STATUS"
           echo "=== Note: Placeholder domains may return non-200 status ==="
+
+  # ============================================================================
+  # Job 8: Rust 后端（lint / test / coverage / release）
+  # 来源：metaclouds-backend-rust/.github/workflows/ci-rust.yml（子目录 workflow
+  #       不被 GitHub Actions 识别，已合并至根目录）
+  # ============================================================================
+  rust-lint-test:
+    name: Rust Lint & Test
+    runs-on: ubuntu-latest
+    needs: security-scan
+    defaults:
+      run:
+        working-directory: metaclouds-backend-rust
+    env:
+      CARGO_TERM_COLOR: always
+      SQLX_OFFLINE: "true"
+      DATABASE_URL: "sqlite::memory:"
+      JWT_SECRET: "ci-jwt-secret-at-least-32-characters-long-pad"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            metaclouds-backend-rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('metaclouds-backend-rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --all-features
+
+      - name: cargo build (debug)
+        run: cargo build
+
+  # Postgres 双驱动冒烟测试：postgres:16 service 容器 + --ignored 测试
+  #（验证 JSONB / TIMESTAMPTZ / 软删除 / UPSERT 等 Postgres 方言关键路径）
+  rust-test-postgres:
+    name: Rust Postgres Dual-Driver Tests
+    runs-on: ubuntu-latest
+    needs: security-scan
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: metaclouds-backend-rust
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/test
+      USE_SQLITE: "false"
+      JWT_SECRET: "ci-jwt-secret-at-least-32-characters-long-pad"
+      SQLX_OFFLINE: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            metaclouds-backend-rust/target
+          key: ${{ runner.os }}-cargo-pg-${{ hashFiles('metaclouds-backend-rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-pg-
+
+      - name: Run Postgres smoke tests (--ignored)
+        run: cargo test --test postgres_smoke_test -- --ignored --nocapture
+
+      - name: Run Postgres integration tests (migrations + JSONB codec + CRUD)
+        run: cargo test --test postgres_integration_test -- --ignored --nocapture
+
+  # 覆盖率统计：初期只统计、不阻塞 PR，输出摘要与产物
+  rust-coverage:
+    name: Rust Coverage
+    runs-on: ubuntu-latest
+    needs: rust-lint-test
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: metaclouds-backend-rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            metaclouds-backend-rust/target
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('metaclouds-backend-rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-coverage-
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Run coverage, print summary and write lcov.info
+        run: |
+          cargo llvm-cov --all-features --summary
+          cargo llvm-cov --all-features --lcov --output-path lcov.info
+
+      - name: Upload coverage (LCOV)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: metaclouds-backend-rust/lcov.info
+
+  # Release 构建：验证优化产物可正常编译
+  rust-release-build:
+    name: Rust Release Build
+    runs-on: ubuntu-latest
+    needs: security-scan
+    defaults:
+      run:
+        working-directory: metaclouds-backend-rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            metaclouds-backend-rust/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('metaclouds-backend-rust/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: cargo build --release
+        run: cargo build --release
