@@ -19,6 +19,7 @@ pub mod k8s;
 pub mod monitoring;
 pub mod partition;
 pub mod partition_permission;
+pub mod priority_scheduler;
 pub mod quota;
 pub mod resource;
 pub mod scheduler;

@@ -200,6 +200,32 @@ server {
 7. **未鉴权**：`GET /api/v1/users`（无 token）→ 401 信封正确。
 8. **链路**：响应头含 `X-Trace-Id`，日志可按 trace_id 串联。
 
+### 3.5 自动化切流验证脚本 `scripts/cutover-verify.ps1`（P4-06 交付）
+
+本机无 K8s/Nginx，脚本以**模拟切流**方式对齐 §2.1 三档灰度口径：按 `rustPct` 用随机数把请求
+分发到 Rust（其余到 Go），等价观测该比例下的系统行为。每档（默认 `-SampleSeconds 60`）自动完成：
+
+- **核心端点验证**：登录/profile/csrf/users/clusters/jobs/gpus/resources/tenants/
+  monitoring-metrics/monitoring-dashboard/Prometheus `/metrics`/未鉴权 401；
+  10%/50% 档跑 10 轮，100% 档跑 20 轮（更严格）。
+- **错误率 / P99**：统计采样窗口内 5xx/未捕获占比与 P99 延迟。
+- **回滚触发条件**（对齐 §2.3，`-RollbackCheck` 默认开）：错误率 >5%、P99 >1s、
+  连续 3 次 5xx、核心端点 P0 状态码不一致；任一满足即输出「⚠️ 建议立即回滚到 Go 版」。
+- **报告**：每档 `cutover-verify-stage-{10|50|100}.txt`，最终 `cutover-verify-final.txt`；
+  可选 `-IncludeRollbackDrill` 追加一次 100% 切回 Go 的回滚演练。
+
+```powershell
+# 本机短验证：只跑 10% 档，采样 30s
+powershell -ExecutionPolicy Bypass -File scripts/cutover-verify.ps1 -Stage 10 -SampleSeconds 30
+
+# 目标/预发环境完整三档（10→50→100，各 60s）+ 回滚演练
+powershell -ExecutionPolicy Bypass -File scripts/cutover-verify.ps1 -IncludeRollbackDrill
+```
+
+> 真实三档放量在目标环境由 Nginx `split_clients` / K8s Ingress·Istio 改权重实现（§3.2/§3.3）；
+> 本脚本以同口径指标自动验证每档状态，不替代网关/Ingress 实际改权重操作。
+> 密码用 `-AdminPass` 或环境变量 `CUTOVERIFY_ADMIN_PASS`。
+
 ---
 
 ## 4. 切流后观察（1 周稳定期，D2 ~ D9）

@@ -148,6 +148,35 @@
 - 定位为**代理验证**：证明双轨对比管线跑通、P0/P1 收敛、延迟可测；
   不替代目标环境 5 工作日的真实流量观察。
 
+### 6.3 长时间观察脚本 `scripts/shadow-observe.ps1`（P4-02 交付）
+
+面向**连续长时间运行**（目标环境 5 个工作日）的自动化观察脚本，与 `shadow-compare.ps1`
+同源（复用双服务启动、双登录、40 条混合请求集、信封/形状/diff 分级），面向长跑做了增量：
+
+- 定时轮询：`-IntervalSeconds`（默认 30s）一轮，`-DurationMinutes` 控制总时长
+  （默认 1440=24h；5 个工作日约设 7200）。
+- 三级请求集：`-RequestSet read-only`（仅 GET，不写数据，长跑首选）/
+  `mixed`（默认 40 条混合）/ `full`（mixed + `obs_` 前缀写探针）。
+- 实时分级计数：P0（状态码不一致，白名单外）/ P1（信封或形状不一致）/
+  P1-KNOWN-EMPTY（空集合 null vs `[]`）/ P2（Rust 延迟 > Go×3 且绝对差 >100ms）/
+  P3（可接受差异）。每轮控制台一行实时统计，diff 逐行写带时间戳日志。
+- 长跑健壮性：token 每 2 小时自动刷新、遇 401 立即重登；Ctrl-C 优雅停止并落最终汇总，
+  默认**不停止**双服务（`-StopServicesOnExit` 才停本脚本启动的进程）。
+- 产出：`scripts/p4work/shadow-observe-yyyyMMdd-HHmm.log`（逐请求行）、
+  `scripts/p4work/shadow-observe-summary.txt`（总数/P0-P3 计数/错误率/起止时间/P99）。
+
+```powershell
+# 本机短验证（read-only，5 分钟）
+powershell -ExecutionPolicy Bypass -File scripts/shadow-observe.ps1 -DurationMinutes 5 -RequestSet read-only
+
+# 目标环境 5 个工作日连续观察（约 7200 分钟，30s 一轮）
+powershell -ExecutionPolicy Bypass -File scripts/shadow-observe.ps1 -DurationMinutes 7200 -IntervalSeconds 30 -RequestSet read-only
+```
+
+> 密码不硬编码：用 `-AdminPass` 或环境变量 `OBSERVE_ADMIN_PASS`；两者均缺省时回落开发种子
+> `Admin@123456`（与服务启动 `DEFAULT_ADMIN_PASSWORD` 一致，仅开发/本机用）。
+> 长时间运行与真实 5 工作日观察在**目标环境**执行；本机仅做脚本逻辑短采样验证。
+
 ---
 
 ## 7. 回滚触发与处置
@@ -168,7 +197,8 @@
 | 交付物 | 路径 |
 |---|---|
 | 本方案文档 | `docs/shadow-dual-track.md` |
-| 影子对比脚本 | `scripts/shadow-compare.ps1` |
+| 影子对比脚本（本机短采样） | `scripts/shadow-compare.ps1` |
+| 长时间影子观察脚本 | `scripts/shadow-observe.ps1`（见 §6.3） |
 | 本机短采样 CSV | `scripts/p4work/shadow-results.csv` |
 | 本机短采样汇总 | `scripts/p4work/shadow-summary.txt` |
 | 本机短采样结果章节 | 本文档 §9 |

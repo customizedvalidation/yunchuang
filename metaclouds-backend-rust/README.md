@@ -5,8 +5,9 @@ Rust rewrite of the Metaclouds backend, API-compatible with the Go v1 backend
 The project covers auth, user CRUD, tenants, clusters, resources, topology, K8s mock,
 jobs, GPUs, partitions, quotas, schedulers, datasets, checkpoints, acceleration suites,
 alerts, security policies, monitoring dashboards, Redis caching, scheduled tasks,
-Prometheus metrics, OpenTelemetry tracing, OpenAPI docs, and Docker/K8s deployment —
-**269 tests, all passing** (1 ignored Postgres smoke test).
+Prometheus metrics, OpenTelemetry tracing, OpenAPI docs, priority scheduler,
+PostgreSQL migration variants, and Docker/K8s deployment —
+**285 tests, all passing** (1 ignored Postgres smoke test).
 
 **Project status**: Phase 4 acceptance and cutover planning complete. Golden regression
 (P4-01), shadow dual-track (P4-02), performance benchmark (P4-03), test mapping (P4-04),
@@ -69,7 +70,8 @@ src/
 │   ├── partition.rs, partition_permission.rs, quota.rs, scheduler.rs
 │   ├── dataset.rs, checkpoint.rs, acceleration.rs
 │   ├── alert.rs, security.rs, monitoring.rs (13 dashboard metrics + 16 alert rules)
-│   └── fluid_cache.rs, training_config.rs, inference_config.rs
+│   ├── fluid_cache.rs, training_config.rs, inference_config.rs
+│   └── priority_scheduler.rs  # BinaryHeap priority queue + mpsc + tokio worker + Semaphore
 └── handlers/             # HTTP extractors + response envelope
     ├── user.rs, tenant.rs, cluster.rs, resource.rs, topology.rs, k8s.rs
     ├── job.rs, gpu.rs
@@ -543,6 +545,8 @@ Phase 4 deliverables (all in `docs/` unless noted):
 | P4-06 Go Retirement | `docs/go-retirement-checklist.md` | 10 pre-retirement checks + 8 steps + 24h/7d/30d/90d observation + rollback triggers |
 
 Scripts: `scripts/golden-compare.ps1`, `scripts/shadow-compare.ps1`,
+`scripts/shadow-observe.ps1` (long-running shadow observation),
+`scripts/cutover-verify.ps1` (10/50/100% grayscale verification),
 `scripts/benchmark.ps1`, `scripts/bench/main.go`.
 
 ### 3 Golden diffs fixed during P4-01
@@ -555,7 +559,7 @@ Scripts: `scripts/golden-compare.ps1`, `scripts/shadow-compare.ps1`,
 
 - `cargo fmt --check`: PASS
 - `cargo clippy --all-targets -- -D warnings`: PASS (zero warnings)
-- `cargo test`: **269 passed, 0 failed, 1 ignored** (Postgres smoke test)
+- `cargo test`: **285 passed, 0 failed, 1 ignored** (Postgres smoke test)
 
 ### Cutover path
 
@@ -638,7 +642,10 @@ dataset:read/write, checkpoint:read/write
 - **Path syntax**: axum 0.8 uses `{id}` instead of Go gin's `:id`.
 - **Port**: Go runs on 8000, Rust runs on 8001.
 - **DB driver**: SQLite is the default for local dev; Postgres is fully supported
-  via `USE_SQLITE=false` and the `DatabasePool` enum.
+  via `USE_SQLITE=false` and the `DatabasePool` enum. PostgreSQL migration dialect lives in
+  `migrations/postgres/` (9 files, semantically equivalent to the SQLite set); see
+  [docs/dual-driver-migration.md](docs/dual-driver-migration.md) for the SQLite→PostgreSQL
+  type mapping, how to run Postgres migrations, and deployment steps.
 
 ## CI
 
@@ -652,7 +659,7 @@ All jobs use `actions/cache` for the cargo registry and `target/` directory.
 
 ## Test coverage
 
-**269 tests** across 35 suites (Phase 0/1: ~73 + Phase 2 B1-B6: ~120 + Phase 3: 47 + legacy closure: 15 + lib unit tests: ~14), all passing:
+**285 tests** across 36 suites (Phase 0/1: ~73 + Phase 2 B1-B6: ~120 + Phase 3: 47 + legacy closure: 15 + priority scheduler: 16 + lib unit tests: ~14), all passing:
 
 | Suite              | Tests | Coverage area                        |
 |--------------------|-------|--------------------------------------|
@@ -690,4 +697,5 @@ All jobs use `actions/cache` for the cargo registry and `target/` directory.
 | `p3_openapi_test` | 5     | swagger UI / openapi.json / path+method counts / key schemas |
 | `security_middleware_test` | 11 | CSRF double-submit / security headers / request-id / panic 500 / 401 |
 | `rbac_alert_test` | 3     | alert permission constants / read JWT-only / write permission matrix |
+| `priority_scheduler_test` | 16 | BinaryHeap queue / priority ordering / FIFO / cancel / concurrency / worker lifecycle / shutdown |
 | `postgres_smoke_test` | 0 (1 ignored) | Postgres connect — `#[ignore]`, runs in CI |

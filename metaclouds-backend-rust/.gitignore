@@ -3,3 +3,6 @@
 *.db-shm
 *.db-wal
 .env
+/scripts/p4work/
+tokens.json
+
