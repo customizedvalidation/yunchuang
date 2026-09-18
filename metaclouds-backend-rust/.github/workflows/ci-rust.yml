@@ -94,6 +94,9 @@ jobs:
       - name: Run Postgres smoke tests (--ignored)
         run: cargo test --test postgres_smoke_test -- --ignored --nocapture
 
+      - name: Run Postgres integration tests (migrations + JSONB codec + CRUD)
+        run: cargo test --test postgres_integration_test -- --ignored --nocapture
+
   # 覆盖率统计：初期只统计、不阻塞 PR，输出摘要与产物。
   coverage:
     runs-on: ubuntu-latest

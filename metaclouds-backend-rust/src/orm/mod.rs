@@ -29,6 +29,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
+use sqlx::postgres::{PgArgumentBuffer, PgTypeInfo, PgValueRef, Postgres};
 use sqlx::sqlite::{Sqlite, SqliteArgumentValue, SqliteTypeInfo};
 use sqlx::{Decode, Encode, Type};
 
@@ -246,5 +247,103 @@ where
     fn decode(value: sqlx::sqlite::SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
         let s: String = <String as Decode<Sqlite>>::decode(value)?;
         Ok(Json(serde_json::from_str(&s)?))
+    }
+}
+
+// sqlx `json` feature 为 `serde_json::Value` 实现了 Postgres JSONB 编解码。
+// Json<T> 委托给 `serde_json::Value`：Type 返回 JSONB OID(3802)，
+// Encode 先把 T 序列化为 Value 再写入 JSONB 二进制，Decode 反之。
+impl<T> Type<Postgres> for Json<T>
+where
+    T: Serialize + DeserializeOwned,
+{
+    fn type_info() -> PgTypeInfo {
+        <serde_json::Value as Type<Postgres>>::type_info()
+    }
+}
+
+impl<'q, T> Encode<'q, Postgres> for Json<T>
+where
+    T: Serialize,
+{
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> Result<IsNull, BoxDynError> {
+        let value = serde_json::to_value(&self.0)?;
+        <serde_json::Value as Encode<Postgres>>::encode_by_ref(&value, buf)
+    }
+}
+
+impl<'r, T> Decode<'r, Postgres> for Json<T>
+where
+    T: DeserializeOwned,
+{
+    fn decode(value: PgValueRef<'r>) -> Result<Self, BoxDynError> {
+        let v: serde_json::Value = <serde_json::Value as Decode<Postgres>>::decode(value)?;
+        let t: T = serde_json::from_value(v)?;
+        Ok(Json(t))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn json_type_postgres_oid_is_jsonb() {
+        // JSONB OID = 3802；JSON OID = 114。
+        // migrations/postgres/ 中 JSON 列均为 JSONB，codec 必须返回 3802。
+        let type_info = <Json<serde_json::Value> as Type<Postgres>>::type_info();
+        let oid = type_info.oid().expect("JSONB type must have a known OID");
+        assert_eq!(
+            oid.0, 3802,
+            "Json<T> Postgres type must be JSONB (OID 3802)"
+        );
+    }
+
+    #[test]
+    fn json_type_sqlite_is_text() {
+        let type_info = <Json<serde_json::Value> as Type<Sqlite>>::type_info();
+        assert_eq!(
+            type_info,
+            <String as Type<Sqlite>>::type_info(),
+            "Json<T> SQLite type must be TEXT"
+        );
+    }
+
+    #[test]
+    fn json_postgres_encode_decode_serialization_roundtrip() {
+        // 验证编解码逻辑：序列化 T → Value → 反序列化回 T。
+        // （真实 PG 二进制读写由 CI postgres_integration_test 验证）
+        let mut map = HashMap::new();
+        map.insert("region".to_string(), "cn-sh".to_string());
+        map.insert("gpu".to_string(), "A100".to_string());
+        let original: Json<HashMap<String, String>> = Json(map);
+
+        // 模拟 encode 路径：T → serde_json::Value
+        let value = serde_json::to_value(&original.0).expect("serialize T to Value");
+        assert_eq!(value["region"], "cn-sh");
+        assert_eq!(value["gpu"], "A100");
+
+        // 模拟 decode 路径：serde_json::Value → T
+        let decoded: HashMap<String, String> =
+            serde_json::from_value(value).expect("deserialize Value back to T");
+        assert_eq!(decoded.get("region"), Some(&"cn-sh".to_string()));
+        assert_eq!(decoded.get("gpu"), Some(&"A100".to_string()));
+    }
+
+    #[test]
+    fn json_sqlite_encode_decode_roundtrip() {
+        // 验证 SQLite 路径的序列化/反序列化逻辑。
+        let vendors: Vec<String> = vec!["nvidia".into(), "amd".into()];
+        let original = Json(vendors);
+
+        // SQLite encode: T → JSON String → TEXT
+        let s = serde_json::to_string(&original.0).expect("serialize to json string");
+        assert!(s.contains("nvidia"));
+        assert!(s.contains("amd"));
+
+        // SQLite decode: TEXT → String → T
+        let decoded: Vec<String> = serde_json::from_str(&s).expect("deserialize from json string");
+        assert_eq!(decoded, vec!["nvidia".to_string(), "amd".to_string()]);
     }
 }

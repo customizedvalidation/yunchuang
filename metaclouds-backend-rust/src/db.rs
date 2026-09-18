@@ -18,9 +18,11 @@
 //!   `sqlx::SqlitePool`（位于 src/auth/middleware.rs，属于另一个工作包范围）。
 //!   后续整合时，AppState.pool 可直接替换为 `DatabasePool::Sqlite(pool)`。
 
+use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 
+use sqlx::migrate::Migrator;
 use sqlx::postgres::PgPool;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
@@ -149,12 +151,34 @@ async fn connect_postgres(url: &str) -> AppResult<PgPool> {
         })
 }
 
+/// 根据 `DATABASE_URL` 的 scheme 选择迁移目录。
+///
+/// - `postgres://...` → `migrations/postgres`（Postgres 方言：BIGSERIAL / TIMESTAMPTZ / JSONB）
+/// - 其余（`sqlite://...`、`sqlite::memory:`、空串等）→ `migrations`（SQLite 方言）
+///
+/// 这是一个纯函数，不触碰文件系统，便于单元测试。
+pub fn resolve_migration_dir(database_url: &str) -> &'static str {
+    if database_url.trim_start().starts_with("postgres://") {
+        "migrations/postgres"
+    } else {
+        "migrations"
+    }
+}
+
 /// 对双驱动池运行迁移。
 ///
-/// SQLite 与 Postgres 当前共用 `migrations/` 下的 SQL（Phase 1 只在 SQLite 执行）。
-/// 接入 Postgres 时应按驱动选择 `migrations/postgres/` 变体。
+/// 按池变体选择迁移目录：
+/// - [`DatabasePool::Sqlite`] → `migrations/`（SQLite 方言，与 Phase 0 行为一致）
+/// - [`DatabasePool::Postgres`] → `migrations/postgres/`（Postgres 方言）
+///
+/// 使用运行时 [`Migrator::new`] 从文件系统加载迁移脚本（编译时宏 `sqlx::migrate!`
+/// 只能嵌入单一目录，无法按驱动切换）。
 pub async fn run_migrations(pool: &DatabasePool) -> Result<(), sqlx::migrate::MigrateError> {
-    let migrator = sqlx::migrate!("./migrations");
+    let dir = match pool {
+        DatabasePool::Sqlite(_) => "migrations",
+        DatabasePool::Postgres(_) => "migrations/postgres",
+    };
+    let migrator = Migrator::new(Path::new(dir)).await?;
     match pool {
         DatabasePool::Sqlite(p) => migrator.run(p).await,
         DatabasePool::Postgres(p) => migrator.run(p).await,
@@ -168,19 +192,25 @@ pub async fn run_migrations(pool: &DatabasePool) -> Result<(), sqlx::migrate::Mi
 /// 连接到 `url` 描述的 SQLite 数据库，运行待执行迁移。
 ///
 /// 与 Phase 0 行为保持一致：返回 `SqlitePool`，main.rs 继续直接使用。
+/// 迁移目录由 [`resolve_migration_dir`] 按 url scheme 决定（sqlite url → `migrations/`）。
 pub async fn connect_and_migrate(url: &str) -> AppResult<SqlitePool> {
     let pool = connect_sqlite(url).await?;
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .map_err(|e| {
-            AppError::with_source(
-                ErrorCode::InternalServerError,
-                "database migration failed",
-                e,
-            )
-        })?;
+    let dir = resolve_migration_dir(url);
+    let migrator = Migrator::new(Path::new(dir)).await.map_err(|e| {
+        AppError::with_source(
+            ErrorCode::InternalServerError,
+            "failed to create migrator",
+            e,
+        )
+    })?;
+    migrator.run(&pool).await.map_err(|e| {
+        AppError::with_source(
+            ErrorCode::InternalServerError,
+            "database migration failed",
+            e,
+        )
+    })?;
 
     Ok(pool)
 }
@@ -232,4 +262,56 @@ pub async fn seed_admin_if_empty(pool: &SqlitePool) -> AppResult<()> {
     .await?;
     tracing::info!("seeded default admin user");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_migration_dir_postgres_url_with_auth() {
+        assert_eq!(
+            resolve_migration_dir("postgres://user:pass@localhost:5432/test"),
+            "migrations/postgres"
+        );
+    }
+
+    #[test]
+    fn resolve_migration_dir_postgres_url_no_auth() {
+        assert_eq!(
+            resolve_migration_dir("postgres://localhost:5432/test"),
+            "migrations/postgres"
+        );
+    }
+
+    #[test]
+    fn resolve_migration_dir_postgres_url_trim_whitespace() {
+        assert_eq!(
+            resolve_migration_dir("  postgres://localhost/db"),
+            "migrations/postgres"
+        );
+    }
+
+    #[test]
+    fn resolve_migration_dir_sqlite_file_url() {
+        assert_eq!(
+            resolve_migration_dir("sqlite://metaclouds.db"),
+            "migrations"
+        );
+    }
+
+    #[test]
+    fn resolve_migration_dir_sqlite_memory_url() {
+        assert_eq!(resolve_migration_dir("sqlite::memory:"), "migrations");
+    }
+
+    #[test]
+    fn resolve_migration_dir_empty_url_defaults_sqlite() {
+        assert_eq!(resolve_migration_dir(""), "migrations");
+    }
+
+    #[test]
+    fn resolve_migration_dir_unknown_scheme_defaults_sqlite() {
+        assert_eq!(resolve_migration_dir("mysql://localhost/db"), "migrations");
+    }
 }

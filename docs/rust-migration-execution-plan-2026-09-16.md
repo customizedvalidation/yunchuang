@@ -1,4 +1,4 @@
-# Metaclouds 后端 Rust 全量重写 — 工作包级执行计划
+﻿# Metaclouds 后端 Rust 全量重写 — 工作包级执行计划
 
 > 编制日期：2026-09-16
 > 上游文档：`docs/rust-backend-migration-assessment-2026-09-16.md`（可行性评估与 Phase 0-4 骨架）
@@ -663,7 +663,7 @@ Phase 2（DAG）
 | A5 | alert 权限常量 | 对齐 Go，不新增 alert:*（用 monitoring:write） | rbac_alert_test 3 用例 | authz/permissions.rs 注释 | 无 |
 | B6 | 未覆盖测试补充 | +11 安全中间件 +4 并发压力 | +15（总 269） | tests/security_middleware_test.rs | 无 |
 | B7 | Postgres 双驱动测试 | 本机无 PG，CI 配置 5 项确认 | 1 ignored | CI test-postgres job | 待 CI 实跑 |
-| B7+ | migrations/postgres/ 迁移变体 | [x] 新建 9 个 PG 方言迁移（001-009），语义与 SQLite 等价 | 静态校验全 PASS（表 20/20、索引 53/53、列名逐表零差异） | migrations/postgres/*.sql + docs/dual-driver-migration.md | 待 CI/psql 实跑；run_migrations 选目录 + Json<T> PG codec 待源码接线 |
+| B7+ | migrations/postgres/ 迁移变体 | [x] 新建 9 个 PG 方言迁移（001-009），语义与 SQLite 等价 | 静态校验全 PASS（表 20/20、索引 53/53、列名逐表零差异） | migrations/postgres/*.sql + docs/dual-driver-migration.md | [x] run_migrations 选目录 + Json<T> PG codec 已源码接线（见 B7++） |`n| B7++ | run_migrations PG 分支 + Json<T> PG codec | [x] resolve_migration_dir 纯函数 + run_migrations 运行时 Migrator::new 按 scheme 选目录；Json<T> 实现 Type/Encode/Decode<Postgres>（委托 serde_json::Value，JSONB OID=3802）；新增 postgres_integration_test.rs（迁移+JSONB+CRUD）；CI test-postgres job 补充集成测试步骤 | +11 单测（7 resolve + 4 codec），296 passed 0 failed；:8001 sqlite 冒烟 PASS | src/db.rs + src/orm/mod.rs + tests/postgres_integration_test.rs + Cargo.toml(json feature) + .github/workflows/ci-rust.yml | PG 分支待 CI 实跑验证 |
 | C8 | Dockerfile 优化 | BuildKit cache mount + strip | 静态评估 25-35MB | Dockerfile | 待 CI 实测镜像大小 |
 | C9 | 性能说明补强 | runbook §8 生产性能优化 7 子项 | 文档 | docs/runbook-v2-rust.md | 无 |
 
@@ -689,7 +689,7 @@ Phase 2（DAG）
 
 | 项 | 处理方式 | 测试数 | 交付物 | 待目标环境项 |
 |---|---|---|---|---|
-| Postgres 迁移变体 | 新建 `migrations/postgres/` 9 文件（001-009），PG 方言类型映射对齐 Rust 模型 | 静态校验全 PASS（表 20/20、索引 53/53、列名 20/20 零差异） | migrations/postgres/*.sql + docs/dual-driver-migration.md | 待 CI/psql 实跑；`run_migrations` 选目录 + `Json<T>` PG codec 源码接线 |
+| Postgres 迁移变体 + 源码接线 | [x] migrations/postgres/ 9 文件 + run_migrations 按 scheme 选目录 + Json<T> PG codec（JSONB OID=3802） | 静态校验 PASS + +11 单测 + 296 passed 0 failed | migrations/postgres/*.sql + src/db.rs + src/orm/mod.rs + tests/postgres_integration_test.rs | PG 实跑待 CI |
 | 优先级调度器核心 | `src/services/priority_scheduler.rs`：BinaryHeap + mpsc + tokio worker + Semaphore | +16（总 285）；b4_scheduler_test 5 用例无回归 | src/services/priority_scheduler.rs | 无（独立模块，b4 测试已覆盖，未改动路由） |
 | 影子观察脚本 | `scripts/shadow-observe.ps1`，5 工作日长时间运行，P0/P1/P2 diff 分级 | PS5.1 语法 + `-h` 验证 | scripts/shadow-observe.ps1 | 待目标环境真实 5 工作日影子观察 |
 | 切流验证脚本 | `scripts/cutover-verify.ps1`，10/50/100% 三档 + 回滚触发检查 | PS5.1 语法 + `-h` 验证 | scripts/cutover-verify.ps1 | 待目标环境 100% 切流 + 1 周观察 |
@@ -701,7 +701,7 @@ Phase 2（DAG）
 - 优先级调度器为独立新增模块，未改动现有路由/handler；`b4_scheduler_test` 5 用例无回归，无需重启服务冒烟
 
 **仍待目标环境项（本机无法完成）**：
-1. Postgres 迁移 psql 实跑（CI `test-postgres` job，postgres:16 容器）
+1. Postgres 迁移 psql 实跑（CI `test-postgres` job，postgres:16 容器；源码接线已完成，待 CI 推送实跑验证）
 2. 真实 5 工作日影子观察（`shadow-observe.ps1` 在目标环境运行）
 3. 100% 切流 + 1 周稳定观察（`cutover-verify.ps1` 三档验证 + 回滚演练）
 4. Go 服务退役（进程下线 + 镜像归档 + tag `frozen-pre-rust`）
