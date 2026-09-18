@@ -6,7 +6,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -69,22 +68,12 @@ pub struct UpdateDatasetRequest {
     pub labels: Option<serde_json::Value>,
 }
 
-/// 分页列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct DatasetPage {
-    pub data: Vec<DatasetResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
 /// `GET /api/v1/datasets` — 分页 + 过滤列表。
-#[utoipa::path(get,path="/api/v1/datasets",tag="datasets",responses((status=200,description="paginated datasets",body=DatasetPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+#[utoipa::path(get,path="/api/v1/datasets",tag="datasets",responses((status=200,description="datasets",body=Vec<crate::models::dataset::DatasetResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_datasets(
     State(state): State<AppState>,
     Query(q): Query<DatasetListQuery>,
-) -> AppResult<Json<ApiResponse<DatasetPage>>> {
+) -> AppResult<Json<ApiResponse<Vec<DatasetResponse>>>> {
     let page = q.page.unwrap_or(1) as i64;
     let page_size = q.page_size.unwrap_or(10) as i64;
     let params = PaginationParams::new(page, page_size);
@@ -92,13 +81,7 @@ pub async fn list_datasets(
     let res =
         dataset_service::list_datasets(&state.pool, params, q.tenant_id, q.dataset_type.as_deref())
             .await?;
-    Ok(Json(ApiResponse::success(DatasetPage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/datasets/:id` — 详情。

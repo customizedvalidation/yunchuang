@@ -202,8 +202,7 @@ async fn b5_suite_pagination() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["page"], json!(1));
-    assert!(body["data"]["data"].as_array().unwrap().len() <= 2);
+    assert!(body["data"].as_array().unwrap().len() <= 2);
 }
 
 #[tokio::test]

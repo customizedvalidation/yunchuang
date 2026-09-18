@@ -55,41 +55,10 @@ pub mod permissions {
 }
 
 /// Does the given role hold the requested permission? `admin` short-circuits.
+/// Delegates to [`crate::authz::has_permission`] as the single source of truth,
+/// keeping the permission matrix in sync with the Go reference.
 pub fn role_has_permission(role: &str, permission: &str) -> bool {
-    if role == "admin" {
-        return true;
-    }
-    match role {
-        // Manager: read access across the platform plus job submit.
-        "manager" => matches!(
-            permission,
-            permissions::CLUSTER_READ
-                | permissions::RESOURCE_READ
-                | permissions::JOB_READ
-                | permissions::JOB_SUBMIT
-                | permissions::TENANT_READ
-                | permissions::MONITORING_READ
-                | permissions::MONITORING_WRITE
-                | permissions::ACCELERATION_READ
-                | permissions::SECURITY_READ
-                | permissions::GPU_READ
-                | permissions::PARTITION_READ
-                | permissions::QUOTA_READ
-                | permissions::SCHEDULER_READ
-                | permissions::TOPOLOGY_READ
-                | permissions::DATASET_READ
-                | permissions::CHECKPOINT_READ
-        ),
-        // Plain user: minimal read access to their own monitoring view.
-        "user" => matches!(
-            permission,
-            permissions::JOB_READ
-                | permissions::MONITORING_READ
-                | permissions::DATASET_READ
-                | permissions::CHECKPOINT_READ
-        ),
-        _ => false,
-    }
+    crate::authz::has_permission(role, permission)
 }
 
 /// 从请求中提取令牌：优先 `Authorization: Bearer {token}`，其次 `access_token` Cookie。

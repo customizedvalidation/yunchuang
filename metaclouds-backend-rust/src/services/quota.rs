@@ -7,7 +7,9 @@
 use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
-use crate::models::resource_quota::{self, quota_status, NewQuota, ResourceQuotaResponse};
+use crate::models::resource_quota::{
+    self, quota_status, NewQuota, ResourceQuota, ResourceQuotaResponse,
+};
 use crate::orm::{PaginatedResult, PaginationParams};
 
 /// 创建配额入参。
@@ -203,6 +205,67 @@ pub async fn check_quota(
         allowed: exceeded.is_empty(),
         exceeded,
     })
+}
+
+/// 按 scope 校验资源请求是否在配额内（对齐 Go `QuotaService.CheckQuota`）。
+///
+/// 查找匹配 (scope_type, scope_id, status=active) 的配额；无配额视为允许。
+/// 根据 resource_type 检查对应的 limit/used。
+pub async fn check_quota_by_scope(
+    pool: &SqlitePool,
+    scope_type: &str,
+    scope_id: i64,
+    resource_type: &str,
+    requested: i64,
+    _gpu_fraction: f64,
+) -> AppResult<bool> {
+    // 根据 scope_type 构建查询条件。
+    let row: Option<ResourceQuota> = match scope_type {
+        "tenant" => {
+            sqlx::query_as(
+                "SELECT * FROM resource_quotas \
+                 WHERE tenant_id = ?1 AND status = 'active' AND deleted_at IS NULL \
+                 ORDER BY id ASC LIMIT 1",
+            )
+            .bind(scope_id)
+            .fetch_optional(pool)
+            .await?
+        }
+        "partition" => {
+            sqlx::query_as(
+                "SELECT * FROM resource_quotas \
+                 WHERE partition_id = ?1 AND status = 'active' AND deleted_at IS NULL \
+                 ORDER BY id ASC LIMIT 1",
+            )
+            .bind(scope_id)
+            .fetch_optional(pool)
+            .await?
+        }
+        _ => {
+            // 未知 scope_type：无配额限制视为允许（对齐 Go findQuota 返回 nil）。
+            return Ok(true);
+        }
+    };
+
+    let q = match row {
+        Some(q) => q,
+        None => return Ok(true), // 无配额限制视为允许。
+    };
+
+    // 根据 resource_type 检查对应资源 limit。
+    let allowed = match resource_type {
+        "gpu" => q.gpu_limit <= 0 || q.gpu_used + requested <= q.gpu_limit,
+        "cpu" => q.cpu_limit <= 0.0 || q.cpu_used + requested as f64 <= q.cpu_limit,
+        "memory" => {
+            q.memory_limit_gb <= 0.0 || q.memory_used_gb + requested as f64 <= q.memory_limit_gb
+        }
+        "storage" => {
+            q.storage_limit_gb <= 0.0 || q.storage_used_gb + requested as f64 <= q.storage_limit_gb
+        }
+        _ => true, // 未知 resource_type 不限制。
+    };
+
+    Ok(allowed)
 }
 
 /// 分配资源：先校验，未超限则累加 used；超限返回 403。

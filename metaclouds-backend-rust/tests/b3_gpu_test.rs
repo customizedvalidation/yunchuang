@@ -218,8 +218,8 @@ async fn b3_gpu_list_filter_by_vendor_and_status() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["total"].as_i64().unwrap(), 1);
-    assert_eq!(body["data"]["data"][0]["vendor"], json!("amd"));
+    assert_eq!(body["data"].as_array().unwrap().len(), 1);
+    assert_eq!(body["data"][0]["vendor"], json!("amd"));
 
     // 按 status 过滤（新建全为 available）
     let (_, body) = do_req(
@@ -230,7 +230,7 @@ async fn b3_gpu_list_filter_by_vendor_and_status() {
         None,
     )
     .await;
-    assert_eq!(body["data"]["total"].as_i64().unwrap(), 2);
+    assert_eq!(body["data"].as_array().unwrap().len(), 2);
 }
 
 #[tokio::test]
@@ -321,8 +321,8 @@ async fn b3_gpu_allocations_list_filter_by_job() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["total"].as_i64().unwrap(), 1);
-    assert_eq!(body["data"]["data"][0]["job_id"], json!(10));
+    assert_eq!(body["data"].as_array().unwrap().len(), 1);
+    assert_eq!(body["data"][0]["job_id"], json!(10));
 }
 
 #[tokio::test]

@@ -10,7 +10,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::jwt::Claims;
@@ -79,23 +78,13 @@ pub struct UpdateJobRequest {
     pub error_msg: Option<String>,
 }
 
-/// 分页作业列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct JobPage {
-    pub data: Vec<JobResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
 /// `GET /api/v1/jobs` — 分页列表（搜索 + status/type/cluster_id/user_id 过滤）。
-#[utoipa::path(get,path="/api/v1/jobs",tag="jobs",responses((status=200,description="paginated jobs",body=JobPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+#[utoipa::path(get,path="/api/v1/jobs",tag="jobs",responses((status=200,description="jobs",body=Vec<crate::models::job::JobResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_jobs(
     State(state): State<AppState>,
     claims: Claims,
     Query(q): Query<JobListQuery>,
-) -> AppResult<Json<ApiResponse<JobPage>>> {
+) -> AppResult<Json<ApiResponse<Vec<JobResponse>>>> {
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = job::list_jobs(
@@ -109,13 +98,7 @@ pub async fn list_jobs(
         actor_from_claims(&claims),
     )
     .await?;
-    Ok(Json(ApiResponse::success(JobPage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/jobs/stats` — 按状态统计数量。

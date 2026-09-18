@@ -191,8 +191,8 @@ async fn b5_filter_by_job_id() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["total"], json!(2));
-    for ckpt in body["data"]["data"].as_array().unwrap() {
+    assert_eq!(body["data"].as_array().unwrap().len(), 2);
+    for ckpt in body["data"].as_array().unwrap() {
         assert_eq!(ckpt["job_id"], json!(10));
     }
 }

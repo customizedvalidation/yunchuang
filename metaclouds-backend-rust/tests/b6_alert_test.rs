@@ -192,8 +192,7 @@ async fn b6_list_alerts_pagination() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["total"], json!(3));
-    assert_eq!(body["data"]["data"].as_array().unwrap().len(), 2);
+    assert_eq!(body["data"].as_array().unwrap().len(), 2);
 }
 
 #[tokio::test]
@@ -234,7 +233,7 @@ async fn b6_filter_alerts_by_severity_and_type() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["total"], json!(2));
+    assert_eq!(body["data"].as_array().unwrap().len(), 2);
 
     let (status, body) = do_req(
         &mut app,
@@ -245,7 +244,7 @@ async fn b6_filter_alerts_by_severity_and_type() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["total"], json!(1));
+    assert_eq!(body["data"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -311,7 +310,6 @@ async fn b6_alert_stats() {
 
     let (status, body) = do_req(&mut app, "GET", "/api/v1/alerts/stats", Some(&token), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["total"], json!(2));
     assert_eq!(body["data"]["active"], json!(2));
     assert!(body["data"]["by_severity"].is_object());
     assert!(body["data"]["by_status"].is_object());

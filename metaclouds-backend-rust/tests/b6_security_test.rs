@@ -196,7 +196,7 @@ async fn b6_list_policies_pagination_and_filter() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["total"], json!(2));
+    assert_eq!(body["data"].as_array().unwrap().len(), 2);
 
     let (status, body) = do_req(
         &mut app,
@@ -207,7 +207,7 @@ async fn b6_list_policies_pagination_and_filter() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["total"], json!(1));
+    assert_eq!(body["data"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]

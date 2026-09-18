@@ -206,8 +206,7 @@ async fn b4_partition_list_pagination_and_filter() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["page"], json!(1));
-    assert!(body["data"]["data"].as_array().unwrap().len() <= 2);
+    assert!(body["data"].as_array().unwrap().len() <= 2);
 
     let (_, body) = do_req(
         &mut app,
@@ -217,7 +216,7 @@ async fn b4_partition_list_pagination_and_filter() {
         None,
     )
     .await;
-    assert_eq!(body["data"]["total"].as_i64().unwrap(), 2);
+    assert_eq!(body["data"].as_array().unwrap().len(), 2);
 }
 
 #[tokio::test]

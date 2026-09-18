@@ -257,7 +257,7 @@ async fn b4_scheduler_list_filter_and_pagination() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["total"].as_i64().unwrap(), 1);
+    assert_eq!(body["data"].as_array().unwrap().len(), 1);
 
     let (_, body) = do_req(
         &mut app,
@@ -267,8 +267,7 @@ async fn b4_scheduler_list_filter_and_pagination() {
         None,
     )
     .await;
-    assert_eq!(body["data"]["total"].as_i64().unwrap(), 3);
-    assert!(body["data"]["data"].as_array().unwrap().len() <= 2);
+    assert!(body["data"].as_array().unwrap().len() <= 2);
 }
 
 #[tokio::test]

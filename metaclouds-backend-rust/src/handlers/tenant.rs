@@ -7,7 +7,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -61,34 +60,18 @@ pub struct UpdateTenantRequest {
     pub storage_quota: Option<i64>,
 }
 
-/// 分页租户列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct TenantPage {
-    pub data: Vec<TenantResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
 /// `GET /api/v1/tenants` — 分页列表。
-#[utoipa::path(get,path="/api/v1/tenants",tag="tenants",responses((status=200,description="paginated tenants",body=TenantPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+#[utoipa::path(get,path="/api/v1/tenants",tag="tenants",responses((status=200,description="tenants",body=Vec<crate::models::tenant::TenantResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_tenants(
     State(state): State<AppState>,
     Query(q): Query<TenantListQuery>,
-) -> AppResult<Json<ApiResponse<TenantPage>>> {
+) -> AppResult<Json<ApiResponse<Vec<TenantResponse>>>> {
     let page = q.page.unwrap_or(1) as i64;
     let page_size = q.page_size.unwrap_or(10) as i64;
     let params = PaginationParams::new(page, page_size);
 
     let res = tenant_service::list_tenants(&state.pool, params).await?;
-    Ok(Json(ApiResponse::success(TenantPage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/tenants/:id` — 详情。

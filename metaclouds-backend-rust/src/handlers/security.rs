@@ -7,7 +7,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -67,22 +66,12 @@ pub struct UpdatePolicyRequest {
     pub enabled: Option<bool>,
 }
 
-/// 分页列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct PolicyPage {
-    pub data: Vec<SecurityPolicyResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
 /// `GET /api/v1/security/policies` — 分页 + 过滤列表。
-#[utoipa::path(get,path="/api/v1/security/policies",tag="security",responses((status=200,description="paginated policies",body=PolicyPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+#[utoipa::path(get,path="/api/v1/security/policies",tag="security",responses((status=200,description="policies",body=Vec<crate::models::security_policy::SecurityPolicyResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_policies(
     State(state): State<AppState>,
     Query(q): Query<PolicyListQuery>,
-) -> AppResult<Json<ApiResponse<PolicyPage>>> {
+) -> AppResult<Json<ApiResponse<Vec<SecurityPolicyResponse>>>> {
     let page = q.page.unwrap_or(1) as i64;
     let page_size = q.page_size.unwrap_or(10) as i64;
     let params = PaginationParams::new(page, page_size);
@@ -95,13 +84,7 @@ pub async fn list_policies(
         q.search.as_deref(),
     )
     .await?;
-    Ok(Json(ApiResponse::success(PolicyPage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/security/policies/:id` — 详情。

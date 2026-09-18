@@ -163,12 +163,9 @@ async fn b1_list_sees_default_tenant_and_pagination_envelope() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["success"], json!(true));
-    assert!(body["data"]["data"].is_array());
-    assert!(body["data"]["total"].as_i64().unwrap() >= 1);
-    assert_eq!(body["data"]["page"], json!(1));
-    assert_eq!(body["data"]["page_size"], json!(10));
+    assert!(body["data"].is_array());
     // 默认租户名应为 seed 的「默认租户」。
-    assert!(body["data"]["data"]
+    assert!(body["data"]
         .as_array()
         .unwrap()
         .iter()

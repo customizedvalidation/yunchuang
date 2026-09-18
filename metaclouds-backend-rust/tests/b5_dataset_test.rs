@@ -200,10 +200,7 @@ async fn b5_list_pagination() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["page"], json!(1));
-    assert_eq!(body["data"]["page_size"], json!(2));
-    assert!(body["data"]["data"].as_array().unwrap().len() <= 2);
-    assert!(body["data"]["total"].as_i64().unwrap() >= 3);
+    assert!(body["data"].as_array().unwrap().len() <= 2);
 }
 
 #[tokio::test]
@@ -236,7 +233,7 @@ async fn b5_filter_by_type() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    for ds in body["data"]["data"].as_array().unwrap() {
+    for ds in body["data"].as_array().unwrap() {
         assert_eq!(ds["type"], json!("public"));
     }
 }

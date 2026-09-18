@@ -3,7 +3,6 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -19,49 +18,16 @@ pub struct ListQuery {
     pub search: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct Paginated<T> {
-    pub data: Vec<T>,
-    pub total: i64,
-    pub page: u32,
-    pub page_size: u32,
-    pub total_pages: u32,
-}
-
-/// OpenAPI 专用：用户分页响应（与 `Paginated<UserResponse>` JSON 同形）。
-#[derive(Debug, Serialize, utoipa::ToSchema)]
-pub struct UsersPage {
-    pub data: Vec<UserResponse>,
-    pub total: i64,
-    pub page: u32,
-    pub page_size: u32,
-    pub total_pages: u32,
-}
-
-/// `GET /api/v1/users` — paginated list, optional `?search=` filter.
-#[utoipa::path(get,path="/api/v1/users",tag="users",responses((status=200,description="paginated users",body=UsersPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+/// `GET /api/v1/users` — 列表（对齐 Go：data 为裸数组）。
+#[utoipa::path(get,path="/api/v1/users",tag="users",responses((status=200,description="users",body=Vec<crate::models::user::UserResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_users(
     State(state): State<AppState>,
     Query(q): Query<ListQuery>,
-) -> AppResult<Json<ApiResponse<Paginated<UserResponse>>>> {
+) -> AppResult<Json<ApiResponse<Vec<UserResponse>>>> {
     let page = q.page.unwrap_or(1).max(1);
     let page_size = q.page_size.unwrap_or(10).clamp(1, 100);
     let offset = (page - 1) * page_size;
     let like = q.search.map(|s| format!("%{}%", s));
-
-    let total: i64 = match &like {
-        Some(like) => {
-            sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE username LIKE ?1 OR email LIKE ?1")
-                .bind(like)
-                .fetch_one(&state.pool)
-                .await?
-        }
-        None => {
-            sqlx::query_scalar("SELECT COUNT(*) FROM users")
-                .fetch_one(&state.pool)
-                .await?
-        }
-    };
 
     let rows: Vec<User> = match &like {
         Some(like) => {
@@ -85,19 +51,9 @@ pub async fn list_users(
         }
     };
 
-    let total_pages = if page_size == 0 {
-        0
-    } else {
-        let ps = page_size as i64;
-        ((total + ps - 1) / ps) as u32
-    };
-    Ok(Json(ApiResponse::success(Paginated {
-        data: rows.into_iter().map(UserResponse::from).collect(),
-        total,
-        page,
-        page_size,
-        total_pages,
-    })))
+    Ok(Json(ApiResponse::success(
+        rows.into_iter().map(UserResponse::from).collect(),
+    )))
 }
 
 /// `POST /api/v1/users`

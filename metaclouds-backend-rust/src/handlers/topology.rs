@@ -7,7 +7,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -65,33 +64,17 @@ pub struct UpdateNodeRequest {
     pub labels: Option<serde_json::Value>,
 }
 
-/// 分页节点列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct NodePage {
-    pub data: Vec<TopologyResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
 /// `GET /api/v1/topology/nodes` — 分页列表（cluster_id / role 过滤）。
-#[utoipa::path(get,path="/api/v1/topology",tag="topology",responses((status=200,description="paginated nodes",body=NodePage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+#[utoipa::path(get,path="/api/v1/topology",tag="topology",responses((status=200,description="nodes",body=Vec<crate::models::topology::TopologyResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_nodes(
     State(state): State<AppState>,
     Query(q): Query<NodeListQuery>,
-) -> AppResult<Json<ApiResponse<NodePage>>> {
+) -> AppResult<Json<ApiResponse<Vec<TopologyResponse>>>> {
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res =
         topology_service::list_nodes(&state.pool, params, q.cluster_id, q.role.as_deref()).await?;
-    Ok(Json(ApiResponse::success(NodePage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/topology/nodes/:id` — 详情。

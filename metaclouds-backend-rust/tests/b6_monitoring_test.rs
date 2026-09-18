@@ -192,7 +192,6 @@ async fn b6_alert_rules_returns_16() {
         "expected 16 alert rules, got {}",
         rules.len()
     );
-    assert_eq!(body["data"]["total"], json!(16));
     // 抽查几条关键规则
     let names: Vec<&str> = rules.iter().filter_map(|r| r["name"].as_str()).collect();
     assert!(names.contains(&"GPU High Utilization"));

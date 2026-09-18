@@ -8,7 +8,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -71,22 +70,12 @@ pub struct UpdateSuiteRequest {
     pub status: Option<String>,
 }
 
-/// 分页列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct SuitePage {
-    pub data: Vec<AccelerationSuiteResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
 /// `GET /api/v1/acceleration/suites` — 分页列表。
-#[utoipa::path(get,path="/api/v1/acceleration",tag="acceleration",responses((status=200,description="paginated suites",body=SuitePage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+#[utoipa::path(get,path="/api/v1/acceleration",tag="acceleration",responses((status=200,description="suites",body=Vec<crate::models::acceleration_suite::AccelerationSuiteResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_suites(
     State(state): State<AppState>,
     Query(q): Query<SuiteListQuery>,
-) -> AppResult<Json<ApiResponse<SuitePage>>> {
+) -> AppResult<Json<ApiResponse<Vec<AccelerationSuiteResponse>>>> {
     let page = q.page.unwrap_or(1) as i64;
     let page_size = q.page_size.unwrap_or(10) as i64;
     let params = PaginationParams::new(page, page_size);
@@ -94,13 +83,7 @@ pub async fn list_suites(
     let res =
         acceleration_service::list_suites(&state.pool, params, q.tenant_id, q.status.as_deref())
             .await?;
-    Ok(Json(ApiResponse::success(SuitePage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/acceleration/suites/:id` — 详情（含关联对象）。

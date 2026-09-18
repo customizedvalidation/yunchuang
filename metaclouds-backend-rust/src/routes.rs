@@ -15,7 +15,8 @@ use tower_cookies::CookieManagerLayer;
 
 use crate::auth::csrf::csrf_protect;
 use crate::auth::handler::{change_password, get_csrf_token, get_profile, login, logout, refresh};
-use crate::auth::middleware::{jwt_auth, permissions, require_permission, AppState};
+use crate::auth::middleware::{jwt_auth, AppState};
+use crate::authz::{permissions, require_permission};
 use crate::handlers::acceleration::{
     create_suite, delete_suite, get_suite, list_suites, start_suite, stop_suite, update_suite,
 };
@@ -265,8 +266,8 @@ pub fn build_router(state: AppState) -> Router {
             permissions::QUOTA_WRITE.to_string(),
             require_permission,
         ));
-    // POST /quotas/{id}/check — JWT only (aligned with Go: no permission).
-    let quotas_check = Router::new().route("/quotas/{id}/check", post(check_quota));
+    // POST /quotas/check — JWT only (aligned with Go: no permission).
+    let quotas_check = Router::new().route("/quotas/check", post(check_quota));
     let quotas = quotas_read.merge(quotas_write).merge(quotas_check);
 
     // ── Schedulers (B4): read=JWT, write=scheduler:write ───────────────

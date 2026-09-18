@@ -7,7 +7,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -73,22 +72,12 @@ pub struct UpdateAlertRequest {
     pub metadata: Option<serde_json::Value>,
 }
 
-/// 分页列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct AlertPage {
-    pub data: Vec<AlertResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
 /// `GET /api/v1/alerts` — 分页 + 过滤列表。
-#[utoipa::path(get,path="/api/v1/alerts",tag="alerts",responses((status=200,description="paginated alerts",body=AlertPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+#[utoipa::path(get,path="/api/v1/alerts",tag="alerts",responses((status=200,description="alerts",body=Vec<crate::models::alert::AlertResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_alerts(
     State(state): State<AppState>,
     Query(q): Query<AlertListQuery>,
-) -> AppResult<Json<ApiResponse<AlertPage>>> {
+) -> AppResult<Json<ApiResponse<Vec<AlertResponse>>>> {
     let page = q.page.unwrap_or(1) as i64;
     let page_size = q.page_size.unwrap_or(10) as i64;
     let params = PaginationParams::new(page, page_size);
@@ -109,13 +98,7 @@ pub async fn list_alerts(
         search,
     )
     .await?;
-    Ok(Json(ApiResponse::success(AlertPage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/alerts/:id` — 详情。

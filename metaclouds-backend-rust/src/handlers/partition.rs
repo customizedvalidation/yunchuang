@@ -9,7 +9,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -74,16 +73,6 @@ pub struct UpdatePartitionRequest {
     pub tenant_id: Option<i64>,
 }
 
-/// 分页分区列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct PartitionPage {
-    pub data: Vec<PartitionResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
 /// `POST /api/v1/partitions/:id/permissions` 请求体。
 #[derive(utoipa::ToSchema, Debug, Deserialize, Validate)]
 pub struct GrantPermissionRequest {
@@ -101,11 +90,11 @@ fn default_permission_type() -> String {
 }
 
 /// `GET /api/v1/partitions` — 分页列表（搜索 + 过滤）。
-#[utoipa::path(get,path="/api/v1/partitions",tag="partitions",responses((status=200,description="paginated partitions",body=PartitionPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+#[utoipa::path(get,path="/api/v1/partitions",tag="partitions",responses((status=200,description="partitions",body=Vec<crate::models::partition::PartitionResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_partitions(
     State(state): State<AppState>,
     Query(q): Query<PartitionListQuery>,
-) -> AppResult<Json<ApiResponse<PartitionPage>>> {
+) -> AppResult<Json<ApiResponse<Vec<PartitionResponse>>>> {
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = partition_service::list_partitions(
@@ -117,13 +106,7 @@ pub async fn list_partitions(
         q.search.as_deref(),
     )
     .await?;
-    Ok(Json(ApiResponse::success(PartitionPage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/partitions/:id` — 详情。

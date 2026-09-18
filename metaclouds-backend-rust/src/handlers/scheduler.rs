@@ -8,7 +8,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -68,22 +67,12 @@ pub struct UpdateSchedulerRequest {
     pub config: Option<Value>,
 }
 
-/// 分页调度器列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct SchedulerPage {
-    pub data: Vec<SchedulerIntegrationResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
 /// `GET /api/v1/schedulers` — 分页列表（过滤）。
-#[utoipa::path(get,path="/api/v1/schedulers",tag="schedulers",responses((status=200,description="paginated schedulers",body=SchedulerPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+#[utoipa::path(get,path="/api/v1/schedulers",tag="schedulers",responses((status=200,description="schedulers",body=Vec<crate::models::scheduler_integration::SchedulerIntegrationResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_schedulers(
     State(state): State<AppState>,
     Query(q): Query<SchedulerListQuery>,
-) -> AppResult<Json<ApiResponse<SchedulerPage>>> {
+) -> AppResult<Json<ApiResponse<Vec<SchedulerIntegrationResponse>>>> {
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = scheduler_service::list_schedulers(
@@ -94,13 +83,7 @@ pub async fn list_schedulers(
         q.scheduler_type.as_deref(),
     )
     .await?;
-    Ok(Json(ApiResponse::success(SchedulerPage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/schedulers/:id` — 详情。

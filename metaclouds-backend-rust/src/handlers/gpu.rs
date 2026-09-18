@@ -12,7 +12,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -119,32 +118,12 @@ pub struct AllocateGpuRequest {
     pub vendor: Option<String>,
 }
 
-/// 分页设备列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct GpuDevicePage {
-    pub data: Vec<GpuDeviceResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
-/// 分页分配记录响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct GpuAllocationPage {
-    pub data: Vec<GpuAllocationResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
-/// `GET /api/v1/gpus` — 分页设备列表（cluster_id/vendor/status 过滤）。
-#[utoipa::path(get,path="/api/v1/gpus",tag="gpus",responses((status=200,description="paginated gpu devices",body=GpuDevicePage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+/// `GET /api/v1/gpus` — 设备列表（对齐 Go：data 为裸数组）。
+#[utoipa::path(get,path="/api/v1/gpus",tag="gpus",responses((status=200,description="gpu devices",body=Vec<crate::models::gpu_device::GpuDeviceResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_gpu_devices(
     State(state): State<AppState>,
     Query(q): Query<GpuListQuery>,
-) -> AppResult<Json<ApiResponse<GpuDevicePage>>> {
+) -> AppResult<Json<ApiResponse<Vec<GpuDeviceResponse>>>> {
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = gpu::list_gpu_devices(
@@ -155,13 +134,7 @@ pub async fn list_gpu_devices(
         q.status.as_deref(),
     )
     .await?;
-    Ok(Json(ApiResponse::success(GpuDevicePage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/gpus/:id` — 设备详情。
@@ -246,12 +219,12 @@ pub async fn delete_gpu_device(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// `GET /api/v1/gpus/allocations` — 分页分配记录列表（job_id/user_id/status 过滤）。
-#[utoipa::path(get,path="/api/v1/gpus/allocations",tag="gpus",responses((status=200,description="paginated allocations",body=GpuAllocationPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+/// `GET /api/v1/gpus/allocations` — 分配记录列表（对齐 Go：data 为裸数组）。
+#[utoipa::path(get,path="/api/v1/gpus/allocations",tag="gpus",responses((status=200,description="allocations",body=Vec<crate::models::gpu_allocation::GpuAllocationResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_allocations(
     State(state): State<AppState>,
     Query(q): Query<AllocationListQuery>,
-) -> AppResult<Json<ApiResponse<GpuAllocationPage>>> {
+) -> AppResult<Json<ApiResponse<Vec<GpuAllocationResponse>>>> {
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = gpu::list_allocations(
@@ -262,13 +235,7 @@ pub async fn list_allocations(
         q.status.as_deref(),
     )
     .await?;
-    Ok(Json(ApiResponse::success(GpuAllocationPage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `POST /api/v1/gpus/allocations` — 分配 GPU（201）。

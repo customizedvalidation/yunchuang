@@ -16,7 +16,6 @@ use crate::models::resource_quota::ResourceQuotaResponse;
 use crate::orm::PaginationParams;
 use crate::response::{ApiResponse, WithStatus};
 use crate::services::quota as quota_service;
-use crate::services::quota::QuotaRequest;
 
 /// 分页 + 过滤查询参数。
 #[derive(utoipa::ToSchema, Debug, Deserialize)]
@@ -62,44 +61,30 @@ pub struct UpdateQuotaRequest {
     pub status: Option<String>,
 }
 
-/// `POST /api/v1/quotas/:id/check` 请求体（资源请求量）。
+/// `POST /api/v1/quotas/check` 请求体（对齐 Go `CheckQuotaRequest`）。
 #[derive(utoipa::ToSchema, Debug, Deserialize, Default)]
 pub struct CheckQuotaRequest {
+    pub scope_type: String,
+    pub scope_id: i64,
+    pub resource_type: String,
     #[serde(default)]
-    pub gpu: Option<i64>,
+    pub requested: i64,
     #[serde(default)]
-    pub cpu: Option<f64>,
-    #[serde(default)]
-    pub memory_gb: Option<f64>,
-    #[serde(default)]
-    pub storage_gb: Option<f64>,
+    pub gpu_fraction: f64,
 }
 
-/// 分页配额列表响应内层。
+/// 配额校验响应（对齐 Go `gin.H{"allowed": allowed}`）。
 #[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct QuotaPage {
-    pub data: Vec<ResourceQuotaResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
-fn req_from_body(b: &CheckQuotaRequest) -> QuotaRequest {
-    QuotaRequest {
-        gpu: b.gpu.unwrap_or(0),
-        cpu: b.cpu.unwrap_or(0.0),
-        memory_gb: b.memory_gb.unwrap_or(0.0),
-        storage_gb: b.storage_gb.unwrap_or(0.0),
-    }
+pub struct CheckQuotaResponse {
+    pub allowed: bool,
 }
 
 /// `GET /api/v1/quotas` — 分页列表（过滤）。
-#[utoipa::path(get,path="/api/v1/quotas",tag="quotas",responses((status=200,description="paginated quotas",body=QuotaPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+#[utoipa::path(get,path="/api/v1/quotas",tag="quotas",responses((status=200,description="quotas",body=Vec<crate::models::resource_quota::ResourceQuotaResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_quotas(
     State(state): State<AppState>,
     Query(q): Query<QuotaListQuery>,
-) -> AppResult<Json<ApiResponse<QuotaPage>>> {
+) -> AppResult<Json<ApiResponse<Vec<ResourceQuotaResponse>>>> {
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = quota_service::list_quotas(
@@ -110,13 +95,7 @@ pub async fn list_quotas(
         q.status.as_deref(),
     )
     .await?;
-    Ok(Json(ApiResponse::success(QuotaPage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/quotas/:id` — 详情。
@@ -185,13 +164,20 @@ pub async fn delete_quota(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// `POST /api/v1/quotas/:id/check` — 检查是否超限。
-#[utoipa::path(post,path="/api/v1/quotas/{id}/check",request_body=CheckQuotaRequest,tag="quotas",responses((status=200,description="check result",body=crate::services::quota::QuotaCheckResult),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+/// `POST /api/v1/quotas/check` — 按 scope 校验是否超限（对齐 Go）。
+#[utoipa::path(post,path="/api/v1/quotas/check",request_body=CheckQuotaRequest,tag="quotas",responses((status=200,description="check result",body=CheckQuotaResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn check_quota(
     State(state): State<AppState>,
-    Path(id): Path<i64>,
     Json(body): Json<CheckQuotaRequest>,
-) -> AppResult<Json<ApiResponse<quota_service::QuotaCheckResult>>> {
-    let res = quota_service::check_quota(&state.pool, id, req_from_body(&body)).await?;
-    Ok(Json(ApiResponse::success(res)))
+) -> AppResult<Json<ApiResponse<CheckQuotaResponse>>> {
+    let allowed = quota_service::check_quota_by_scope(
+        &state.pool,
+        &body.scope_type,
+        body.scope_id,
+        &body.resource_type,
+        body.requested,
+        body.gpu_fraction,
+    )
+    .await?;
+    Ok(Json(ApiResponse::success(CheckQuotaResponse { allowed })))
 }

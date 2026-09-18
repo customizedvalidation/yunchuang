@@ -1,13 +1,17 @@
 # metaclouds-backend-rust
 
 Rust rewrite of the Metaclouds backend, API-compatible with the Go v1 backend
-(`metaclouds-backend/`). Phase 0 (Spike), Phase 1 (infrastructure skeleton),
-Phase 2 (domain layer B1-B6), and Phase 3 (cross-cutting capabilities) are complete.
+(`metaclouds-backend/`). **Phase 0 through Phase 4 are all complete.**
 The project covers auth, user CRUD, tenants, clusters, resources, topology, K8s mock,
 jobs, GPUs, partitions, quotas, schedulers, datasets, checkpoints, acceleration suites,
 alerts, security policies, monitoring dashboards, Redis caching, scheduled tasks,
 Prometheus metrics, OpenTelemetry tracing, OpenAPI docs, and Docker/K8s deployment —
 **241 tests, all passing** (1 ignored Postgres smoke test).
+
+**Project status**: Phase 4 acceptance and cutover planning complete. Golden regression
+(P4-01), shadow dual-track (P4-02), performance benchmark (P4-03), test mapping (P4-04),
+Runbook v2 + migration guide (P4-05), and cutover plan + Go retirement checklist (P4-06)
+all delivered. Awaiting target-environment shadow observation and grayscale cutover.
 
 ## Architecture
 
@@ -500,6 +504,44 @@ All routes are under `/api/v1`. JWT = `Authorization: Bearer <token>` or
 - **Ingress**: TLS termination
 - **ServiceMonitor + PrometheusRule**: 16 alert rules
 - Validation script: `scripts/validate-k8s-yaml.ps1` (63 structural checks, all PASS)
+
+## Phase 4 Acceptance & Cutover
+
+Phase 4 deliverables (all in `docs/` unless noted):
+
+| Work Package | Deliverable | Summary |
+|---|---|---|
+| P4-01 Golden Regression | `docs/golden-regression-phase4.md` | 145 route variants, L1/L2/L3 + RBAC matrix; found & fixed 3 diffs |
+| P4-02 Shadow Dual-Track | `docs/shadow-dual-track.md` | 5-min sampling, 1374 requests, P0=0/P1=0/P2=0, Rust error rate 0% |
+| P4-03 Performance Benchmark | `docs/performance-benchmark.md` | 6 endpoints x concurrency 10/50; Go in-memory vs Rust SQLite |
+| P4-04 Test Mapping | `docs/test-mapping-phase4.md` | Go 33 files/242 tests -> Rust ~218 tests, 100% filled, 45% full coverage |
+| P4-05 Runbook v2 | `docs/runbook-v2-rust.md` | Architecture/config/deploy/upgrade/rollback/troubleshooting/monitoring/security |
+| P4-05 Vue Migration Guide | `docs/vue-migration-guide.md` | Frontend baseURL switch + contract consistency + known differences |
+| P4-05 API Reference | `docs/api-reference-rust.md` | 20 domain groups, 61 paths / 107 methods |
+| P4-05 Deployment Drill | `docs/deployment-rollback-drill.md` | 7-step drill, 17 endpoints all 200, app-layer switch <1 min |
+| P4-06 Cutover Plan | `docs/cutover-plan.md` | 10%/50%/100% grayscale + Nginx split_clients + K8s Ingress/Istio + 1-week observation |
+| P4-06 Go Retirement | `docs/go-retirement-checklist.md` | 10 pre-retirement checks + 8 steps + 24h/7d/30d/90d observation + rollback triggers |
+
+Scripts: `scripts/golden-compare.ps1`, `scripts/shadow-compare.ps1`,
+`scripts/benchmark.ps1`, `scripts/bench/main.go`.
+
+### 3 Golden diffs fixed during P4-01
+
+1. **Manager write-permission 403 bug**: `routes.rs` imported a duplicate `require_permission`; fixed to use `authz::require_permission` and `auth/middleware.rs` delegates to `authz::has_permission`.
+2. **List pagination envelope**: Go returns bare arrays; ~15 list handlers changed from `PaginatedResponse` to `Vec<T>`.
+3. **Quota check path**: Aligned from `POST /quotas/{id}/check` to `POST /quotas/check` (Go contract).
+
+### Verification status
+
+- `cargo fmt --check`: PASS
+- `cargo clippy --all-targets -- -D warnings`: PASS (zero warnings)
+- `cargo test`: **241 passed, 0 failed, 1 ignored** (Postgres smoke test)
+
+### Cutover path
+
+Target-environment steps: shadow dual-track 5 business days (P0/P1=0) -> grayscale
+10% -> 50% -> 100% -> 1-week stable observation -> Go service retirement.
+See `docs/cutover-plan.md` and `docs/go-retirement-checklist.md`.
 
 ## Conventions
 

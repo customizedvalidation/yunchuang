@@ -7,7 +7,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
@@ -65,32 +64,16 @@ pub struct UpdateClusterRequest {
     pub location: Option<String>,
 }
 
-/// 分页集群列表响应内层。
-#[derive(utoipa::ToSchema, Debug, Serialize)]
-pub struct ClusterPage {
-    pub data: Vec<ClusterResponse>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub total_pages: i64,
-}
-
-/// `GET /api/v1/clusters` — 分页列表（name 搜索）。
-#[utoipa::path(get,path="/api/v1/clusters",tag="clusters",responses((status=200,description="paginated clusters",body=ClusterPage),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+/// `GET /api/v1/clusters` — 列表（对齐 Go：data 为裸数组）。
+#[utoipa::path(get,path="/api/v1/clusters",tag="clusters",responses((status=200,description="clusters",body=Vec<crate::models::cluster::ClusterResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_clusters(
     State(state): State<AppState>,
     Query(q): Query<ClusterListQuery>,
-) -> AppResult<Json<ApiResponse<ClusterPage>>> {
+) -> AppResult<Json<ApiResponse<Vec<ClusterResponse>>>> {
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = cluster_service::list_clusters(&state.pool, params, q.search.as_deref()).await?;
-    Ok(Json(ApiResponse::success(ClusterPage {
-        data: res.data,
-        total: res.total,
-        page: res.page,
-        page_size: res.page_size,
-        total_pages: res.total_pages,
-    })))
+    Ok(Json(ApiResponse::success(res.data)))
 }
 
 /// `GET /api/v1/clusters/:id` — 详情。
