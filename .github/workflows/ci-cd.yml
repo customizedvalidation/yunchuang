@@ -558,11 +558,13 @@ jobs:
       url: http://staging.metaclouds.example.com
     env:
       LOG_LEVEL: INFO
+      STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Deploy to Staging
+        if: env.STAGING_SSH_KEY != ''
         run: |
           echo "Deploying to Staging environment with LOG_LEVEL=${{ env.LOG_LEVEL }}"
           echo "Running deployment script..."
@@ -575,7 +577,7 @@ jobs:
       - name: Verify Staging deployment
         run: |
           echo "Verifying staging deployment..."
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://staging.metaclouds.example.com/health || echo '000')
+          STATUS=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://staging.metaclouds.example.com/health || echo '000')
           echo "HTTP Status: $STATUS"
           if [ "$STATUS" != "200" ]; then
             echo "Warning: Health check returned status $STATUS (may be expected for placeholder domain)"
@@ -584,8 +586,8 @@ jobs:
       - name: Validate API endpoints
         run: |
           echo "Validating API endpoints..."
-          curl -s -f http://staging.metaclouds.example.com/api/v1/clusters || echo "API endpoint validation skipped (placeholder domain)"
-          curl -s -f http://staging.metaclouds.example.com/api/v1/jobs || echo "Jobs endpoint validation skipped (placeholder domain)"
+          curl -s --max-time 5 -f http://staging.metaclouds.example.com/api/v1/clusters || echo "API endpoint validation skipped (placeholder domain)"
+          curl -s --max-time 5 -f http://staging.metaclouds.example.com/api/v1/jobs || echo "Jobs endpoint validation skipped (placeholder domain)"
 
       - name: Run smoke tests
         run: |
@@ -666,6 +668,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LOG_LEVEL: INFO
+      STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -691,7 +694,7 @@ jobs:
         run: |
           echo "=== Deployment Verification Summary ==="
           DEV_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://dev.metaclouds.example.com/health 2>/dev/null || echo 'N/A')
-          STAGING_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://staging.metaclouds.example.com/health 2>/dev/null || echo 'N/A')
+          STAGING_STATUS=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://staging.metaclouds.example.com/health 2>/dev/null || echo 'N/A')
           PROD_STATUS=$(curl -s -o /dev/null -w '%{http_code}' https://api.metaclouds.example.com/health 2>/dev/null || echo 'N/A')
           echo "Development: $DEV_STATUS"
           echo "Staging: $STAGING_STATUS"
