@@ -88,3 +88,7 @@ metaclouds-backend/frontend/
 /*.jpg
 /*.jpeg
 /*.png
+
+# Go coverage
+coverage.out
+*.out
