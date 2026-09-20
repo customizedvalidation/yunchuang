@@ -802,6 +802,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: llvm-tools-preview
 
       - name: Cache cargo registry & target
         uses: actions/cache@v4
