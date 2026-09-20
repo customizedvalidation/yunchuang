@@ -517,16 +517,24 @@ jobs:
       url: http://dev.metaclouds.example.com
     env:
       LOG_LEVEL: DEBUG
+      DEV_SSH_KEY: ${{ secrets.DEV_SSH_KEY }}
+      DEV_HOST: ${{ secrets.DEV_HOST }}
+      DEV_USER: ${{ secrets.DEV_USER }}
+      DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '/opt/metaclouds' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to Development
+      - name: Deploy to Development (SSH)
+        if: env.DEV_SSH_KEY != '' && env.DEV_HOST != ''
         run: |
-          echo "Deploying to Development environment with LOG_LEVEL=${{ env.LOG_LEVEL }}"
-          echo "Running deployment script..."
-          chmod +x deploy.sh
-          ./deploy.sh -e development -l ${{ env.LOG_LEVEL }}
+          echo "Deploying to Development via SSH: ${{ env.DEV_USER }}@${{ env.DEV_HOST }}"
+          echo "${{ env.DEV_SSH_KEY }}" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 \
+            "${{ env.DEV_USER }}@${{ env.DEV_HOST }}" \
+            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend && ./deploy.sh -e development -l ${{ env.LOG_LEVEL }} -k"
+          rm -f /tmp/deploy_key
         working-directory: metaclouds-backend
         env:
           PORT_UTILS_LOG_LEVEL: ${{ env.LOG_LEVEL }}
@@ -559,17 +567,23 @@ jobs:
     env:
       LOG_LEVEL: INFO
       STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+      STAGING_HOST: ${{ secrets.STAGING_HOST }}
+      STAGING_USER: ${{ secrets.STAGING_USER }}
+      DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '/opt/metaclouds' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to Staging
-        if: env.STAGING_SSH_KEY != ''
+      - name: Deploy to Staging (SSH)
+        if: env.STAGING_SSH_KEY != '' && env.STAGING_HOST != ''
         run: |
-          echo "Deploying to Staging environment with LOG_LEVEL=${{ env.LOG_LEVEL }}"
-          echo "Running deployment script..."
-          chmod +x deploy.sh
-          ./deploy.sh -e staging -l ${{ env.LOG_LEVEL }}
+          echo "Deploying to Staging via SSH: ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }}"
+          echo "${{ env.STAGING_SSH_KEY }}" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 \
+            "${{ env.STAGING_USER }}@${{ env.STAGING_HOST }}" \
+            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend && ./deploy.sh -e staging -l ${{ env.LOG_LEVEL }} -k"
+          rm -f /tmp/deploy_key
         working-directory: metaclouds-backend
         env:
           PORT_UTILS_LOG_LEVEL: ${{ env.LOG_LEVEL }}
@@ -624,16 +638,24 @@ jobs:
       url: https://api.metaclouds.example.com
     env:
       LOG_LEVEL: WARN
+      PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+      PROD_HOST: ${{ secrets.PROD_HOST }}
+      PROD_USER: ${{ secrets.PROD_USER }}
+      DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '/opt/metaclouds' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to Production
+      - name: Deploy to Production (SSH)
+        if: env.PROD_SSH_KEY != '' && env.PROD_HOST != ''
         run: |
-          echo "Deploying to Production environment with LOG_LEVEL=${{ env.LOG_LEVEL }}"
-          echo "Running deployment script..."
-          chmod +x deploy.sh
-          ./deploy.sh -e production -l ${{ env.LOG_LEVEL }}
+          echo "Deploying to Production via SSH: ${{ env.PROD_USER }}@${{ env.PROD_HOST }}"
+          echo "${{ env.PROD_SSH_KEY }}" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 \
+            "${{ env.PROD_USER }}@${{ env.PROD_HOST }}" \
+            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend && ./deploy.sh -e production -l ${{ env.LOG_LEVEL }} -k"
+          rm -f /tmp/deploy_key
         working-directory: metaclouds-backend
         env:
           PORT_UTILS_LOG_LEVEL: ${{ env.LOG_LEVEL }}
