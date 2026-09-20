@@ -12,10 +12,6 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-    - vet
-    - fmt
-    - gofmt
-    - goimports
     - misspell
     - prealloc
     - unconvert
@@ -24,7 +20,6 @@ linters:
     - dogsled
     - dupl
     - durationcheck
-    - exportloopref
     - forbidigo
     - gochecknoglobals
     - gochecknoinits
@@ -32,7 +27,6 @@ linters:
     - gocyclo
     - godot
     - goerr113
-    - gomnd
     - goprintffuncname
     - gosec
     - lll
@@ -60,17 +54,6 @@ linters-settings:
       - performance
       - style
       - experimental
-  gosec:
-    excludes:
-      - G404
-      - G307
-  lll:
-    line-length: 120
-  nestif:
-    min-complexity: 4
-  nolintlint:
-    allow-unused: false
-    allow-leading-space: false
 
 issues:
   exclude-rules:
@@ -83,8 +66,3 @@ issues:
     - path: pkg/logger/logger.go
       linters:
         - gochecknoglobals
-
-output:
-  format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
