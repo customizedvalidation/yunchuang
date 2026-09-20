@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"metaclouds-backend/pkg/logger"
 	"net/http"
@@ -84,7 +85,7 @@ type Config struct {
 
 func LoadConfig() (*Config, error) {
 	if err := godotenv.Load(); err != nil {
-		logger.WarnWithCtx(nil, "Using environment variables, .env file not found", "error", err)
+		logger.WarnWithCtx(context.Background(), "Using environment variables, .env file not found", "error", err)
 	}
 
 	useSQLite, _ := strconv.ParseBool(getEnv("USE_SQLITE", "true"))

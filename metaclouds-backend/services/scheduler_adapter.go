@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -63,7 +64,7 @@ type SchedulerService struct {
 func NewSchedulerService(db interface{}, config *config.Config) *SchedulerService {
 	memoryStore, err := models.GetDBStore(db, "SchedulerService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize SchedulerService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize SchedulerService", err)
 		return nil
 	}
 	return &SchedulerService{
@@ -267,7 +268,7 @@ func (a *SlurmAdapter) Type() string { return "slurm" }
 func (a *SlurmAdapter) SubmitJob(job *models.Job) (string, error) {
 	// 模拟 sbatch 提交，返回配置驱动的 job ID
 	schedulerJobID := fmt.Sprintf("slurm-%d-%d", a.integration.ID, job.ID)
-	logger.InfoWithCtx(nil, "SlurmAdapter: simulated job submit",
+	logger.InfoWithCtx(context.Background(), "SlurmAdapter: simulated job submit",
 		"scheduler_job_id", schedulerJobID,
 		"job_name", job.Name,
 		"partition", a.integration.DefaultPartition)
@@ -275,7 +276,7 @@ func (a *SlurmAdapter) SubmitJob(job *models.Job) (string, error) {
 }
 
 func (a *SlurmAdapter) CancelJob(schedulerJobID string) error {
-	logger.InfoWithCtx(nil, "SlurmAdapter: simulated job cancel", "scheduler_job_id", schedulerJobID)
+	logger.InfoWithCtx(context.Background(), "SlurmAdapter: simulated job cancel", "scheduler_job_id", schedulerJobID)
 	return nil
 }
 

@@ -20,19 +20,19 @@ var memoryCacheMu sync.RWMutex
 
 func InitRedis(cfg *config.Config) (*redis.Client, error) {
 	start := time.Now()
-	logger.InfoWithCtx(nil, "Redis initialization started",
+	logger.InfoWithCtx(context.Background(), "Redis initialization started",
 		"redis_enabled", cfg.RedisEnabled,
 		"redis_host", cfg.RedisHost,
 		"redis_port", cfg.RedisPort,
 		"redis_db", cfg.RedisDB)
 
 	if !cfg.RedisEnabled {
-		logger.InfoWithCtx(nil, "Redis initialization - Redis is disabled, using memory fallback",
+		logger.InfoWithCtx(context.Background(), "Redis initialization - Redis is disabled, using memory fallback",
 			"duration", time.Since(start))
 		return nil, nil
 	}
 
-	logger.DebugWithCtx(nil, "Redis initialization - Creating Redis client",
+	logger.DebugWithCtx(context.Background(), "Redis initialization - Creating Redis client",
 		"redis_addr", cfg.GetRedisAddr(),
 		"pool_size", 10,
 		"read_timeout", "5s",
@@ -50,7 +50,7 @@ func InitRedis(cfg *config.Config) (*redis.Client, error) {
 	pingStart := time.Now()
 	_, err := client.Ping(ctx).Result()
 	if err != nil {
-		logger.WarnWithCtx(nil, "Redis initialization failed - Ping failed, falling back to memory cache",
+		logger.WarnWithCtx(context.Background(), "Redis initialization failed - Ping failed, falling back to memory cache",
 			"redis_host", cfg.RedisHost,
 			"redis_port", cfg.RedisPort,
 			"error", err,
@@ -58,11 +58,11 @@ func InitRedis(cfg *config.Config) (*redis.Client, error) {
 			"total_duration", time.Since(start))
 		return nil, err
 	}
-	logger.DebugWithCtx(nil, "Redis initialization - Ping successful",
+	logger.DebugWithCtx(context.Background(), "Redis initialization - Ping successful",
 		"ping_duration", time.Since(pingStart))
 
 	RedisClient = client
-	logger.InfoWithCtx(nil, "Redis initialization completed successfully",
+	logger.InfoWithCtx(context.Background(), "Redis initialization completed successfully",
 		"redis_host", cfg.RedisHost,
 		"redis_port", cfg.RedisPort,
 		"redis_db", cfg.RedisDB,
@@ -146,7 +146,7 @@ func GetSession(sessionID string) (uint, error) {
 		return 0, err
 	}
 	var userID uint
-	fmt.Sscanf(val, "%d", &userID)
+	_, _ = fmt.Sscanf(val, "%d", &userID)
 	return userID, nil
 }
 

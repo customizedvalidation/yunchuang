@@ -8,7 +8,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const RequestIDKey = "request_id"
+type contextKey string
+
+const (
+	requestIDGinKey = "request_id" // gin Context key（gin API 要求 string）
+	RequestIDKey contextKey = "request_id" // context.Context key
+)
 
 func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -17,7 +22,7 @@ func RequestID() gin.HandlerFunc {
 			requestID = generateRequestID()
 		}
 
-		c.Set(RequestIDKey, requestID)
+		c.Set(requestIDGinKey, requestID)
 		c.Header("X-Request-ID", requestID)
 
 		ctx := context.WithValue(c.Request.Context(), RequestIDKey, requestID)
@@ -29,7 +34,7 @@ func RequestID() gin.HandlerFunc {
 
 func generateRequestID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 

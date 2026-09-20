@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"metaclouds-backend/config"
 	"metaclouds-backend/models"
@@ -16,7 +17,7 @@ type MonitoringService struct {
 func NewMonitoringService(db interface{}, config *config.Config) *MonitoringService {
 	memoryStore, err := models.GetDBStore(db, "MonitoringService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize MonitoringService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize MonitoringService", err)
 		return nil
 	}
 	return &MonitoringService{

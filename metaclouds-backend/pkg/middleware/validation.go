@@ -21,8 +21,12 @@ func ValidationMiddleware() gin.HandlerFunc {
 func ValidateStruct(s interface{}) error {
 	err := validate.Struct(s)
 	if err != nil {
+		validationErrs, ok := err.(validator.ValidationErrors)
+		if !ok {
+			return err
+		}
 		var validationErrors []string
-		for _, e := range err.(validator.ValidationErrors) {
+		for _, e := range validationErrs {
 			field := e.Field()
 			tag := e.Tag()
 			param := e.Param()

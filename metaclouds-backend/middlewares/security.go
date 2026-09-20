@@ -136,7 +136,7 @@ func checkRequestBodyForPattern(c *gin.Context, pattern *regexp.Regexp) error {
 
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	c.Request.Body.Close()

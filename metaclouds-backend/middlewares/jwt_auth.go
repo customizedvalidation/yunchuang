@@ -277,7 +277,11 @@ func GetUserRoleFromContext(c *gin.Context) (string, error) {
 	if !exists {
 		return "", errors.Unauthorized("role not found in context")
 	}
-	return role.(string), nil
+	roleStr, ok := role.(string)
+	if !ok {
+		return "", errors.Unauthorized("invalid role type in context")
+	}
+	return roleStr, nil
 }
 
 func GetTenantIDFromContext(c *gin.Context) (uint, error) {

@@ -19,7 +19,7 @@ type JobService struct {
 func NewJobService(db interface{}, config *config.Config, k8sService *K8SService) *JobService {
 	memoryStore, err := models.GetDBStore(db, "JobService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize JobService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize JobService", err)
 		return nil
 	}
 	return &JobService{
@@ -226,9 +226,9 @@ func (s *JobService) UpdateJob(id uint, req UpdateJobRequest) (*models.Job, erro
 		s.db.UpdateJobPriority(id, *req.Priority)
 		select {
 		case s.db.PriorityChanged <- id:
-			logger.DebugWithCtx(nil, "Priority change notification sent", "job_id", id, "old_priority", oldPriority, "new_priority", *req.Priority)
+			logger.DebugWithCtx(context.Background(), "Priority change notification sent", "job_id", id, "old_priority", oldPriority, "new_priority", *req.Priority)
 		default:
-			logger.WarnWithCtx(nil, "Priority change channel full, dropping notification", "job_id", id, "old_priority", oldPriority, "new_priority", *req.Priority)
+			logger.WarnWithCtx(context.Background(), "Priority change channel full, dropping notification", "job_id", id, "old_priority", oldPriority, "new_priority", *req.Priority)
 		}
 	}
 	if req.Progress >= 0 {
@@ -329,9 +329,9 @@ func (s *JobService) applyUpdateLocked(id uint, job *models.Job, req UpdateJobRe
 		s.db.UpdateJobPriority(id, *req.Priority)
 		select {
 		case s.db.PriorityChanged <- id:
-			logger.DebugWithCtx(nil, "Priority change notification sent", "job_id", id, "old_priority", oldPriority, "new_priority", *req.Priority)
+			logger.DebugWithCtx(context.Background(), "Priority change notification sent", "job_id", id, "old_priority", oldPriority, "new_priority", *req.Priority)
 		default:
-			logger.WarnWithCtx(nil, "Priority change channel full, dropping notification", "job_id", id, "old_priority", oldPriority, "new_priority", *req.Priority)
+			logger.WarnWithCtx(context.Background(), "Priority change channel full, dropping notification", "job_id", id, "old_priority", oldPriority, "new_priority", *req.Priority)
 		}
 	}
 	if req.Progress >= 0 {

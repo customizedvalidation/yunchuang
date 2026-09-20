@@ -46,7 +46,7 @@ type AuthService struct {
 func NewAuthService(db interface{}, redisClient interface{}, cfg *config.Config) *AuthService {
 	memoryStore, err := models.GetDBStore(db, "AuthService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize AuthService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize AuthService", err)
 		return nil
 	}
 
@@ -54,7 +54,7 @@ func NewAuthService(db interface{}, redisClient interface{}, cfg *config.Config)
 	// 不影响正常登录功能。
 	dummy, hashErr := bcrypt.GenerateFromPassword([]byte(randomToken()), bcrypt.DefaultCost)
 	if hashErr != nil {
-		logger.WarnWithCtx(nil, "Failed to generate dummy password hash", hashErr)
+		logger.WarnWithCtx(context.Background(), "Failed to generate dummy password hash", hashErr)
 	}
 
 	return &AuthService{

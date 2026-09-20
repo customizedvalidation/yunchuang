@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"time"
 
 	"metaclouds-backend/config"
@@ -18,7 +19,7 @@ type TopologyService struct {
 func NewTopologyService(db interface{}, config *config.Config) *TopologyService {
 	memoryStore, err := models.GetDBStore(db, "TopologyService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize TopologyService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize TopologyService", err)
 		return nil
 	}
 	return &TopologyService{

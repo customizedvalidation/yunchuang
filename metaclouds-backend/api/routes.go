@@ -1,4 +1,4 @@
-﻿package api
+package api
 
 import (
 	"errors"
@@ -455,14 +455,12 @@ func RegisterRoutes(r *gin.Engine,
 	topologyController *controllers.TopologyController,
 	datasetController *controllers.DatasetController,
 	checkpointController *controllers.CheckpointController) {
-
 	isProduction := cfg.Environment == "production"
 
 	// API 文档默认开放；生产环境下关闭，避免对外暴露接口细节。
 	if !isProduction {
 		RegisterDocsRoutes(r)
 	}
-
 	r.GET("/", func(c *gin.Context) {
 		c.File("./frontend/dist/index.html")
 	})
@@ -478,7 +476,7 @@ func RegisterRoutes(r *gin.Engine,
 	if !isProduction {
 		r.GET("/backend", func(c *gin.Context) {
 			c.Header("Content-Type", "text/html; charset=utf-8")
-			indexTemplate.Execute(c.Writer, nil)
+			_ = indexTemplate.Execute(c.Writer, nil)
 		})
 	}
 

@@ -56,7 +56,7 @@ func swaggerDocsHandler(c *gin.Context) {
 </body>
 </html>
 `))
-	tmpl.Execute(c.Writer, nil)
+	_ = tmpl.Execute(c.Writer, nil)
 }
 
 func swaggerYAMLHandler(c *gin.Context) {

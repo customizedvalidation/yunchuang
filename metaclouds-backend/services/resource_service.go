@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"metaclouds-backend/config"
 	"metaclouds-backend/models"
@@ -16,7 +17,7 @@ type ResourceService struct {
 func NewResourceService(db interface{}, config *config.Config) *ResourceService {
 	memoryStore, err := models.GetDBStore(db, "ResourceService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize ResourceService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize ResourceService", err)
 		return nil
 	}
 	return &ResourceService{

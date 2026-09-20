@@ -148,7 +148,7 @@ func TestPanicError_Error(t *testing.T) {
 
 func TestRequestID_GeneratesNewID(t *testing.T) {
 	r := newTestRouter(RequestID(), func(c *gin.Context) {
-		id, exists := c.Get(RequestIDKey)
+		id, exists := c.Get(requestIDGinKey)
 		assert.True(t, exists)
 		assert.NotEmpty(t, id)
 		c.JSON(http.StatusOK, gin.H{"id": id})

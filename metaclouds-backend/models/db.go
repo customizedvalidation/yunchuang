@@ -1,6 +1,7 @@
-﻿package models
+package models
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -145,7 +146,7 @@ func (s *MemoryStore) initDefaultData() error {
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultAdminPassword), bcrypt.DefaultCost)
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to hash default password", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to hash default password", err)
 		return fmt.Errorf("failed to hash default password: %w", err)
 	}
 	adminUser := &User{
@@ -334,7 +335,7 @@ func (s *MemoryStore) initDefaultData() error {
 
 func InitDB(cfg *config.Config) (interface{}, error) {
 	start := time.Now()
-	logger.InfoWithCtx(nil, "Database initialization started",
+	logger.InfoWithCtx(context.Background(), "Database initialization started",
 		"memory_store_enabled", cfg.MemoryStoreEnabled,
 		"use_sqlite", cfg.UseSQLite,
 		"database_host", cfg.DatabaseHost,
@@ -342,35 +343,35 @@ func InitDB(cfg *config.Config) (interface{}, error) {
 		"database_name", cfg.DatabaseName)
 
 	if cfg.MemoryStoreEnabled {
-		logger.InfoWithCtx(nil, "Database initialization - Using in-memory store (no CGO required)",
+		logger.InfoWithCtx(context.Background(), "Database initialization - Using in-memory store (no CGO required)",
 			"duration", time.Since(start))
 		return GetMemoryStore()
 	}
 
 	if cfg.UseSQLite {
-		logger.InfoWithCtx(nil, "Database initialization - Using SQLite database",
+		logger.InfoWithCtx(context.Background(), "Database initialization - Using SQLite database",
 			"duration", time.Since(start))
 		return initSQLite(cfg)
 	}
 
-	logger.InfoWithCtx(nil, "Database initialization - Using PostgreSQL database",
+	logger.InfoWithCtx(context.Background(), "Database initialization - Using PostgreSQL database",
 		"duration", time.Since(start))
 	return initPostgreSQL(cfg)
 }
 
 func initSQLite(cfg *config.Config) (*gorm.DB, error) {
 	start := time.Now()
-	logger.DebugWithCtx(nil, "SQLite initialization started",
+	logger.DebugWithCtx(context.Background(), "SQLite initialization started",
 		"database_file", "metaclouds.db")
 
 	db, err := gorm.Open(sqlite.Open("metaclouds.db"), &gorm.Config{})
 	if err != nil {
-		logger.ErrorWithCtx(nil, "SQLite initialization failed - failed to open database", err,
+		logger.ErrorWithCtx(context.Background(), "SQLite initialization failed - failed to open database", err,
 			"duration", time.Since(start))
 		return nil, fmt.Errorf("failed to open SQLite database: %w", err)
 	}
 
-	logger.DebugWithCtx(nil, "SQLite connection established",
+	logger.DebugWithCtx(context.Background(), "SQLite connection established",
 		"duration", time.Since(start))
 
 	migrateStart := time.Now()
@@ -396,56 +397,56 @@ func initSQLite(cfg *config.Config) (*gorm.DB, error) {
 		&InferenceConfig{},
 		&Checkpoint{},
 	); err != nil {
-		logger.ErrorWithCtx(nil, "SQLite initialization failed - migration error", err,
+		logger.ErrorWithCtx(context.Background(), "SQLite initialization failed - migration error", err,
 			"migration_duration", time.Since(migrateStart),
 			"total_duration", time.Since(start))
 		return nil, fmt.Errorf("failed to migrate SQLite database: %w", err)
 	}
-	logger.DebugWithCtx(nil, "SQLite migration completed",
+	logger.DebugWithCtx(context.Background(), "SQLite migration completed",
 		"migration_duration", time.Since(migrateStart))
 
 	initDataStart := time.Now()
 	if err := InitData(db); err != nil {
-		logger.WarnWithCtx(nil, "SQLite initialization - failed to initialize default data",
+		logger.WarnWithCtx(context.Background(), "SQLite initialization - failed to initialize default data",
 			"error", err,
 			"init_data_duration", time.Since(initDataStart))
 	} else {
-		logger.DebugWithCtx(nil, "SQLite default data initialized",
+		logger.DebugWithCtx(context.Background(), "SQLite default data initialized",
 			"init_data_duration", time.Since(initDataStart))
 	}
 
-	logger.InfoWithCtx(nil, "SQLite initialization completed successfully",
+	logger.InfoWithCtx(context.Background(), "SQLite initialization completed successfully",
 		"duration", time.Since(start))
 	return db, nil
 }
 
 func initPostgreSQL(cfg *config.Config) (*gorm.DB, error) {
 	start := time.Now()
-	logger.DebugWithCtx(nil, "PostgreSQL initialization started",
+	logger.DebugWithCtx(context.Background(), "PostgreSQL initialization started",
 		"database_host", cfg.DatabaseHost,
 		"database_port", cfg.DatabasePort,
 		"database_name", cfg.DatabaseName,
 		"ssl_mode", cfg.DatabaseSSLMode)
 
 	dsn := cfg.GetDatabaseDSN()
-	logger.DebugWithCtx(nil, "PostgreSQL DSN constructed",
+	logger.DebugWithCtx(context.Background(), "PostgreSQL DSN constructed",
 		"dsn", maskDSN(dsn))
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		logger.ErrorWithCtx(nil, "PostgreSQL initialization failed - failed to open database", err,
+		logger.ErrorWithCtx(context.Background(), "PostgreSQL initialization failed - failed to open database", err,
 			"database_host", cfg.DatabaseHost,
 			"database_port", cfg.DatabasePort,
 			"duration", time.Since(start))
 		return nil, fmt.Errorf("failed to open PostgreSQL database: %w", err)
 	}
 
-	logger.DebugWithCtx(nil, "PostgreSQL connection established",
+	logger.DebugWithCtx(context.Background(), "PostgreSQL connection established",
 		"duration", time.Since(start))
 
 	sqlDB, err := db.DB()
 	if err != nil {
-		logger.ErrorWithCtx(nil, "PostgreSQL initialization failed - failed to get underlying SQL database", err,
+		logger.ErrorWithCtx(context.Background(), "PostgreSQL initialization failed - failed to get underlying SQL database", err,
 			"duration", time.Since(start))
 		return nil, fmt.Errorf("failed to get underlying SQL database: %w", err)
 	}
@@ -455,7 +456,7 @@ func initPostgreSQL(cfg *config.Config) (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(300 * time.Second)
 	sqlDB.SetConnMaxIdleTime(60 * time.Second)
 
-	logger.DebugWithCtx(nil, "PostgreSQL connection pool configured",
+	logger.DebugWithCtx(context.Background(), "PostgreSQL connection pool configured",
 		"max_open_conns", 100,
 		"max_idle_conns", 20,
 		"conn_max_lifetime", "300s",
@@ -463,12 +464,12 @@ func initPostgreSQL(cfg *config.Config) (*gorm.DB, error) {
 
 	pingStart := time.Now()
 	if err := sqlDB.Ping(); err != nil {
-		logger.ErrorWithCtx(nil, "PostgreSQL initialization failed - ping failed", err,
+		logger.ErrorWithCtx(context.Background(), "PostgreSQL initialization failed - ping failed", err,
 			"ping_duration", time.Since(pingStart),
 			"total_duration", time.Since(start))
 		return nil, fmt.Errorf("failed to ping PostgreSQL database: %w", err)
 	}
-	logger.DebugWithCtx(nil, "PostgreSQL ping successful",
+	logger.DebugWithCtx(context.Background(), "PostgreSQL ping successful",
 		"ping_duration", time.Since(pingStart))
 
 	migrateStart := time.Now()
@@ -494,25 +495,25 @@ func initPostgreSQL(cfg *config.Config) (*gorm.DB, error) {
 		&InferenceConfig{},
 		&Checkpoint{},
 	); err != nil {
-		logger.ErrorWithCtx(nil, "PostgreSQL initialization failed - migration error", err,
+		logger.ErrorWithCtx(context.Background(), "PostgreSQL initialization failed - migration error", err,
 			"migration_duration", time.Since(migrateStart),
 			"total_duration", time.Since(start))
 		return nil, fmt.Errorf("failed to migrate PostgreSQL database: %w", err)
 	}
-	logger.DebugWithCtx(nil, "PostgreSQL migration completed",
+	logger.DebugWithCtx(context.Background(), "PostgreSQL migration completed",
 		"migration_duration", time.Since(migrateStart))
 
 	initDataStart := time.Now()
 	if err := InitData(db); err != nil {
-		logger.WarnWithCtx(nil, "PostgreSQL initialization - failed to initialize default data",
+		logger.WarnWithCtx(context.Background(), "PostgreSQL initialization - failed to initialize default data",
 			"error", err,
 			"init_data_duration", time.Since(initDataStart))
 	} else {
-		logger.DebugWithCtx(nil, "PostgreSQL default data initialized",
+		logger.DebugWithCtx(context.Background(), "PostgreSQL default data initialized",
 			"init_data_duration", time.Since(initDataStart))
 	}
 
-	logger.InfoWithCtx(nil, "PostgreSQL initialization completed successfully",
+	logger.InfoWithCtx(context.Background(), "PostgreSQL initialization completed successfully",
 		"database_host", cfg.DatabaseHost,
 		"database_port", cfg.DatabasePort,
 		"database_name", cfg.DatabaseName,
@@ -648,7 +649,7 @@ func InitMemoryStore() *MemoryStore {
 
 func GetDBStore(db interface{}, serviceName string) (*MemoryStore, error) {
 	if db == nil {
-		logger.WarnWithCtx(nil, "Service received nil database, using global memory store", "service", serviceName)
+		logger.WarnWithCtx(context.Background(), "Service received nil database, using global memory store", "service", serviceName)
 		return GetMemoryStore()
 	}
 
@@ -657,13 +658,13 @@ func GetDBStore(db interface{}, serviceName string) (*MemoryStore, error) {
 	}
 
 	if _, ok := db.(*gorm.DB); ok {
-		logger.ErrorWithCtx(nil, "Service received GORM database but expects MemoryStore - this may cause data inconsistency", nil,
+		logger.ErrorWithCtx(context.Background(), "Service received GORM database but expects MemoryStore - this may cause data inconsistency", nil,
 			"service", serviceName,
 			"database_type", "gorm.DB")
 		return nil, fmt.Errorf("service %s requires MemoryStore but received gorm.DB", serviceName)
 	}
 
-	logger.ErrorWithCtx(nil, "Service received unknown database type", nil,
+	logger.ErrorWithCtx(context.Background(), "Service received unknown database type", nil,
 		"service", serviceName,
 		"database_type", fmt.Sprintf("%T", db))
 	return nil, fmt.Errorf("service %s received unknown database type: %T", serviceName, db)

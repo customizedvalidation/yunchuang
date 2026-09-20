@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -137,7 +138,7 @@ func (s *AlertService) EvaluateMetrics(metrics map[string]interface{}) []models.
 				s.sendNotification(alert)
 			}
 
-			logger.WarnWithCtx(nil, "Alert triggered", "rule", rule.Name, "level", rule.Level, "value", currentValue)
+			logger.WarnWithCtx(context.Background(), "Alert triggered", "rule", rule.Name, "level", rule.Level, "value", currentValue)
 		}
 	}
 
@@ -182,9 +183,9 @@ func (s *AlertService) sendNotification(alert models.Alert) {
 
 func (s *AlertService) dispatchNotification(notification AlertNotification) {
 	if notification.Level == "critical" {
-		logger.ErrorWithCtx(nil, "Critical alert notification", nil, "message", notification.Message)
+		logger.ErrorWithCtx(context.Background(), "Critical alert notification", nil, "message", notification.Message)
 	} else {
-		logger.WarnWithCtx(nil, "Alert notification", "message", notification.Message)
+		logger.WarnWithCtx(context.Background(), "Alert notification", "message", notification.Message)
 	}
 }
 

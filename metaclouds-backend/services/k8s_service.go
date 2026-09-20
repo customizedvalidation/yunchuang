@@ -22,7 +22,7 @@ type K8SService struct {
 func NewK8SService(db interface{}, cfg *config.Config) *K8SService {
 	memoryStore, err := models.GetDBStore(db, "K8SService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize K8SService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize K8SService", err)
 		return nil
 	}
 	return &K8SService{

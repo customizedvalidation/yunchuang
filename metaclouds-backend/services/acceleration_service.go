@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"metaclouds-backend/config"
 	"metaclouds-backend/models"
@@ -16,7 +17,7 @@ type AccelerationService struct {
 func NewAccelerationService(db interface{}, config *config.Config) *AccelerationService {
 	memoryStore, err := models.GetDBStore(db, "AccelerationService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize AccelerationService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize AccelerationService", err)
 		return nil
 	}
 	return &AccelerationService{

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -19,7 +20,7 @@ type QuotaService struct {
 func NewQuotaService(db interface{}, config *config.Config) *QuotaService {
 	memoryStore, err := models.GetDBStore(db, "QuotaService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize QuotaService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize QuotaService", err)
 		return nil
 	}
 	return &QuotaService{

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"metaclouds-backend/config"
 	"metaclouds-backend/models"
@@ -16,7 +17,7 @@ type TenantService struct {
 func NewTenantService(db interface{}, config *config.Config) *TenantService {
 	memoryStore, err := models.GetDBStore(db, "TenantService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize TenantService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize TenantService", err)
 		return nil
 	}
 	return &TenantService{

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"metaclouds-backend/config"
 	"metaclouds-backend/models"
@@ -16,7 +17,7 @@ type ClusterService struct {
 func NewClusterService(db interface{}, config *config.Config) *ClusterService {
 	memoryStore, err := models.GetDBStore(db, "ClusterService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize ClusterService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize ClusterService", err)
 		return nil
 	}
 	return &ClusterService{

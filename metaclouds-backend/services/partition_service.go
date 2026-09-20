@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"time"
 
 	"metaclouds-backend/config"
@@ -18,7 +19,7 @@ type PartitionService struct {
 func NewPartitionService(db interface{}, config *config.Config) *PartitionService {
 	memoryStore, err := models.GetDBStore(db, "PartitionService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize PartitionService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize PartitionService", err)
 		return nil
 	}
 	return &PartitionService{

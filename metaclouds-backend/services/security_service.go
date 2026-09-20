@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"metaclouds-backend/config"
 	"metaclouds-backend/models"
@@ -16,7 +17,7 @@ type SecurityService struct {
 func NewSecurityService(db interface{}, config *config.Config) *SecurityService {
 	memoryStore, err := models.GetDBStore(db, "SecurityService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize SecurityService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize SecurityService", err)
 		return nil
 	}
 	return &SecurityService{

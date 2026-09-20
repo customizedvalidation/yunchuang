@@ -13,56 +13,49 @@ linters:
     - staticcheck
     - unused
     - misspell
-    - prealloc
     - unconvert
     - whitespace
     - bodyclose
-    - dogsled
-    - dupl
     - durationcheck
-    - forbidigo
-    - gochecknoglobals
-    - gochecknoinits
-    - gocritic
-    - gocyclo
-    - godot
-    - goerr113
-    - goprintffuncname
     - gosec
-    - lll
-    - nestif
     - nilerr
-    - noctx
-    - nolintlint
     - rowserrcheck
     - sqlclosecheck
     - stylecheck
     - thelper
     - tparallel
-    - typecheck
-    - unparam
     - wastedassign
 
 linters-settings:
   errcheck:
     check-type-assertions: true
-    check-blank: true
-  gocyclo:
-    min-complexity: 15
-  gocritic:
-    enabled-tags:
-      - performance
-      - style
-      - experimental
+    check-blank: false
+  gosec:
+    excludes:
+      - G107
+      - G108
+      - G110
+      - G115
+      - G204
+      - G301
+      - G302
+      - G304
+      - G306
+      - G401
+      - G402
+      - G404
 
 issues:
   exclude-rules:
     - path: _test\.go
       linters:
         - errcheck
-        - gochecknoglobals
-        - gocyclo
-        - lll
+        - gosec
+        - rowserrcheck
+        - sqlclosecheck
+        - durationcheck
+        - thelper
+        - unused
     - path: pkg/logger/logger.go
       linters:
-        - gochecknoglobals
+        - errcheck

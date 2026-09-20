@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -19,7 +20,7 @@ type GPUService struct {
 func NewGPUService(db interface{}, config *config.Config) *GPUService {
 	memoryStore, err := models.GetDBStore(db, "GPUService")
 	if err != nil {
-		logger.ErrorWithCtx(nil, "Failed to initialize GPUService", err)
+		logger.ErrorWithCtx(context.Background(), "Failed to initialize GPUService", err)
 		return nil
 	}
 	return &GPUService{

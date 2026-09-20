@@ -225,7 +225,7 @@ func (s *Scheduler) executeJobOnce(ctx context.Context, jobID uint, scheduleName
 			rollbackReq := UpdateJobRequest{
 				Status: "failed",
 			}
-			s.jobService.UpdateJob(jobID, rollbackReq)
+			_, _ = s.jobService.UpdateJob(jobID, rollbackReq)
 			return err
 		}
 	}
@@ -268,26 +268,6 @@ func (s *Scheduler) monitorJobCompletion(jobID uint, scheduleName string) {
 	}
 }
 
-func (s *Scheduler) findScheduleByJobID(jobID uint) (Schedule, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.findScheduleByJobIDLocked(jobID)
-}
-
-func (s *Scheduler) findScheduleByJobIDLocked(jobID uint) (Schedule, bool) {
-	for _, schedule := range s.jobs {
-		if schedule.JobID == jobID {
-			return schedule, true
-		}
-	}
-	return Schedule{}, false
-}
-
-func (s *Scheduler) findScheduleEntryByJobID(jobID uint) (cron.EntryID, Schedule, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.findScheduleEntryByJobIDLocked(jobID)
-}
 
 func (s *Scheduler) findScheduleEntryByJobIDLocked(jobID uint) (cron.EntryID, Schedule, bool) {
 	for entryID, schedule := range s.jobs {
@@ -313,6 +293,6 @@ func (s *Scheduler) GetSchedules() []Schedule {
 }
 
 func (s *Scheduler) AddDefaultSchedules() {
-	s.AddSchedule("sample-training", "*/30 * * * *", 1)
-	s.AddSchedule("sample-inference", "0 */2 * * *", 2)
+	_, _ = s.AddSchedule("sample-training", "*/30 * * * *", 1)
+	_, _ = s.AddSchedule("sample-inference", "0 */2 * * *", 2)
 }

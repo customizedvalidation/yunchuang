@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -28,7 +27,7 @@ func main() {
 	}
 	defer db.Close()
 
-	sqlContent, err := ioutil.ReadFile(sqlFile)
+	sqlContent, err := os.ReadFile(sqlFile)
 	if err != nil {
 		fmt.Printf("Failed to read SQL file: %v\n", err)
 		os.Exit(1)
@@ -57,5 +56,9 @@ func main() {
 			return
 		}
 		fmt.Printf("  - %s\n", name)
+	}
+	if err := rows.Err(); err != nil {
+		fmt.Printf("Failed during rows iteration: %v\n", err)
+		return
 	}
 }

@@ -65,6 +65,7 @@ var (
 		},
 		[]string{"cluster"},
 	)
+	//nolint:unused // 指标注册保留，读取走 /metrics 抓取
 	gpuAllocationFailedCounter = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gpu_allocation_failed_total",
@@ -72,6 +73,7 @@ var (
 		},
 		[]string{"cluster"},
 	)
+	//nolint:unused // 指标注册保留，读取走 /metrics 抓取
 	jobTotalCounter = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "job_total_count",
@@ -124,12 +126,14 @@ var (
 			Help: "Number of currently active API requests",
 		},
 	)
+	//nolint:unused // 指标注册保留，读取走 /metrics 抓取
 	databaseConnectionGauge = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "database_connections_active",
 			Help: "Number of active database connections",
 		},
 	)
+	//nolint:unused // 指标注册保留，读取走 /metrics 抓取
 	redisConnectionGauge = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "redis_connections_active",
@@ -148,6 +152,7 @@ var (
 			Help: "Total number of nodes across all clusters",
 		},
 	)
+	//nolint:unused // 指标注册保留，读取走 /metrics 抓取
 	resourceUtilizationGauge = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "resource_utilization_percent",
@@ -377,13 +382,13 @@ func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.Header.Get("Accept"), "text/html") {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(code)
-		w.Write([]byte(healthHTML(status, detail)))
+		_, _ = w.Write([]byte(healthHTML(status, detail)))
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	w.Write([]byte(`{"status":"` + status + `","timestamp":` + strconv.FormatInt(time.Now().Unix(), 10) + `,"dependencies":` + strconv.Itoa(len(checks)) + `}`))
+	_, _ = w.Write([]byte(`{"status":"` + status + `","timestamp":` + strconv.FormatInt(time.Now().Unix(), 10) + `,"dependencies":` + strconv.Itoa(len(checks)) + `}`))
 }
 
 func healthHTML(status, detail string) string {

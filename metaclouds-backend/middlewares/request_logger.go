@@ -27,7 +27,7 @@ func RequestLogger() gin.HandlerFunc {
 }
 
 func NewRequestLogger(cfg *config.Config) gin.HandlerFunc {
-	var slowThreshold time.Duration = 2 * time.Second
+	var slowThreshold = 2 * time.Second
 	if cfg != nil && cfg.SlowRequestThresholdMs > 0 {
 		slowThreshold = time.Duration(cfg.SlowRequestThresholdMs) * time.Millisecond
 	}

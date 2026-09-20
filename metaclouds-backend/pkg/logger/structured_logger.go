@@ -74,10 +74,7 @@ type logEntry struct {
 }
 
 func (l *StructuredLogger) shouldSample() bool {
-	if l.sampleRate >= 1.0 {
-		return true
-	}
-	return false
+	return l.sampleRate >= 1.0
 }
 
 func (l *StructuredLogger) Debug(ctx context.Context, msg string, fields ...interface{}) {
