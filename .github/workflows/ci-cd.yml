@@ -44,6 +44,11 @@ on:
           - WARN
           - ERROR
 
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
 env:
   GO_VERSION: '1.24'
   NODE_VERSION: '22'
@@ -817,9 +822,11 @@ jobs:
             ${{ runner.os }}-cargo-coverage-
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-llvm-cov
+        run: |
+          cargo install cargo-llvm-cov --locked
+          cargo llvm-cov --version
+          rustc --version
+          rustup component list | grep llvm || true
 
       - name: Run coverage, print summary and write lcov.info
         run: |
