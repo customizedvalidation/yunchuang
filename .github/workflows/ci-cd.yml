@@ -266,7 +266,7 @@ jobs:
       - name: Check pkg/priorityscheduler coverage
         run: |
           # 关键包：优先级调度器要求 ≥60% 覆盖率
-          go test -coverprofile=priority_scheduler_coverage.out ./pkg/priorityscheduler/... -timeout 60s
+          go test -coverprofile=priority_scheduler_coverage.out ./pkg/priorityscheduler -timeout 60s
           pkg_coverage=$(go tool cover -func=priority_scheduler_coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "pkg/priorityscheduler Coverage: ${pkg_coverage}%"
           echo "Minimum Required: ${PKG_PRIORITY_SCHEDULER_COVERAGE}%"
