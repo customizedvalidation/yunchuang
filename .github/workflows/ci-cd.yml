@@ -690,7 +690,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LOG_LEVEL: INFO
-      STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

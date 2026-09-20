@@ -5,7 +5,7 @@
 
 ## 通用约定
 
-- **认证**：除 `POST /auth/login` 和 `/metrics`、`/swagger-ui` 外，所有端点需 JWT（HttpOnly Cookie `access_token`）
+- **认证**：除 `POST /auth/login` 和 `/health`、`/metrics`、`/swagger-ui`、`/api-docs/openapi.json` 外，所有端点需 JWT（HttpOnly Cookie `access_token`）
 - **CSRF**：写操作（POST/PUT/DELETE）需携带 `X-CSRF-Token` 头（从 `csrf_token` Cookie 读取）
 - **响应信封**：`{success: bool, data: T | null, message: string?, code: string?, timestamp: number}`
 - **分页参数**：`?page=1&page_size=10`（page_size 最大 100）
@@ -77,6 +77,7 @@
 | GET | `/clusters/{id}` | JWT | 集群详情 |
 | PUT | `/clusters/{id}` | `cluster:write` | 更新集群 |
 | DELETE | `/clusters/{id}` | `cluster:write` | 删除集群 |
+| GET | `/clusters/{id}/status` | JWT | 集群实时状态（对齐 Go k8sController.GetClusterStatus） |
 
 ---
 
@@ -172,8 +173,11 @@
 | PUT | `/partitions/{id}` | `partition:write` | 更新分区 |
 | DELETE | `/partitions/{id}` | `partition:write` | 删除分区 |
 | GET | `/partitions/{id}/resources` | JWT | 分区资源 |
+| GET | `/partitions/{id}/permissions` | JWT | 分区权限列表 |
 | POST | `/partitions/{id}/permissions` | `partition:write` | 授权 |
 | DELETE | `/partitions/{id}/permissions/{perm_id}` | `partition:write` | 撤销授权 |
+| PUT | `/partitions/{id}/priority` | `partition:write` | 更新分区优先级 |
+| PUT | `/partitions/{id}/max-runtime` | `partition:write` | 更新分区最大运行时长 |
 
 ---
 
@@ -186,9 +190,9 @@
 | GET | `/quotas/{id}` | JWT | 配额详情 |
 | PUT | `/quotas/{id}` | `quota:write` | 更新配额 |
 | DELETE | `/quotas/{id}` | `quota:write` | 删除配额 |
-| POST | `/quotas/{id}/check` | JWT | 校验配额 |
+| POST | `/quotas/check` | JWT | 校验配额（无路径参数，对齐 Go） |
 
-> **差异**：Go 版为 `POST /quotas/check`（无路径参数），Rust 版为 `POST /quotas/{id}/check`。P4-01 正在对齐。
+> **对齐**：Rust 版 `POST /quotas/check`（无路径参数）已与 Go 版一致。
 
 ---
 
@@ -215,6 +219,15 @@
 | GET | `/datasets/{id}` | JWT | 数据集详情 |
 | PUT | `/datasets/{id}` | `dataset:write` | 更新数据集 |
 | DELETE | `/datasets/{id}` | `dataset:write` | 删除数据集 |
+| GET | `/datasets/{id}/caches` | JWT | 数据集 FluidCache 列表 |
+| GET | `/datasets/{id}/fluid-caches` | JWT | 别名：FluidCache 列表 |
+| POST | `/datasets/{id}/caches` | `dataset:write` | 创建 FluidCache |
+| POST | `/datasets/{id}/fluid-caches` | `dataset:write` | 别名：创建 FluidCache |
+| PUT | `/fluid-caches/{cache_id}` | `dataset:write` | 更新 FluidCache |
+| DELETE | `/fluid-caches/{cache_id}` | `dataset:write` | 删除 FluidCache |
+| POST | `/fluid-caches/{cache_id}/enable` | `dataset:write` | 启用 FluidCache |
+| POST | `/fluid-caches/{cache_id}/disable` | `dataset:write` | 禁用 FluidCache |
+| POST | `/fluid-caches/{cache_id}/prefetch` | `dataset:write` | 预热 FluidCache |
 
 ---
 
@@ -284,7 +297,15 @@
 
 ---
 
-## 19. metrics（Prometheus）
+## 19. health（健康检查）
+
+| 方法 | 路径 | 权限 | 说明 |
+|------|------|------|------|
+| GET | `/health` | 公开 | 根级存活/就绪探针（无 `/api/v1` 前缀、无 JWT，对齐 Go；K8s livenessProbe/readinessProbe 直接抓取） |
+
+---
+
+## 20. metrics（Prometheus）
 
 | 方法 | 路径 | 权限 | 说明 |
 |------|------|------|------|
@@ -292,7 +313,7 @@
 
 ---
 
-## 20. swagger（API 文档）
+## 21. swagger（API 文档）
 
 | 方法 | 路径 | 权限 | 说明 |
 |------|------|------|------|
@@ -305,12 +326,13 @@
 
 | # | 差异 | Go 版 | Rust 版 | 状态 |
 |---|------|-------|---------|------|
-| 1 | 根级健康检查 | `GET /health` | 不存在 | K8s 用 `/metrics` |
-| 2 | 配额校验路径 | `POST /quotas/check` | `POST /quotas/{id}/check` | P4-01 对齐中 |
+| 1 | 根级健康检查 | `GET /health` | `GET /health`（根级，无 JWT） | 已对齐 |
+| 2 | 配额校验路径 | `POST /quotas/check` | `POST /quotas/check` | 已对齐 |
 | 3 | GPU 资源端点 | `GET /resources/gpu` | 未实现 | 用 `/gpus` 替代 |
 | 4 | 作业提交 | `POST /jobs/:id/submit` | 未实现 | 用 `POST /jobs` 创建 |
-| 5 | 集群状态 | `GET /clusters/:id/status` | 未实现 | 用 `GET /clusters/:id` |
+| 5 | 集群状态 | `GET /clusters/:id/status` | `GET /clusters/{id}/status` | 已实现 |
 | 6 | 作业统计 | 无 | `GET /jobs/stats` | Rust 独有 |
 | 7 | 告警域 | 部分 | `/alerts` 完整 CRUD + ack/resolve/stats | Rust 独有/增强 |
 | 8 | 修改密码 | 部分 | `PUT /auth/change-password` | Rust 独有 |
 | 9 | 别名路径 | 无 | `/topology/nodes`、`/gpu/*` 系列 | Rust 独有兼容 |
+| 10 | FluidCache 管理 | 嵌套 datasets | `/datasets/:id/caches(fluid-caches)` + 顶层 `/fluid-caches/:cacheId` CRUD/enable/disable/prefetch | 已对齐 |

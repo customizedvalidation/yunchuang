@@ -97,3 +97,8 @@ coverage.out
 coverage
 
 priority_scheduler_coverage.out
+
+# ===== Rust coverage artifacts (CI 产物，非交付物) =====
+priority_scheduler_coverage/
+*.profraw
+llvm-cov/
