@@ -830,8 +830,20 @@ jobs:
 
       - name: Run coverage, print summary and write lcov.info
         run: |
-          cargo llvm-cov --all-features --summary
-          cargo llvm-cov --all-features --lcov --output-path lcov.info
+          set -x
+          rustup component list | grep -i llvm || true
+          which llvm-cov || ls -la ~/.cargo/bin | grep -i llvm || true
+          cargo llvm-cov --version 2>&1 || true
+          cargo llvm-cov --all-features --summary 2>&1 | tee coverage-summary.log
+          cargo llvm-cov --all-features --lcov --output-path lcov.info 2>&1 | tee coverage-run.log
+      - name: Upload coverage debug logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-debug
+          path: |
+            coverage-summary.log
+            coverage-run.log
 
       - name: Upload coverage (LCOV)
         if: always()
