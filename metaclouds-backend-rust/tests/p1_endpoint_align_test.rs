@@ -77,15 +77,18 @@ async fn setup_app() -> (Router, sqlx::SqlitePool) {
         .route("/jobs/{id}/submit", post(submit_job_to_k8s))
         .route("/topology/score", post(calculate_topology_score))
         .route("/partitions", post(create_partition))
+        .route("/partitions/{id}/permissions", post(grant_permission))
         .route(
-            "/partitions/{id}/permissions",
-            post(grant_permission),
-        )
-        .route("/partitions/permissions/{id}", delete(revoke_permission_by_id));
+            "/partitions/permissions/{id}",
+            delete(revoke_permission_by_id),
+        );
 
     let protected = read
         .merge(write)
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), jwt_auth));
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            jwt_auth,
+        ));
     let public = Router::new().route("/auth/login", post(login));
 
     let app = Router::new()
@@ -140,8 +143,14 @@ async fn admin_token(app: &mut Router) -> String {
 async fn p1_monitoring_alerts_alias_returns_200() {
     let (mut app, _p) = setup_app().await;
     let token = admin_token(&mut app).await;
-    let (status, body) =
-        do_req(&mut app, "GET", "/api/v1/monitoring/alerts", Some(&token), None).await;
+    let (status, body) = do_req(
+        &mut app,
+        "GET",
+        "/api/v1/monitoring/alerts",
+        Some(&token),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(body["data"].is_array());
 }
@@ -150,8 +159,7 @@ async fn p1_monitoring_alerts_alias_returns_200() {
 async fn p1_resources_gpu_returns_200() {
     let (mut app, _p) = setup_app().await;
     let token = admin_token(&mut app).await;
-    let (status, body) =
-        do_req(&mut app, "GET", "/api/v1/resources/gpu", Some(&token), None).await;
+    let (status, body) = do_req(&mut app, "GET", "/api/v1/resources/gpu", Some(&token), None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body["data"].is_array());
 }
@@ -161,18 +169,36 @@ async fn p1_scheduler_queues_nodes_health_mock() {
     let (mut app, _p) = setup_app().await;
     let token = admin_token(&mut app).await;
 
-    let (status, body) =
-        do_req(&mut app, "GET", "/api/v1/schedulers/1/queues", Some(&token), None).await;
+    let (status, body) = do_req(
+        &mut app,
+        "GET",
+        "/api/v1/schedulers/1/queues",
+        Some(&token),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(body["data"].is_array());
 
-    let (status, body) =
-        do_req(&mut app, "GET", "/api/v1/schedulers/1/nodes", Some(&token), None).await;
+    let (status, body) = do_req(
+        &mut app,
+        "GET",
+        "/api/v1/schedulers/1/nodes",
+        Some(&token),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert!(body["data"].is_array());
 
-    let (status, body) =
-        do_req(&mut app, "GET", "/api/v1/schedulers/1/health", Some(&token), None).await;
+    let (status, body) = do_req(
+        &mut app,
+        "GET",
+        "/api/v1/schedulers/1/health",
+        Some(&token),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["data"]["healthy"], json!(true));
 }
