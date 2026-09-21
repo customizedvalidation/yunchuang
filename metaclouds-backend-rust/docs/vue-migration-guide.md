@@ -171,7 +171,7 @@ admin（超级管理员，短路放行全部）
 
 | 差异项 | Go 版 | Rust 版 | 影响 |
 |--------|-------|---------|------|
-| 根级健康检查 | `GET /health` | **不存在** | K8s 探针用 `/metrics`；前端无需调用 |
+| 根级健康检查 | `GET /health` | `GET /health`（根级，无 JWT） | 已对齐；K8s 探针用 `/health`；前端无需调用 |
 | 配额校验 | `POST /quotas/check` | `POST /quotas/{id}/check` | **P4-01 正在修复**，修复后路径一致；当前前端需注意路径 |
 | GPU 资源端点 | `GET /resources/gpu` | 未实现 | 前端如有调用需改用 `GET /gpus` |
 | 作业提交 | `POST /jobs/:id/submit` | 未实现（用 `POST /jobs` 创建） | 前端如有单独提交按钮需适配 |

@@ -25,6 +25,8 @@ pub enum ErrorCode {
     ValidationError,
     RateLimit,
     ServiceUnavailable,
+    /// 熔断打开：下游故障导致熔断器拒绝请求。
+    CircuitBreakerOpen,
     /// 兜底未知错误。
     Unknown,
 }
@@ -42,6 +44,7 @@ impl ErrorCode {
             ErrorCode::ValidationError => "VALIDATION_ERROR",
             ErrorCode::RateLimit => "RATE_LIMIT_EXCEEDED",
             ErrorCode::ServiceUnavailable => "SERVICE_UNAVAILABLE",
+            ErrorCode::CircuitBreakerOpen => "CIRCUIT_BREAKER_OPEN",
             ErrorCode::Unknown => "UNKNOWN_ERROR",
         }
     }
@@ -58,6 +61,7 @@ impl ErrorCode {
             ErrorCode::ValidationError => StatusCode::BAD_REQUEST,
             ErrorCode::RateLimit => StatusCode::TOO_MANY_REQUESTS,
             ErrorCode::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::CircuitBreakerOpen => StatusCode::SERVICE_UNAVAILABLE,
             ErrorCode::Unknown => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -143,6 +147,9 @@ impl AppError {
     }
     pub fn service_unavailable(msg: impl Into<String>) -> Self {
         Self::new(ErrorCode::ServiceUnavailable, msg)
+    }
+    pub fn circuit_breaker_open(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::CircuitBreakerOpen, msg)
     }
     pub fn unknown(msg: impl Into<String>) -> Self {
         Self::new(ErrorCode::Unknown, msg)

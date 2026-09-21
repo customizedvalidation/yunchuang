@@ -13,9 +13,11 @@
 use axum::middleware::from_fn;
 use axum::Router;
 
+pub mod circuit_breaker;
 pub mod error_handler;
 pub mod metrics;
 pub mod panic_recover;
+pub mod rate_limit;
 pub mod request_id;
 pub mod request_logger;
 pub mod security_headers;
@@ -45,6 +47,9 @@ where
         // 链路追踪：包在 request_id 内侧、request_logger / error_handler 外侧，
         // 保证 trace_id 可被访问日志与错误日志关联，并写入 X-Trace-Id 响应头。
         .layer(from_fn(tracing::trace_middleware))
+        // 限流：位于 request_id 内侧、auth/handler 外侧（auth 在受保护路由上单独层叠）。
+        // 默认关闭（RATE_LIMIT_ENABLED 未显式开启时直接放行），不影响现有测试。
+        .layer(from_fn(rate_limit::rate_limit_middleware))
         // 最后注册者位于最外层：最先拿到请求，分配并透传请求 ID。
         .layer(from_fn(request_id::set_request_id))
 }

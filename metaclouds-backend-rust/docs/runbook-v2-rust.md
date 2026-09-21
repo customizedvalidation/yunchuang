@@ -406,20 +406,20 @@ Deployment 探针配置建议：
 
 ```yaml
 livenessProbe:
-  httpGet: { path: /metrics, port: 8000 }
+  httpGet: { path: /health, port: 8000 }
   initialDelaySeconds: 10
   periodSeconds: 15
 readinessProbe:
-  httpGet: { path: /metrics, port: 8000 }
+  httpGet: { path: /health, port: 8000 }
   initialDelaySeconds: 5
   periodSeconds: 10
 startupProbe:
-  httpGet: { path: /metrics, port: 8000 }
+  httpGet: { path: /health, port: 8000 }
   failureThreshold: 30
   periodSeconds: 5
 ```
 
-> **注意**：Rust 版无根级 `/health` 端点。K8s 探针统一使用 `/metrics`（返回 200 即服务存活）。
+> **注意**：Rust 版已实现根级 `/health` 端点（无 JWT，返回 200）。K8s 三探针统一使用 `/health`；`/metrics` 仅供 Prometheus 抓取。
 
 ### 4.3 数据库迁移
 

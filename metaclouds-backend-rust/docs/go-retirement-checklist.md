@@ -25,7 +25,7 @@
   - Partition 部分 Go 路由无 Rust handler（`PUT /partitions/:id/priority`、`PUT /partitions/:id/max-runtime`、`GET /partitions/:id/permissions` 列表）——确认业务未调用。🔧 待业务确认
   - K8s controller 路由映射差异（`clusters/:id/status`、`resources/gpu`、`jobs/:id/submit`、`jobs/:id/status`）——确认前端/调用方已走 Rust 对等端点（`/k8s/clusters/{id}/...`）。🔧 待业务确认
   - Docker 镜像大小（静态估算 31-41MB，临界 40MB）——CI 实测确认。🔧 待 CI 确认
-  - Rust 无根级 `/health` 端点（探针用 `/metrics`）——确认运维已接受，或已新增 `/health`。🔧 待确认
+  - Rust `/health` 端点已实现（根级，无 JWT）——三探针已从 `/metrics` 切换到 `/health`（`k8s/05-deployment.yaml`）。✅ 已确认
   - Alert 权限常量（`alert:read`/`alert:write` 用字符串字面量）——确认 RBAC 矩阵无影响。
 - [ ] **A6. 前端全量切指**：前端已全部指向 Rust 版，无残留 Go 版 API 调用（`baseURL` 为相对 `/api/v1`，由 Nginx/Ingress 统一转发到 Rust Service；全局搜索无硬编码 Go 版地址）。🔧 待目标环境执行
 - [ ] **A7. 监控切换**：Prometheus/Grafana 已抓取 Rust 版 `/metrics`（ServiceMonitor 15s）；16 告警规则指向 Rust 指标；Go 版面板已停用或标注历史。🔧 待目标环境执行

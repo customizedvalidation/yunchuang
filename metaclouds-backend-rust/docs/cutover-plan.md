@@ -23,7 +23,7 @@
 | K8s Ingress | `app.metaclouds.example.com` → `/api` → `metaclouds-backend:8000` | `k8s/10-ingress.yaml` |
 | 指标端点 | `GET /metrics`（Prometheus 文本，无 JWT） | `src/routes.rs` |
 | 交互式文档 | `GET /swagger-ui` + `GET /api-docs/openapi.json`（无 JWT） | `src/routes.rs` |
-| 健康/存活探测 | **无根级 `/health`**；三探针统一用 `/metrics` | `k8s/05-deployment.yaml` 注释 |
+| 健康/存活探测 | `GET /health`（根级，无 JWT，返回 200）；三探针统一用 `/health` | `src/routes.rs`、`k8s/05-deployment.yaml` |
 | 业务指标 | 13 业务 Gauge（`metaclouds_` 前缀）+ 3 HTTP 指标 | P3-03 交付 |
 | 告警规则 | 16 条（GPU/CPU/内存/磁盘/Job/集群/配额/安全/登录/API/DB/Redis 等） | `k8s/12-prometheusrule.yaml` |
 | 日志 | JSON 格式，含 `trace_id` / `span_id` / `request_id`；响应头 `X-Trace-Id` | P3-04 交付 |

@@ -199,3 +199,250 @@ Rust 版后端（`metaclouds-backend-rust`）相对 Go 版（`metaclouds-backend
 - `cargo clippy --all-targets -- -D warnings`：通过。
 - `cargo test`：296 passed，无变化。
 - CI YAML：删除单行 env 后缩进保持合法（`env:` 块仍保留 `LOG_LEVEL`）。
+
+---
+
+## 9. 2026-09-21 续轮复盘
+
+> 本轮范围：文档不一致修复 + 路径统一核对 + 前端联调检查 + CI 现状确认。
+> 不修改 Rust 源码与前端代码，仅文档修正与静态分析记录。
+
+### 9.1 文档不一致修复（/health 过时表述）
+
+Rust `src/routes.rs:456-465` 已实现根级 `GET /health`（无 JWT，返回 200），
+`k8s/05-deployment.yaml` 三探针（startup/liveness/readiness）path 均已改为 `/health`
+（135/144/155 行）。修正以下 4 处过时表述：
+
+| 文件 | 行 | 原表述 | 修正后 |
+|------|----|--------|--------|
+| `cutover-plan.md` | 26 | "**无根级 `/health`**；三探针统一用 `/metrics`" | "`GET /health`（根级，无 JWT）；三探针统一用 `/health`" |
+| `runbook-v2-rust.md` | 408-422 | 探针 YAML 三探针 path=`/metrics` + 注释"无根级 /health" | YAML 三探针 path 改为 `/health`；注释改为"已实现 /health，/metrics 仅供 Prometheus" |
+| `go-retirement-checklist.md` | 28 | "Rust 无根级 /health（探针用 /metrics）…🔧 待确认" | "/health 已实现，三探针已切换…✅ 已确认" |
+| `vue-migration-guide.md` | 174 | "根级健康检查 **不存在**，探针用 /metrics" | "已对齐，探针用 /health" |
+
+K8s Deployment 探针 path 确认：**全部为 `/health`**（startupProbe/livenessProbe/readinessProbe 均 `path: /health, port: http`）。
+
+### 9.2 路径统一核对
+
+#### 9.2.1 Partition 权限删除路径（差异确认）
+
+| 维度 | 路径 |
+|------|------|
+| Go `routes.go:627` | `DELETE /api/v1/partitions/permissions/:permId`（无 `{id}`） |
+| Rust `routes.rs:268` | `DELETE /api/v1/partitions/{id}/permissions/{perm_id}`（含 `{id}`） |
+| 前端 `api/index.ts:146` | `DELETE /partitions/permissions/${id}`（**走 Go 路径**） |
+
+**结论**：前端调用 Go 风格路径 `/partitions/permissions/{id}`，Rust 路由为 `/partitions/{id}/permissions/{perm_id}`。
+→ **上线后 404 风险**。需二选一：① 前端改为传 partition_id 并调用 `/partitions/{pid}/permissions/{permId}`；
+② Rust 补一条别名路由 `DELETE /partitions/permissions/{perm_id}`。
+
+#### 9.2.2 FluidCache 路径（无差异风险）
+
+| 维度 | 路径 |
+|------|------|
+| Go 原始 | `/datasets/caches/:cacheId`（PUT/DELETE/enable/disable/prefetch） |
+| Go Vue 别名 | `/fluid-caches/:cacheId`（顶层，PUT/DELETE/enable/disable/prefetch） |
+| Rust | `/fluid-caches/:cacheId`（顶层，与 Go Vue 别名一致） |
+| 前端调用 | `/fluid-caches/{cacheId}`（update/delete/enable/disable/prefetch）✅ |
+
+**结论**：前端走 Vue 别名路径 `/fluid-caches/:cacheId`，Rust 已实现该路径。**无 404 风险**。
+Go 原始嵌套路径 `/datasets/caches/:cacheId` 前端未调用，不影响。
+
+#### 9.2.3 前端调用但 Rust 未实现的端点（404 风险清单）
+
+对比前端 `api/index.ts` 全部端点调用与 Rust `routes.rs` 注册路由，发现以下 **11 个端点**前端调用但 Rust 未实现或路径不同：
+
+| # | 前端调用 | Rust 状态 | 风险 |
+|---|----------|-----------|------|
+| 1 | `GET /resources/gpu` | 未实现（Rust 用 `/gpus` 或 `/gpu/devices`） | 404 |
+| 2 | `POST /jobs/{id}/submit` | 未实现（Rust 仅 `POST /jobs` 创建） | 404 |
+| 3 | `GET /jobs/{id}/status` | 未实现 | 404 |
+| 4 | `GET /monitoring/alerts` | Rust 用顶层 `/alerts`，非 `/monitoring/alerts` | 404 |
+| 5 | `DELETE /partitions/permissions/{id}` | Rust 用 `/partitions/{id}/permissions/{perm_id}` | 404 |
+| 6 | `GET /quotas/usage` | 未实现 | 404 |
+| 7 | `GET /schedulers/{id}/queues` | 未实现 | 404 |
+| 8 | `GET /schedulers/{id}/nodes` | 未实现 | 404 |
+| 9 | `GET /schedulers/{id}/health` | 未实现 | 404 |
+| 10 | `POST /topology/score` | 未实现 | 404 |
+| 11 | `GET /checkpoints/latest/{jobId}` | 未实现 | 404 |
+
+> 其中 #1/#2 在 `vue-migration-guide.md` 已知差异表中已记录；#3-#11 为本轮新发现，
+> 建议后续轮次补 Rust 别名路由或调整前端调用。
+
+### 9.3 前端联调检查
+
+#### 9.3.1 baseURL 配置
+
+| 项 | 值 |
+|----|-----|
+| `http.ts` baseURL | `/api/v1`（相对路径） |
+| `vite.config.ts` proxy target | `http://localhost:8000`（**当前指向 Go 版，未切到 Rust 8001**） |
+| 切换方式 | 改 `vite.config.ts:16` 的 target 为 `http://localhost:8001`，重启 dev server |
+| 生产环境 | Nginx 反代 `/api/` upstream 从 Go 改到 Rust，不改前端代码 |
+
+#### 9.3.2 15 页面端点对比
+
+前端 `src/pages/` 共 15 个 `.vue` 页面，全部通过 `api/index.ts` 集中调用（无直接 axios/fetch）。
+对比结果：核心流程（登录 `/auth/login`、Dashboard `/monitoring/dashboard`、集群 `/clusters`、
+作业 `/jobs`、GPU `/gpu/devices`、告警 `/alerts`）路径已对齐或走别名。
+**404 风险集中在 9.2.3 列出的 11 个边缘端点**。
+
+#### 9.3.3 科技蓝主题
+
+`#1677ff` 已确认存在于：`styles/index.css:15`、`styles/sidebar.css:24/37/120`、`components/Topbar.vue:143`。
+全局主题配置无变化。
+
+### 9.4 CI 现状确认
+
+#### 9.4.1 GitHub Actions 最新 run
+
+| Run ID | 状态 | 结论 | 分支 | 时间 (UTC) |
+|--------|------|------|------|------------|
+| **35495951942** | completed | **success** | main | 2026-09-20T07:05:45Z |
+| 35495613118 | completed | success | main | 2026-09-20T06:58:20Z |
+| 35493043520 | completed | success | main | 2026-09-20T05:59:19Z |
+| 35489828635 | completed | success | main | 2026-09-20T04:42:47Z |
+| 35489224861 | completed | failure | main | 2026-09-20T04:28:22Z |
+
+**最新 run #35495951942 全绿**。前一轮 #35489224861 的 failure 已在后续 run 修复。
+
+#### 9.4.2 部署 secrets 状态
+
+- `deploy-development` SSH 步骤条件：`if: env.DEV_SSH_KEY != '' && env.DEV_HOST != ''`（529 行）。
+- `deploy-staging` SSH 步骤条件：`if: env.STAGING_SSH_KEY != '' && env.STAGING_HOST != ''`（578 行）。
+- `deploy-production` SSH 步骤条件：`if: env.PROD_SSH_KEY != '' && env.PROD_HOST != ''`（650 行）。
+- **结论**：secrets 未配置时，SSH 部署步骤自动跳过（job 仍运行但无实际部署动作）。当前 secrets 状态无法从代码确认，需在 GitHub repo Settings → Secrets 检查。
+
+#### 9.4.3 Docker build push 策略
+
+- `docker-build-backend`：`push: false`（ci-cd.yml:424）✅ 确认
+- `docker-build-frontend`：`push: false`（ci-cd.yml:485）✅ 确认
+- **注意**：deploy job 的 `working-directory` 仍指向 `metaclouds-backend`（Go 版），
+  部署脚本 `./deploy.sh` 也是 Go 版的。Rust 版（`metaclouds-backend-rust`）的 CI job
+  （rust-lint-test / rust-test-postgres / rust-coverage / rust-release-build）独立运行，
+  **未接入 docker-build / deploy 链路**。
+
+### 9.5 本轮新增问题
+
+1. **前端 Vite proxy 仍指向 Go（:8000）**：开发环境切到 Rust 需手动改 `vite.config.ts:16`。
+2. **CI deploy job 仍构建/部署 Go 版**：Rust 版 CI 与部署链路未打通（docker-build 上下文为 `metaclouds-backend`）。
+3. **11 个前端端点 Rust 侧 404 风险**（见 9.2.3），需后续轮次补别名或调整前端。
+4. **文档中 D:\YCYD 旧路径残留**：`golden-regression-phase4.md`、`shadow-dual-track.md`、`runbook-v2-rust.md:259`、`vue-migration-guide.md:56`、`test-mapping-phase4.md` 仍引用 `D:\YCYD`，实际已迁移到 `E:\YCYD`。本轮未修改（非 /health 范围），建议后续统一替换。
+
+---
+
+## §10 2026-09-21 续轮复盘（续）
+
+### 10.1 限流熔断中间件实现完成
+
+本轮新增两个中间件模块：
+
+| 文件 | 功能 | 关键设计 |
+|------|------|----------|
+| `src/middleware/rate_limit.rs` | 滑动窗口限流 | 默认 100 req/60s，`RATE_LIMIT_ENABLED` 环境变量控制开关（默认 false） |
+| `src/middleware/circuit_breaker.rs` | 熔断器状态机 | CLOSED / OPEN / HALF_OPEN 三态，环境变量控制，默认关闭 |
+| `src/error.rs` | 新增 `CIRCUIT_BREAKER_OPEN(503)` 错误变体 | 熔断打开时返回 503 |
+| `src/middleware/mod.rs` | 导出新模块 | — |
+
+**测试覆盖**：限流熔断单元测试 9 个 + 安全攻击面测试 19 个，合计 28 个新测试用例。
+
+### 10.2 安全攻击面测试
+
+`tests/security_attack_surface_test.rs` 新增 **19 个用例**，覆盖：
+
+- 权限提升（privilege escalation）
+- CSRF 绕过（CSRF bypass）
+- JWT 伪造（JWT forgery）
+- SQL 注入（SQL injection）
+- 路径遍历（path traversal）
+- 越权删除用户 / 创建租户等
+
+全部通过（`19 passed; 0 failed; 0 ignored`）。
+
+### 10.3 文档不一致修复
+
+本轮修正 4 处过时的 `/health` 引用：
+
+| 文件 | 修正内容 |
+|------|----------|
+| `docs/cutover-plan.md` | 更新 /health 描述 |
+| `docs/go-retirement-checklist.md` | 更新 /health 描述 |
+| `docs/runbook-v2-rust.md` | 更新 /health 描述 |
+| `docs/vue-migration-guide.md` | 更新 /health 描述 |
+
+### 10.4 路径差异核对结果（继承 §9.2）
+
+- **Partition 权限删除 404 风险**：前端调 `DELETE /partitions/permissions/{id}`（Go 风格），Rust 路由为 `DELETE /partitions/{id}/permissions/{perm_id}`。上线后 404。
+- **FluidCache 路径**：前端走 Vue 别名 `/fluid-caches/:cacheId`，Rust 已实现，无差异。
+
+### 10.5 前端联调检查结果（继承 §9.3）
+
+- **baseURL**：`/api/v1`（相对路径）。
+- **Vite proxy target**：`http://localhost:8000`（**仍指向 Go 版，未切到 Rust :8001**）。
+- **切换方式**：改 `vite.config.ts:16` target 为 `http://localhost:8001`，重启 dev server。
+- **生产环境**：Nginx 反代 `/api/` upstream 从 Go 改到 Rust。
+
+### 10.6 CI 最新 run 状态
+
+- 最新 run **#35495951942**：completed / **success** / main / 2026-09-20T07:05:45Z。
+- 全绿。前一轮 failure 已修复。
+
+### 10.7 服务启动冒烟验证结果（2026-09-21）
+
+#### 10.7.1 Rust 后端 :8001
+
+| 端点 | 结果 | 说明 |
+|------|------|------|
+| `GET /health` | **200** | `{"success":true,"data":{"status":"ok","version":"0.1.0","uptime":...}}` |
+| `POST /api/v1/auth/login` | **200** | admin/Admin@123456 返回 JWT token + user 对象 |
+| `GET /api/v1/clusters`（Bearer token） | **200** | 空数组 `[]`（内存库无数据） |
+| `GET /api/v1/monitoring/dashboard`（Bearer token） | **200** | 完整 dashboard 指标 JSON |
+| `GET /metrics` | **200** | Prometheus 格式指标（http_request_duration_seconds 等） |
+| 未认证 `GET /api/v1/clusters` | **401** | `UNAUTHORIZED`，Authorization header required |
+
+> **注意**：登录实际路径为 `/api/v1/auth/login`（非 `/auth/login`）。
+> `DATABASE_URL=sqlite::memory:` 在连接池回收连接时会丢失表数据（`no such table: users`），
+> 冒烟测试改用文件型 SQLite（`sqlite:smoke-test.db`）通过。此为已知 sqlx 内存库连接池限制。
+
+#### 10.7.2 Go 后端 :8000（对照）
+
+| 端点 | 结果 | 说明 |
+|------|------|------|
+| `GET /health` | **200** | `{"status":"healthy","timestamp":...,"dependencies":1}` |
+
+> **响应格式差异**：Go 返回 `{"status":"healthy",...}`，Rust 返回 `{"success":true,"data":{"status":"ok",...}}`（统一信封）。前端需适配或 Nginx 层兼容。
+
+#### 10.7.3 Vue 前端 :3000
+
+| 项 | 结果 |
+|----|------|
+| Vite dev server | **200 / ready**（v5.4.21，956ms 启动） |
+| 监听端口 | 3000 |
+| Vite proxy target | `http://localhost:8000`（Go 版） |
+
+#### 10.7.4 整合验证门禁
+
+| 检查 | 结果 |
+|------|------|
+| `cargo fmt --check` | **0 errors** |
+| `cargo clippy --all-targets -- -D warnings` | **0 warnings** |
+| `cargo test` | **324 passed; 0 failed; 2 ignored** |
+
+### 10.8 新增问题清单
+
+1. **前端 11 个未实现端点**（§9.2.3 已列）：Rust 侧未实现或路径不同，上线后 404。
+2. **Vite proxy 指向 Go :8000**：开发环境切 Rust 需手动改 `vite.config.ts:16`。
+3. **Partition 权限删除 404 风险**：前端路径与 Rust 路由不一致。
+4. **/health 响应格式不统一**：Go `{"status":"healthy"}` vs Rust `{"success":true,"data":{"status":"ok"}}`。
+5. **sqlite::memory: 连接池限制**：内存库在连接回收后丢表，生产须用文件库或 Postgres。
+6. **CI deploy job 仍构建/部署 Go 版**：Rust 版 CI 与部署链路未打通（继承 §9.5-2）。
+7. **文档 D:\YCYD 旧路径残留**（继承 §9.5-4）。
+
+### 10.9 待目标环境项
+
+1. 在 staging/prod 环境配置 PostgreSQL（非 sqlite::memory:），验证 Rust 连接 Postgres 全流程。
+2. 配置 GitHub Secrets（DEV/STAGING/PROD SSH key + host），打通 Rust 版 CI → 部署链路。
+3. Nginx 反代 `/api/` upstream 从 Go 切到 Rust :8001，灰度验证。
+4. 前端 Vite proxy 切换 + 11 个未实现端点的 Rust 别名路由补齐。
+5. 生产环境 /health 响应格式统一（或前端适配双格式）。
+6. 监控告警接入（Prometheus /metrics 端点已就绪，需接 Grafana / Alertmanager）。
