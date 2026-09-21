@@ -463,6 +463,7 @@ const devices = useFetch<GPUDevice[]>(() =>
     vendor: vendorFilter.value || undefined,
     status: statusFilter.value || undefined,
     cluster_id: clusterFilter.value,
+    page_size: 1000,
   }),
 )
 const allocations = useFetch<GPUAllocation[]>(() => gpuApi.allocations({}))

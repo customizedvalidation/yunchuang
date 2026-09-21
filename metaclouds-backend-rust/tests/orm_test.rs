@@ -47,9 +47,14 @@ fn pagination_params_normalize() {
 
     let p = PaginationParams::new(2, 500).normalize();
     assert_eq!(p.page, 2);
-    assert_eq!(p.page_size, 100);
-    assert_eq!(p.offset(), 100);
-    assert_eq!(p.limit(), 100);
+    assert_eq!(p.page_size, 500);
+    assert_eq!(p.offset(), 500);
+    assert_eq!(p.limit(), 500);
+
+    let p = PaginationParams::new(1, 5000).normalize();
+    assert_eq!(p.page_size, 1000);
+    assert_eq!(p.offset(), 0);
+    assert_eq!(p.limit(), 1000);
 }
 
 // ---------------------------------------------------------------------------

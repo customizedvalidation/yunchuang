@@ -101,7 +101,7 @@ export const securityApi = {
 
 // ==================== GPU 细粒度管理 ====================
 export const gpuApi = {
-  devices: (params?: { cluster_id?: number; vendor?: string; status?: string }) =>
+  devices: (params?: { cluster_id?: number; vendor?: string; status?: string; page_size?: number }) =>
     http.get<GPUDevice[]>('/gpu/devices', { params }).then((r) => r.data),
   device: (id: number) => http.get<GPUDevice>(`/gpu/devices/${id}`).then((r) => r.data),
   createDevice: (data: Partial<GPUDevice>) =>
@@ -184,7 +184,7 @@ export const schedulerApi = {
 
 // ==================== 节点拓扑 ====================
 export const topologyApi = {
-  list: (params?: { cluster_id?: number }) =>
+  list: (params?: { cluster_id?: number; page_size?: number }) =>
     http.get<NodeTopology[]>('/topology/nodes', { params }).then((r) => r.data),
   get: (id: number) => http.get<NodeTopology>(`/topology/nodes/${id}`).then((r) => r.data),
   create: (data: Partial<NodeTopology>) =>

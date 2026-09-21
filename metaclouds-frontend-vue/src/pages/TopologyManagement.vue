@@ -37,14 +37,14 @@
           </el-table-column>
           <el-table-column label="节点名" width="150">
             <template #default="{ row }">
-              <el-button link type="primary" @click="openDetail(row)">{{ row.node_name }}</el-button>
+              <el-button link type="primary" @click="openDetail(row)">{{ row.hostname }}</el-button>
             </template>
           </el-table-column>
           <el-table-column label="集群" width="120">
             <template #default="{ row }">{{ clusterName(row.cluster_id) }}</template>
           </el-table-column>
           <el-table-column prop="rack_id" label="机架ID" width="100">
-            <template #default="{ row }">{{ row.rack_id ?? '-' }}</template>
+            <template #default="{ row }">{{ row.labels?.rack ?? '-' }}</template>
           </el-table-column>
           <el-table-column prop="switch_id" label="交换机ID" width="110">
             <template #default="{ row }">{{ row.switch_id ?? '-' }}</template>
@@ -243,7 +243,7 @@ const networkFilter = ref<string>('')
 
 // ---------- 数据 ----------
 const topologies = useFetch<NodeTopology[]>(() =>
-  topologyApi.list({ cluster_id: clusterFilter.value }),
+  topologyApi.list({ cluster_id: clusterFilter.value, page_size: 1000 }),
 )
 const clusters = useFetch<Cluster[]>(() => clusterApi.list())
 const jobs = useFetch<Job[]>(() => jobApi.list())

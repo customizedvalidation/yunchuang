@@ -108,7 +108,7 @@ pub fn soft_delete_update_sql(table: &'static str) -> String {
 // 分页：对齐 Go pkg/response/pagination.go
 // ---------------------------------------------------------------------------
 
-/// 分页请求参数（归一化：page >= 1，page_size ∈ [1, 100]）。
+/// 分页请求参数（归一化：page >= 1，page_size ∈ [1, 1000]）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PaginationParams {
     /// 页码，从 1 开始。
@@ -127,15 +127,15 @@ impl Default for PaginationParams {
 }
 
 impl PaginationParams {
-    /// 最大允许的 page_size（对齐 Go：>100 截断为 100）。
-    pub const MAX_PAGE_SIZE: i64 = 100;
+    /// 最大允许的 page_size（放宽至 1000：支撑 386 节点 / 390 GPU 全量列表展示）。
+    pub const MAX_PAGE_SIZE: i64 = 1000;
 
     /// 用原始请求值构造并归一化。
     pub fn new(page: i64, page_size: i64) -> Self {
         Self { page, page_size }.normalize()
     }
 
-    /// 把非法值夹到合法区间：page < 1 → 1；page_size < 1 → 10；page_size > 100 → 100。
+    /// 把非法值夹到合法区间：page < 1 → 1；page_size < 1 → 10；page_size > 1000 → 1000。
     pub fn normalize(self) -> Self {
         let page = self.page.max(1);
         let page_size = match self.page_size {
