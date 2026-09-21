@@ -244,6 +244,20 @@ pub async fn revoke_permission(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// `DELETE /api/v1/partitions/permissions/:id` — Go 风格兼容别名，撤销授权，204。
+///
+/// 前端 `partitionApi.removePermission(id)` 走 Go 风格扁平路径（permission id 直挂
+/// `/partitions/permissions/:id`），后端规范路径为 `/partitions/:id/permissions/:permId`。
+/// 两者都按 permission id 撤销，故此处为兼容别名，复用同一 service。
+#[utoipa::path(delete,path="/api/v1/partitions/permissions/{id}",tag="partitions",params(("id"=i64,Path,description="permission id")),responses((status=204,description="deleted"),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+pub async fn revoke_permission_by_id(
+    State(state): State<AppState>,
+    Path(perm_id): Path<i64>,
+) -> AppResult<StatusCode> {
+    permission_service::revoke_permission(&state.pool, perm_id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// `PUT /api/v1/partitions/:id/priority` — 更新调度优先级（对齐 Go `UpdatePriority`）。
 pub async fn update_priority(
     State(state): State<AppState>,

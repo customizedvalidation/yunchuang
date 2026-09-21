@@ -43,28 +43,30 @@ use crate::handlers::gpu::{
 };
 use crate::handlers::health::health;
 use crate::handlers::job::{
-    cancel_job, create_job, delete_job, get_job, get_job_stats, list_jobs, update_job,
+    cancel_job, create_job, delete_job, get_job, get_job_stats, list_jobs, submit_job_to_k8s,
+    update_job,
 };
 use crate::handlers::k8s::{
     cluster_health, cluster_status, list_nodes as k8s_list_nodes, list_pods,
 };
 use crate::handlers::monitoring::{
-    evaluate_alert_rules, get_dashboard, get_metrics, list_alert_rules,
+    evaluate_alert_rules, get_dashboard, get_metrics, list_alert_rules, list_monitoring_alerts,
 };
 use crate::handlers::partition::{
     create_partition, delete_partition, get_partition, get_partition_resources, grant_permission,
-    list_partition_permissions, list_partitions, revoke_permission, update_max_runtime,
-    update_partition, update_priority,
+    list_partition_permissions, list_partitions, revoke_permission, revoke_permission_by_id,
+    update_max_runtime, update_partition, update_priority,
 };
 use crate::handlers::quota::{
     check_quota, create_quota, delete_quota, get_quota, list_quotas, update_quota,
 };
 use crate::handlers::resource::{
-    create_resource, delete_resource, get_resource, list_resources, update_resource,
+    create_resource, delete_resource, get_resource, list_gpu_resources, list_resources,
+    update_resource,
 };
 use crate::handlers::scheduler::{
-    create_scheduler, delete_scheduler, get_scheduler, list_schedulers, sync_resources,
-    test_connection, update_scheduler,
+    create_scheduler, delete_scheduler, get_scheduler, list_scheduler_nodes, list_scheduler_queues,
+    list_schedulers, scheduler_health, sync_resources, test_connection, update_scheduler,
 };
 use crate::handlers::security::{
     create_policy, delete_policy, disable_policy, enable_policy, get_policy, list_policies,
@@ -73,7 +75,9 @@ use crate::handlers::security::{
 use crate::handlers::tenant::{
     create_tenant, delete_tenant, get_tenant, list_tenants, update_tenant,
 };
-use crate::handlers::topology::{create_node, delete_node, get_node, list_nodes, update_node};
+use crate::handlers::topology::{
+    calculate_topology_score, create_node, delete_node, get_node, list_nodes, update_node,
+};
 use crate::handlers::user::{create_user, delete_user, get_user, list_users, update_user};
 use crate::metrics::metrics_handler;
 use crate::middleware::apply_core_stack;
@@ -136,8 +140,10 @@ pub fn build_router(state: AppState) -> Router {
     let clusters = clusters_read.merge(clusters_write);
 
     // ── Resources (B2): read=JWT, write=resource:write ─────────────────
+    // `/resources/gpu`（静态段）优先于 `/resources/{id}`（动态段），matchit 按静态优先匹配。
     let resources_read = Router::new()
         .route("/resources", get(list_resources))
+        .route("/resources/gpu", get(list_gpu_resources))
         .route("/resources/{id}", get(get_resource));
     let resources_write = Router::new()
         .route("/resources", post(create_resource))
@@ -163,6 +169,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/topology/{id}", put(update_node).delete(delete_node))
         .route("/topology/nodes", post(create_node))
         .route("/topology/nodes/{id}", put(update_node).delete(delete_node))
+        // Vue3 别名：前端 `topologyApi.calculateScore` POST /topology/score。
+        // 静态段 `score` 优先于 `/topology/{id}` 动态段匹配。
+        .route("/topology/score", post(calculate_topology_score))
         .route_layer(axum::middleware::from_fn_with_state(
             permissions::TOPOLOGY_WRITE.to_string(),
             require_permission,
@@ -184,6 +193,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/jobs", post(create_job))
         .route("/jobs/{id}", put(update_job).delete(delete_job))
         .route("/jobs/{id}/cancel", post(cancel_job))
+        .route("/jobs/{id}/submit", post(submit_job_to_k8s))
         .route_layer(axum::middleware::from_fn_with_state(
             permissions::JOB_WRITE.to_string(),
             require_permission,
@@ -268,6 +278,11 @@ pub fn build_router(state: AppState) -> Router {
             "/partitions/{id}/permissions/{perm_id}",
             delete(revoke_permission),
         )
+        // Go 风格兼容别名：前端 `removePermission(id)` 走扁平路径 `/partitions/permissions/:id`。
+        .route(
+            "/partitions/permissions/{id}",
+            delete(revoke_permission_by_id),
+        )
         .route_layer(axum::middleware::from_fn_with_state(
             permissions::PARTITION_WRITE.to_string(),
             require_permission,
@@ -292,7 +307,10 @@ pub fn build_router(state: AppState) -> Router {
     // ── Schedulers (B4): read=JWT, write=scheduler:write ───────────────
     let schedulers_read = Router::new()
         .route("/schedulers", get(list_schedulers))
-        .route("/schedulers/{id}", get(get_scheduler));
+        .route("/schedulers/{id}", get(get_scheduler))
+        .route("/schedulers/{id}/queues", get(list_scheduler_queues))
+        .route("/schedulers/{id}/nodes", get(list_scheduler_nodes))
+        .route("/schedulers/{id}/health", get(scheduler_health));
     let schedulers_write = Router::new()
         .route("/schedulers", post(create_scheduler))
         .route(
@@ -406,10 +424,12 @@ pub fn build_router(state: AppState) -> Router {
     let security = security_read.merge(security_write);
 
     // ── Monitoring (B6): read=JWT, write=monitoring:write ─────────────
+    // `/monitoring/alerts` 为 Vue3 别名（正式路由为 `/alerts`），对齐前端监控页。
     let monitoring_read = Router::new()
         .route("/monitoring/dashboard", get(get_dashboard))
         .route("/monitoring/metrics", get(get_metrics))
-        .route("/monitoring/alert-rules", get(list_alert_rules));
+        .route("/monitoring/alert-rules", get(list_alert_rules))
+        .route("/monitoring/alerts", get(list_monitoring_alerts));
     let monitoring_write = Router::new()
         .route(
             "/monitoring/alert-rules/evaluate",

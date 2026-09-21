@@ -446,3 +446,94 @@ Go 原始嵌套路径 `/datasets/caches/:cacheId` 前端未调用，不影响。
 4. 前端 Vite proxy 切换 + 11 个未实现端点的 Rust 别名路由补齐。
 5. 生产环境 /health 响应格式统一（或前端适配双格式）。
 6. 监控告警接入（Prometheus /metrics 端点已就绪，需接 Grafana / Alertmanager）。
+
+---
+
+## 11. 2026-09-21 P1 修复（前端端点对齐 + Vite proxy + Partition 权限路径统一）
+
+> 触发：§10.8 新增问题清单第 1/2/3 项。本次以"最小改动 + 不引入新 crate + 现有 324 测试无回归"为原则逐项修复。
+
+### 11.1 关键发现：原差异清单已大幅收敛
+
+任务书附带的"差异清单"基于旧版 `routes.rs` 对比。本次复核 HEAD `ce3d1aa` 实际路由后发现，下列端点**此前一轮已补全**，无需再改：
+
+- `PUT /resources/{id}`、`PUT /gpu/devices/{id}`、`DELETE /gpu/devices/{id}`、`PUT /partitions/{id}`、`DELETE /partitions/{id}`、`PUT /schedulers/{id}`、`DELETE /schedulers/{id}`、`PUT /acceleration/{id}`、`PUT /security/policies/{id}` —— 均已存在。
+- `POST /gpu/allocations/{id}/release` —— Vue 别名路由已存在（指向 `release_gpu`）。
+- `PUT /fluid-caches/{cacheId}`、`DELETE /fluid-caches/{id}`、`POST /fluid-caches/{id}/disable`、`POST /fluid-caches/{id}/prefetch` —— 均已存在。
+
+因此本次真正需要修复的，是下列**前端页面实际调用、但 Rust 仍缺失**的端点。
+
+### 11.2 前端页面实际使用情况核查
+
+对 `src/pages/`（实际目录为 `pages/`，非 `views/`）15 个页面做调用点 grep，区分"页面实际使用"与"仅 API 层定义"：
+
+| 端点 | 调用页面 | 本次处理 |
+|------|----------|----------|
+| `GET /monitoring/alerts` | Dashboard.vue、MonitoringAlert.vue | ✅ Rust 补别名 |
+| `POST /jobs/{id}/submit` | JobManagement.vue | ✅ Rust 补 mock handler |
+| `GET /resources/gpu` | K8SManagement.vue | ✅ Rust 补聚合 handler |
+| `GET /schedulers/{id}/queues` | SchedulerManagement.vue | ✅ Rust 补 mock |
+| `GET /schedulers/{id}/nodes` | SchedulerManagement.vue | ✅ Rust 补 mock |
+| `GET /schedulers/{id}/health` | SchedulerManagement.vue | ✅ Rust 补 mock |
+| `POST /topology/score` | TopologyManagement.vue | ✅ Rust 补 mock |
+| `DELETE /partitions/permissions/{id}` | PartitionManagement.vue | ✅ Rust 补兼容别名 |
+
+**仅 API 层定义、页面未使用（记录差异，不修复）**：
+
+- `POST /auth/register`、`GET /jobs/{id}/status`（getK8SStatus）、`GET /quotas/usage`、`GET /checkpoints/latest/{jobId}`。
+- 这些端点当前无页面调用，不产生 404 风险；待页面接入时再按需补实现。
+
+### 11.3 Rust 补实现明细
+
+| 端点 | 策略 | 实现 |
+|------|------|------|
+| `GET /monitoring/alerts` | 路由别名 | `monitoring.rs::list_monitoring_alerts`，复用 `alert::list_alerts`（大 page_size 取全量，对齐前端扁平数组期望） |
+| `POST /jobs/{id}/submit` | mock handler | `job.rs::submit_job_to_k8s`，校验作业存在后返回 `{message, job_id, cluster:"mock-k8s"}`；真实 K8s 下发待执行器接入 |
+| `GET /resources/gpu` | 聚合 handler | `resource.rs::list_gpu_resources`，按 model 聚合 gpu 设备表，输出前端 `GPUResource` 形状（gpuName/type/total/used/available/utilization） |
+| `GET /schedulers/{id}/queues` | mock | `scheduler.rs::list_scheduler_queues` → 空数组 |
+| `GET /schedulers/{id}/nodes` | mock | `scheduler.rs::list_scheduler_nodes` → 空数组 |
+| `GET /schedulers/{id}/health` | mock | `scheduler.rs::scheduler_health` → `{healthy:true, status:"ok"}` |
+| `POST /topology/score` | mock | `topology.rs::calculate_topology_score`，按候选节点索引生成确定性分数 |
+| `DELETE /partitions/permissions/{id}` | 兼容别名 | `partition.rs::revoke_permission_by_id`（单参数），复用 `permission_service::revoke_permission`；对齐前端 Go 风格扁平路径 |
+
+路由注册要点：`/resources/gpu`、`/topology/score` 等静态段均依赖 matchit"静态优先于动态段"匹配，与既有 `/resources/{id}`、`/topology/{id}` 不冲突。
+
+### 11.4 Vite proxy 切换（§10.8-2）
+
+- `vite.config.ts`：改为 `defineConfig(({ mode }) => …)`，用 `loadEnv` 读取 `VITE_API_PROXY_TARGET`，默认 `http://localhost:8001`（Rust 后端）。
+- 新增 `.env.development`：`VITE_API_PROXY_TARGET=http://localhost:8001`（注释说明回连 Go 改 :8000）。
+- grep 确认 `src/**/*.ts`、`src/**/*.vue`、`vite.config.ts` 无残留 `localhost:8000`。
+
+### 11.5 Partition 权限删除路径统一（§10.8-3）
+
+- 前端 `partitionApi.removePermission(id)` 走 Go 风格 `DELETE /partitions/permissions/{id}`。
+- Rust 规范路径为 `DELETE /partitions/{id}/permissions/{perm_id}`。
+- 本次选**方案 a（Rust 补兼容路由）**：新增 `DELETE /partitions/permissions/{id}` → `revoke_permission_by_id`，前端 API 层与页面零改动。
+
+### 11.6 门禁验证结果
+
+| 检查 | 结果 |
+|------|------|
+| `cargo fmt --check` | **0 errors** |
+| `cargo clippy --all-targets -- -D warnings` | **0 warnings** |
+| `cargo test` | **330 passed; 0 failed; 2 ignored**（原 324 + 新增 6） |
+| `npx tsc --noEmit` | **0 errors** |
+| `npm run build` | **built in 12.11s**（成功） |
+| grep `localhost:8000` | **无残留** |
+
+### 11.7 新增测试
+
+新增 `tests/p1_endpoint_align_test.rs`，6 个用例：
+
+1. `p1_monitoring_alerts_alias_returns_200`
+2. `p1_resources_gpu_returns_200`
+3. `p1_scheduler_queues_nodes_health_mock`
+4. `p1_topology_score_mock`
+5. `p1_job_submit_route_registered`（建作业→提交，断言 200）
+6. `p1_partition_permission_go_style_delete`（建分区→授权→Go 风格删除，断言 204）
+
+### 11.8 遗留（未修复，如实记录）
+
+- 4 个"仅 API 层定义、页面未使用"端点（见 §11.2）暂不补实现，待页面接入。
+- mock 端点（submit/queues/nodes/health/score）为占位实现，真实业务逻辑待 K8s/调度器执行器接入后替换。
+- §10.9 待目标环境项（PostgreSQL、CI 部署链路、Nginx upstream 切流）仍待目标环境，不在本机修复范围。

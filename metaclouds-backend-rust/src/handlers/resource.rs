@@ -14,7 +14,9 @@ use crate::error::AppResult;
 use crate::models::resource::ResourceResponse;
 use crate::orm::PaginationParams;
 use crate::response::{ApiResponse, WithStatus};
+use crate::services::gpu as gpu_service;
 use crate::services::resource as resource_service;
+use serde_json::{json, Value};
 
 /// 分页 + 搜索 + 过滤查询参数。
 #[derive(utoipa::ToSchema, Debug, Deserialize)]
@@ -167,4 +169,48 @@ pub async fn delete_resource(
 ) -> AppResult<StatusCode> {
     resource_service::delete_resource(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// `GET /api/v1/resources/gpu` — GPU 资源汇总（对齐前端 `resourceApi.gpuResources`）。
+///
+/// 前端 K8S 概览页期望按 GPU 型号聚合的扁平数组
+/// （`{ gpuName, type, status, total, used, available, utilization, details }`）。
+/// 此处复用 gpu 设备表，按 model 聚合统计可用 / 已分配数量与平均利用率。
+#[utoipa::path(get,path="/api/v1/resources/gpu",tag="resources",responses((status=200,description="gpu resources",body=Vec<serde_json::Value>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+pub async fn list_gpu_resources(
+    State(state): State<AppState>,
+) -> AppResult<Json<ApiResponse<Vec<Value>>>> {
+    let params = PaginationParams::new(1, 1000);
+    let res = gpu_service::list_gpu_devices(&state.pool, params, None, None, None).await?;
+
+    // 按 model 聚合：total=总数，used=已分配，available=可用，utilization=平均利用率。
+    let mut by_model: std::collections::BTreeMap<String, (String, i64, i64, f64, usize)> =
+        std::collections::BTreeMap::new();
+    for d in res.data {
+        let entry = by_model
+            .entry(d.model.clone())
+            .or_insert((d.vendor.clone(), 0, 0, 0.0, 0));
+        entry.1 += 1;
+        if d.status == "allocated" {
+            entry.2 += 1;
+        }
+        entry.3 += d.utilization;
+        entry.4 += 1;
+    }
+
+    let mut out: Vec<Value> = Vec::new();
+    for (model, (vendor, total, used, util_sum, n)) in by_model {
+        let utilization = if n > 0 { util_sum / n as f64 } else { 0.0 };
+        out.push(json!({
+            "gpuName": model,
+            "type": vendor,
+            "status": if used >= total { "fully-allocated" } else { "available" },
+            "total": total,
+            "used": used,
+            "available": total - used,
+            "utilization": (utilization * 100.0).round() / 100.0,
+            "details": format!("{} × {}", vendor, model),
+        }));
+    }
+    Ok(Json(ApiResponse::success(out)))
 }

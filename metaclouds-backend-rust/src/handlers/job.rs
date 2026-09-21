@@ -191,3 +191,22 @@ pub async fn cancel_job(
     let j = job::cancel_job(&state.pool, id, actor_from_claims(&claims)).await?;
     Ok(Json(ApiResponse::success(j)))
 }
+
+/// `POST /api/v1/jobs/:id/submit` — 提交作业到 K8S（对齐前端 `submitToK8S`）。
+///
+/// 当前为 mock：校验作业存在后返回成功，不真正下发到 K8s 集群。
+/// 真实下发待 K8s 执行器接入后替换实现。
+#[utoipa::path(post,path="/api/v1/jobs/{id}/submit",tag="jobs",responses((status=200,description="submit accepted",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+pub async fn submit_job_to_k8s(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<i64>,
+) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
+    // 校验作业存在（兼做归属校验），不存在则 404。
+    job::get_job(&state.pool, id, actor_from_claims(&claims)).await?;
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "message": "submit accepted",
+        "job_id": id,
+        "cluster": "mock-k8s",
+    }))))
+}

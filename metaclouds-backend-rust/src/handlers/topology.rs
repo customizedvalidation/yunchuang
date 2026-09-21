@@ -145,3 +145,36 @@ pub async fn delete_node(
     topology_service::delete_node(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// `POST /api/v1/topology/score` — 拓扑打分（对齐前端 `topologyApi.calculateScore`）。
+///
+/// 请求体为 `{ job_id, candidate_nodes }`，返回候选节点打分表 `{ node_id: score }`。
+/// 当前为 mock：按候选节点索引生成确定性分数，真实打分待拓扑调度算法接入后替换。
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
+pub struct TopologyScoreRequest {
+    pub job_id: Option<i64>,
+    #[serde(default)]
+    pub candidate_nodes: Vec<serde_json::Value>,
+}
+
+#[utoipa::path(post,path="/api/v1/topology/score",request_body=TopologyScoreRequest,tag="topology",responses((status=200,description="topology scores",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+pub async fn calculate_topology_score(
+    State(_state): State<AppState>,
+    Json(body): Json<TopologyScoreRequest>,
+) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
+    let mut scores = serde_json::Map::new();
+    for (i, node) in body.candidate_nodes.iter().enumerate() {
+        // 优先取节点 id，否则用索引作为 key。
+        let key = node
+            .get("id")
+            .and_then(|v| v.as_i64())
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| i.to_string());
+        // 确定性 mock 分数：越靠前分越高。
+        let score = (100.0 - (i as f64) * 10.0).max(0.0);
+        scores.insert(key, serde_json::json!(score));
+    }
+    Ok(Json(ApiResponse::success(serde_json::Value::Object(
+        scores,
+    ))))
+}

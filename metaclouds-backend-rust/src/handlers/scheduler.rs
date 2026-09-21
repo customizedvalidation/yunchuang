@@ -178,3 +178,39 @@ pub async fn sync_resources(
     let r = scheduler_service::sync_resources(&state.pool, id).await?;
     Ok(Json(ApiResponse::success(r)))
 }
+
+/// `GET /api/v1/schedulers/:id/queues` — 调度器队列（对齐前端 `schedulerApi.queues`）。
+///
+/// 当前为 mock：返回空队列列表。真实队列待对接调度器 API 后补实现。
+#[utoipa::path(get,path="/api/v1/schedulers/{id}/queues",tag="schedulers",responses((status=200,description="scheduler queues",body=Vec<serde_json::Value>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+pub async fn list_scheduler_queues(
+    State(_state): State<AppState>,
+    Path(_id): Path<i64>,
+) -> AppResult<Json<ApiResponse<Vec<serde_json::Value>>>> {
+    Ok(Json(ApiResponse::success(Vec::new())))
+}
+
+/// `GET /api/v1/schedulers/:id/nodes` — 调度器节点（对齐前端 `schedulerApi.nodes`）。
+///
+/// 当前为 mock：返回空节点列表。真实节点待对接调度器 API 后补实现。
+#[utoipa::path(get,path="/api/v1/schedulers/{id}/nodes",tag="schedulers",responses((status=200,description="scheduler nodes",body=Vec<serde_json::Value>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+pub async fn list_scheduler_nodes(
+    State(_state): State<AppState>,
+    Path(_id): Path<i64>,
+) -> AppResult<Json<ApiResponse<Vec<serde_json::Value>>>> {
+    Ok(Json(ApiResponse::success(Vec::new())))
+}
+
+/// `GET /api/v1/schedulers/:id/health` — 调度器健康（对齐前端 `schedulerApi.health`）。
+///
+/// 当前为 mock：返回 healthy=true。真实探针待对接调度器 API 后补实现。
+#[utoipa::path(get,path="/api/v1/schedulers/{id}/health",tag="schedulers",responses((status=200,description="scheduler health",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+pub async fn scheduler_health(
+    State(_state): State<AppState>,
+    Path(_id): Path<i64>,
+) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "healthy": true,
+        "status": "ok",
+    }))))
+}
