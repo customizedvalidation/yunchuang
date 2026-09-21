@@ -22,6 +22,8 @@ regexes = [
   '''b5-accel-secret-at-least-32''',
   '''interop-secret-at-least-32''',
   '''test-secret-at-least-32''',
+  # P1 端点对齐集成测试的占位密钥
+  '''p1-align-secret-at-least-32''',
   # Go 端到端测试的占位账号密码
   '''Th1sIsA-T3st-''',
   # K8s 清单示例 Secret（base64 编码的 CHANGEME-* 占位值，仅用于演示）
