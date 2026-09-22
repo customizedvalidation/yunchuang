@@ -331,6 +331,9 @@
           <el-descriptions-item label="分区">{{ partitionName(detailJob.partition_id) }}</el-descriptions-item>
           <el-descriptions-item label="调度器类型">{{ detailJob.scheduler_type || '-' }}</el-descriptions-item>
           <el-descriptions-item label="调度器作业ID">{{ detailJob.scheduler_job_id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="K8S 状态">
+            <span class="mc-num">{{ String(k8sStatus.status ?? k8sStatus.phase ?? '-') }}</span>
+          </el-descriptions-item>
           <el-descriptions-item label="QoS">{{ detailJob.qos || '-' }}</el-descriptions-item>
           <el-descriptions-item label="请求节点数">{{ detailJob.nodes_requested ?? '-' }}</el-descriptions-item>
           <el-descriptions-item label="弹性训练">{{ detailJob.elastic_enabled ? '开启' : '关闭' }}</el-descriptions-item>
@@ -356,7 +359,9 @@
         </el-descriptions>
 
         <!-- Checkpoint 列表子视图 -->
-        <el-divider content-position="left">Checkpoint 记录</el-divider>
+        <el-divider content-position="left">
+          Checkpoint 记录<span v-if="latestCheckpoint" class="mc-num" style="margin-left:8px">最新：step {{ latestCheckpoint.step ?? '-' }} · {{ latestCheckpoint.size_mb ?? '-' }} MB</span>
+        </el-divider>
         <el-table :data="checkpoints" size="small" stripe>
           <el-table-column prop="id" label="ID" width="70" />
           <el-table-column prop="path" label="路径" min-width="200" show-overflow-tooltip />
@@ -638,15 +643,24 @@ async function handleSubmitToK8S(row: Job) {
 const detailVisible = ref(false)
 const detailJob = ref<Job | null>(null)
 const checkpoints = ref<Checkpoint[]>([])
+// K8s 运行态（GET /jobs/:id/status）与最新检查点（GET /checkpoints/latest/:jobId）。
+const k8sStatus = ref<Record<string, unknown>>({})
+const latestCheckpoint = ref<Checkpoint | null>(null)
 
 async function openDetail(row: Job) {
   detailJob.value = row
   detailVisible.value = true
   checkpoints.value = []
-  try {
-    checkpoints.value = await checkpointApi.list({ job_id: row.id })
-  } catch {
-    ElMessage.warning('Checkpoint 加载失败')
-  }
+  k8sStatus.value = {}
+  latestCheckpoint.value = null
+  // 并行拉取：检查点列表 + K8s 运行态 + 最新检查点，失败互不阻断。
+  const [cpList, latest, k8s] = await Promise.allSettled([
+    checkpointApi.list({ job_id: row.id }),
+    checkpointApi.latest(row.id),
+    jobApi.getK8SStatus(row.id),
+  ])
+  if (cpList.status === 'fulfilled') checkpoints.value = cpList.value
+  if (latest.status === 'fulfilled' && latest.value) latestCheckpoint.value = latest.value as Checkpoint
+  if (k8s.status === 'fulfilled' && k8s.value) k8sStatus.value = k8s.value as Record<string, unknown>
 }
 </script>

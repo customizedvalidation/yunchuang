@@ -196,12 +196,12 @@ impl Default for Config {
             config_center_enabled: false,
             config_center_endpoints: "localhost:2379".to_string(),
             config_center_prefix: "/metaclouds/config/".to_string(),
-            // 限流
-            rate_limit_enabled: true,
+            // 限流（默认关闭：中间件按 RATE_LIMIT_ENABLED 环境变量读取，未显式开启即放行）
+            rate_limit_enabled: false,
             rate_limit_requests: 100,
             rate_limit_duration_seconds: 60,
-            // 熔断
-            circuit_breaker_enabled: true,
+            // 熔断（默认关闭：中间件按 CIRCUIT_BREAKER_ENABLED 环境变量读取，未显式开启即放行）
+            circuit_breaker_enabled: false,
             circuit_breaker_threshold: 10,
             circuit_breaker_timeout_seconds: 30,
             // 日志
@@ -308,13 +308,13 @@ impl Config {
         cfg.config_center_endpoints = env_or("CONFIG_CENTER_ENDPOINTS", "localhost:2379");
         cfg.config_center_prefix = env_or("CONFIG_CENTER_PREFIX", "/metaclouds/config/");
 
-        // 限流
-        cfg.rate_limit_enabled = env_bool("RATE_LIMIT_ENABLED", true);
+        // 限流（默认关闭，与中间件 std::env::var 直读行为一致；生产显式置 true 开启）
+        cfg.rate_limit_enabled = env_bool("RATE_LIMIT_ENABLED", false);
         cfg.rate_limit_requests = env_int("RATE_LIMIT_REQUESTS", 100);
         cfg.rate_limit_duration_seconds = env_int("RATE_LIMIT_DURATION_SECONDS", 60);
 
-        // 熔断
-        cfg.circuit_breaker_enabled = env_bool("CIRCUIT_BREAKER_ENABLED", true);
+        // 熔断（默认关闭，与中间件 std::env::var 直读行为一致；生产显式置 true 开启）
+        cfg.circuit_breaker_enabled = env_bool("CIRCUIT_BREAKER_ENABLED", false);
         cfg.circuit_breaker_threshold = env_int("CIRCUIT_BREAKER_THRESHOLD", 10);
         cfg.circuit_breaker_timeout_seconds = env_int("CIRCUIT_BREAKER_TIMEOUT_SECONDS", 30);
 

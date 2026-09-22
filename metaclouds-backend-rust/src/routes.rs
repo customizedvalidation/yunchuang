@@ -25,7 +25,8 @@ use crate::handlers::alert::{
     resolve_alert, update_alert,
 };
 use crate::handlers::checkpoint::{
-    create_checkpoint, delete_checkpoint, get_checkpoint, list_checkpoints, update_checkpoint,
+    create_checkpoint, delete_checkpoint, get_checkpoint, get_latest_checkpoint, list_checkpoints,
+    update_checkpoint,
 };
 use crate::handlers::cluster::{
     create_cluster, delete_cluster, get_cluster, list_clusters, update_cluster,
@@ -43,8 +44,8 @@ use crate::handlers::gpu::{
 };
 use crate::handlers::health::health;
 use crate::handlers::job::{
-    cancel_job, create_job, delete_job, get_job, get_job_stats, list_jobs, submit_job_to_k8s,
-    update_job,
+    cancel_job, create_job, delete_job, get_job, get_job_stats, get_job_status, list_jobs,
+    submit_job_to_k8s, update_job,
 };
 use crate::handlers::k8s::{
     cluster_health, cluster_status, list_nodes as k8s_list_nodes, list_pods,
@@ -58,7 +59,7 @@ use crate::handlers::partition::{
     update_max_runtime, update_partition, update_priority,
 };
 use crate::handlers::quota::{
-    check_quota, create_quota, delete_quota, get_quota, list_quotas, update_quota,
+    check_quota, create_quota, delete_quota, get_quota, get_quota_usage, list_quotas, update_quota,
 };
 use crate::handlers::resource::{
     create_resource, delete_resource, get_resource, list_gpu_resources, list_resources,
@@ -188,7 +189,8 @@ pub fn build_router(state: AppState) -> Router {
     let jobs_read = Router::new()
         .route("/jobs", get(list_jobs))
         .route("/jobs/stats", get(get_job_stats))
-        .route("/jobs/{id}", get(get_job));
+        .route("/jobs/{id}", get(get_job))
+        .route("/jobs/{id}/status", get(get_job_status));
     let jobs_write = Router::new()
         .route("/jobs", post(create_job))
         .route("/jobs/{id}", put(update_job).delete(delete_job))
@@ -292,6 +294,7 @@ pub fn build_router(state: AppState) -> Router {
     // ── Quotas (B4): read=JWT, write=quota:write ──────────────────────
     let quotas_read = Router::new()
         .route("/quotas", get(list_quotas))
+        .route("/quotas/usage", get(get_quota_usage))
         .route("/quotas/{id}", get(get_quota));
     let quotas_write = Router::new()
         .route("/quotas", post(create_quota))
@@ -361,6 +364,7 @@ pub fn build_router(state: AppState) -> Router {
     // ── Checkpoints (B5): read=JWT, write=checkpoint:write ─────────────
     let checkpoints_read = Router::new()
         .route("/checkpoints", get(list_checkpoints))
+        .route("/checkpoints/latest/{job_id}", get(get_latest_checkpoint))
         .route("/checkpoints/{id}", get(get_checkpoint));
     let checkpoints_write = Router::new()
         .route("/checkpoints", post(create_checkpoint))

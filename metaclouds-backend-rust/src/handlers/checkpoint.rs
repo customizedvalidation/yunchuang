@@ -10,7 +10,7 @@ use validator::Validate;
 
 use crate::auth::middleware::AppState;
 use crate::auth::Claims;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::checkpoint::CheckpointResponse;
 use crate::orm::PaginationParams;
 use crate::response::{ApiResponse, WithStatus};
@@ -91,6 +91,25 @@ pub async fn get_checkpoint(
 ) -> AppResult<Json<ApiResponse<CheckpointResponse>>> {
     let ckpt = checkpoint_service::get_checkpoint(&state.pool, id).await?;
     Ok(Json(ApiResponse::success(ckpt)))
+}
+
+/// `GET /api/v1/checkpoints/latest/:jobId` — 该作业最新检查点。
+///
+/// 复用列表服务按 `job_id` 过滤、取第一条；无检查点返回 404。
+/// 前端作业详情对话框据此高亮"最新检查点"。
+#[utoipa::path(get,path="/api/v1/checkpoints/latest/{job_id}",tag="checkpoints",responses((status=200,description="latest checkpoint",body=crate::models::checkpoint::CheckpointResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+pub async fn get_latest_checkpoint(
+    State(state): State<AppState>,
+    Path(job_id): Path<i64>,
+) -> AppResult<Json<ApiResponse<CheckpointResponse>>> {
+    let params = PaginationParams::new(1, 1);
+    let res = checkpoint_service::list_checkpoints(&state.pool, params, Some(job_id), None).await?;
+    let latest = res
+        .data
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::not_found("no checkpoint for this job"))?;
+    Ok(Json(ApiResponse::success(latest)))
 }
 
 /// `POST /api/v1/checkpoints` — 创建（201）。

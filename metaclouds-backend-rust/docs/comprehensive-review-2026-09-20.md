@@ -537,3 +537,35 @@ Go 原始嵌套路径 `/datasets/caches/:cacheId` 前端未调用，不影响。
 - 4 个"仅 API 层定义、页面未使用"端点（见 §11.2）暂不补实现，待页面接入。
 - mock 端点（submit/queues/nodes/health/score）为占位实现，真实业务逻辑待 K8s/调度器执行器接入后替换。
 - §10.9 待目标环境项（PostgreSQL、CI 部署链路、Nginx upstream 切流）仍待目标环境，不在本机修复范围。
+
+---
+
+## 12. 2026-09-22 P1 修复（第二轮）
+
+HEAD 基线 `bb225a0`（386-server full-dimension monitoring data seed）CI 全绿后，本轮针对 6 项 P1 代码层问题做最小改动修复。
+
+### 12.1 修复落点
+
+| # | 问题 | 落点 | 说明 |
+|---|------|------|------|
+| 1 | Dashboard「GPU 利用率」KPI 恒为 0 | `metaclouds-frontend-vue/src/pages/Dashboard.vue`、`src/api/index.ts` | 根因：原逻辑从空的 `resources` 表聚合 `used/total`。改为新增 `monitoringApi.dashboard()`（`GET /monitoring/dashboard`），GPU 利用率取 `allocated_gpus / total_gpus`（后端已聚合：gpu_allocations COUNT ÷ gpu_devices COUNT）。KPI footer 与饼图共用同一 computed，自动生效。 |
+| 2 | 侧边栏 GPU 徽标固定 10 | `src/components/Sidebar.vue` | `gpuApi.devices({})` 未传 page_size（后端默认 10），改为 `{ page_size: 1000 }`，与 Dashboard 一致，显示真实总数（390）。 |
+| 3 | 4 个端点接线 | 前端 `JobManagement.vue`/`MultiTenantManagement.vue`、API `index.ts`；后端 `handlers/job.rs`/`quota.rs`/`checkpoint.rs` + `routes.rs` | ① `/jobs/{id}/status`：后端补 `get_job_status` mock（作业状态派生 phase），前端详情对话框展示 K8s 状态。② `/quotas/usage`：后端补 `get_quota_usage` mock，前端配额页顶部加用量摘要。③ `/checkpoints/latest/{jobId}`：后端补 `get_latest_checkpoint`（复用 list 服务按 job_id 取首条），前端详情高亮最新检查点。④ `/auth/register`：API 层方法已存在，无注册页且生产 `ALLOW_PUBLIC_REGISTRATION=false`，按设计不接线，仅记录。 |
+| 4 | `/health` 格式统一 | 文档记录（不改代码） | Rust 已返回信封 `{success,data:{status,version,uptime}}`；Go 版返回 `{"status":"healthy","timestamp":N,"dependencies":N}`（无信封）。Go 版不修改。CI/K8s 探针只校验 200 状态码，前端不调用 `/health`，兼容无影响。 |
+| 5 | CI deploy 接入 Rust | `.github/workflows/ci-cd.yml` | `rust-release-build` 增加二进制 artifact 上传；新增 `deploy-rust-staging` job（依赖 `rust-release-build`，SSH 到目标机 `cargo build --release && systemctl restart metaclouds-backend-rust`，与 Go 版 deploy 并行、以 SSH secrets 门控）。Go 版部署保持不变（双轨并行）。 |
+| 6 | 限流/熔断中间件开关 | `src/config.rs`、`docs/runbook-v2-rust.md` | 中间件实际直读环境变量、默认关闭（与设计一致）；但 `config.rs` 旧默认值误写为 `true`（不被中间件消费，仅误导）。已对齐为 `false`，并更新 `config_test.rs::defaults_match_go` 断言。runbook §3.10/§3.11 更新默认值并补生产推荐配置（限流 300/60s、熔断 threshold 5/30s）。 |
+
+### 12.2 验证门禁
+
+| 检查 | 结果 |
+|------|------|
+| `cargo fmt --all --check` | **0 errors** |
+| `cargo test` | **330 passed; 0 failed; 2 ignored** |
+| `npx vue-tsc --noEmit` | **0 errors** |
+| `npm run build` | **built in 13.64s**（成功） |
+
+### 12.3 说明与遗留
+
+- `/jobs/{id}/status`、`/quotas/usage` 为 mock 实现（占位字段），真实 Pod 状态与用量统计待 K8s 客户端/用量表落地后替换；`/checkpoints/latest/{jobId}` 为真实 DB 查询。
+- `deploy-rust-staging` 在未配置 `STAGING_SSH_KEY`/`STAGING_HOST` secrets 时为空操作，不影响现有 Go 部署链路；待目标环境实演 systemd unit 名。
+- `config.rs` 限流/熔断默认值由 `true` 改为 `false`，与中间件直读行为对齐；生产经 `RATE_LIMIT_ENABLED=true`/`CIRCUIT_BREAKER_ENABLED=true` 显式开启。

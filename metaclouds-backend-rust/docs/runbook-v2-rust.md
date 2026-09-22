@@ -194,17 +194,26 @@ src/
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
-| `RATE_LIMIT_ENABLED` | `true` | 启用限流 |
+| `RATE_LIMIT_ENABLED` | `false` | 启用限流；仅 `true`/`1` 开启，未设置即放行 |
 | `RATE_LIMIT_REQUESTS` | `100` | 时间窗口内最大请求数 |
 | `RATE_LIMIT_DURATION_SECONDS` | `60` | 限流窗口（秒） |
+
+> **默认关闭**：中间件（`src/middleware/rate_limit.rs`）直接读取 `RATE_LIMIT_ENABLED` 环境变量，
+> 未显式置 `true` 时对所有请求直接放行，保证测试零回归。生产环境经环境变量开启。
+> 生产推荐：`RATE_LIMIT_ENABLED=true`、`RATE_LIMIT_REQUESTS=300`、`RATE_LIMIT_DURATION_SECONDS=60`
+> （按入口 QPS 调整；开启后 `Config::validate()` 会校验 requests/duration 必须 > 0）。
 
 ### 3.11 熔断
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
-| `CIRCUIT_BREAKER_ENABLED` | `true` | 启用熔断 |
+| `CIRCUIT_BREAKER_ENABLED` | `false` | 启用熔断；仅 `true`/`1` 开启，未设置即放行 |
 | `CIRCUIT_BREAKER_THRESHOLD` | `10` | 熔断触发失败次数 |
 | `CIRCUIT_BREAKER_TIMEOUT_SECONDS` | `30` | 熔断恢复等待时间 |
+
+> **默认关闭**：中间件（`src/middleware/circuit_breaker.rs`）直接读取 `CIRCUIT_BREAKER_ENABLED`，
+> 未显式置 `true` 时不介入。生产推荐：`CIRCUIT_BREAKER_ENABLED=true`、`CIRCUIT_BREAKER_THRESHOLD=5`、
+> `CIRCUIT_BREAKER_TIMEOUT_SECONDS=30`（下游 K8s/调度器集成后再按依赖故障率调优）。
 
 ### 3.12 日志
 

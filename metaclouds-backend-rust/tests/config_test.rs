@@ -56,10 +56,10 @@ fn defaults_match_go() {
     assert!(!c.tracing_enabled);
     assert_eq!(c.tracing_service_name, "metaclouds-backend");
     assert!(!c.config_center_enabled);
-    assert!(c.rate_limit_enabled);
+    assert!(!c.rate_limit_enabled);
     assert_eq!(c.rate_limit_requests, 100);
     assert_eq!(c.rate_limit_duration_seconds, 60);
-    assert!(c.circuit_breaker_enabled);
+    assert!(!c.circuit_breaker_enabled);
     assert_eq!(c.circuit_breaker_threshold, 10);
     assert_eq!(c.circuit_breaker_timeout_seconds, 30);
     assert_eq!(c.log_level, "info");

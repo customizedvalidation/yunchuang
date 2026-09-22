@@ -61,6 +61,30 @@ pub struct UpdateQuotaRequest {
     pub status: Option<String>,
 }
 
+/// `GET /api/v1/quotas/usage` 查询参数：按维度返回实时用量（mock）。
+#[derive(utoipa::ToSchema, Debug, Deserialize)]
+pub struct QuotaUsageQuery {
+    pub scope_type: Option<String>,
+    pub scope_id: Option<i64>,
+}
+
+/// `GET /api/v1/quotas/usage` — 按维度返回配额用量（mock，最小接线）。
+///
+/// 前端多租户配额页消费 `gpu_used` / `gpu_limit`。真实用量统计待用量表落地，
+/// 当前返回维度占位，前端会回退到配额表累计。
+#[utoipa::path(get,path="/api/v1/quotas/usage",tag="quotas",responses((status=200,description="quota usage",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+pub async fn get_quota_usage(
+    Query(q): Query<QuotaUsageQuery>,
+) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "scope_type": q.scope_type.unwrap_or_default(),
+        "scope_id": q.scope_id.unwrap_or(0),
+        "gpu_used": 0,
+        "gpu_limit": 0,
+        "message": "quota usage wired (mock); real usage pending usage table",
+    }))))
+}
+
 /// `POST /api/v1/quotas/check` 请求体（对齐 Go `CheckQuotaRequest`）。
 #[derive(utoipa::ToSchema, Debug, Deserialize, Default)]
 pub struct CheckQuotaRequest {

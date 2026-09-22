@@ -121,13 +121,14 @@ import {
   tenantApi,
 } from '@/api'
 import { useFetch } from '@/utils/useFetch'
-import type { Cluster, Resource, Job, Alert, GPUDevice, Partition, SchedulerIntegration, Tenant, GPUVendor } from '@/types'
+import type { Cluster, Resource, Job, Alert, GPUDevice, Partition, SchedulerIntegration, Tenant, GPUVendor, MetricsOverview } from '@/types'
 
 // ---------- 数据加载 ----------
 const clusters = useFetch<Cluster[]>(() => clusterApi.list())
 const resources = useFetch<Resource[]>(() => resourceApi.list())
 const jobs = useFetch<Job[]>(() => jobApi.list())
 const alerts = useFetch<Alert[]>(() => monitoringApi.alerts())
+const dashboardF = useFetch<MetricsOverview>(() => monitoringApi.dashboard())
 const gpuDevicesF = useFetch<GPUDevice[]>(() => gpuApi.devices({ page_size: 1000 }))
 const partitionsF = useFetch<Partition[]>(() => partitionApi.list({}))
 const schedulersF = useFetch<SchedulerIntegration[]>(() => schedulerApi.list())
@@ -137,6 +138,7 @@ const clustersData = computed(() => clusters.data.value ?? [])
 const resourcesData = computed(() => resources.data.value ?? [])
 const jobsData = computed(() => jobs.data.value ?? [])
 const alertsData = computed(() => alerts.data.value ?? [])
+const dashboardStats = computed(() => dashboardF.data.value ?? {})
 const gpuDevices = computed(() => gpuDevicesF.data.value ?? [])
 const partitions = computed(() => partitionsF.data.value ?? [])
 const schedulers = computed(() => schedulersF.data.value ?? [])
@@ -158,6 +160,7 @@ function refetchAll() {
   resources.refetch()
   jobs.refetch()
   alerts.refetch()
+  dashboardF.refetch()
   gpuDevicesF.refetch()
   partitionsF.refetch()
   schedulersF.refetch()
@@ -171,12 +174,11 @@ const rangeLabel = computed(
 )
 
 // ---------- KPI 计算 ----------
-const gpuUsed = computed(() =>
-  resourcesData.value.reduce((s, r) => s + (Number(r.used) || 0), 0),
-)
-const gpuTotal = computed(() =>
-  resourcesData.value.reduce((s, r) => s + (Number(r.total) || 0), 0),
-)
+// GPU 利用率以 monitoring/dashboard 聚合结果为准：
+// total_gpus = gpu_devices 总数，allocated_gpus = gpu_allocations 占用数。
+// （不再从 resources 表聚合——该表为资源池定义，初始为空会导致 KPI 恒为 0。）
+const gpuTotal = computed(() => Number(dashboardStats.value.total_gpus) || 0)
+const gpuUsed = computed(() => Number(dashboardStats.value.allocated_gpus) || 0)
 const utilization = computed(() =>
   gpuTotal.value > 0 ? Math.round((gpuUsed.value / gpuTotal.value) * 100) : 0,
 )

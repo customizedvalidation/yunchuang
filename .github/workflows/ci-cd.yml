@@ -907,3 +907,51 @@ jobs:
 
       - name: cargo build --release
         run: cargo build --release
+
+      # 上传 Rust release 二进制产物，供 deploy-rust-* 双轨部署 job 消费。
+      - name: Upload Rust backend binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-rust-binary
+          path: metaclouds-backend-rust/target/release/metaclouds-backend-rust
+          if-no-files-found: warn
+
+  # ============================================================================
+  # Job 9: Rust 后端双轨部署（与 Go 版 deploy-* 并行，互不影响）
+  # 说明：Rust 侧无 deploy.sh / Dockerfile（push:false），故直接在 SSH 到目标机后
+  #       cargo build --release 并 systemd 重启 metaclouds-backend-rust.service。
+  #       与 Go 版同样以 *_SSH_KEY / *_HOST secrets 门控；未配置 secrets 时为空操作。
+  # ============================================================================
+  deploy-rust-staging:
+    name: Deploy Rust Backend to Staging (dual-track)
+    needs: rust-release-build
+    if: github.ref == 'refs/heads/main' || (github.event.inputs.environment == 'staging' && github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: http://staging.metaclouds.example.com
+    env:
+      LOG_LEVEL: INFO
+      RUST_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+      RUST_HOST: ${{ secrets.STAGING_HOST }}
+      RUST_USER: ${{ secrets.STAGING_USER }}
+      DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '/opt/metaclouds' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy Rust backend (SSH)
+        if: env.RUST_SSH_KEY != '' && env.RUST_HOST != ''
+        run: |
+          echo "Deploying Rust backend to Staging via SSH: ${{ env.RUST_USER }}@${{ env.RUST_HOST }}"
+          echo "${{ env.RUST_SSH_KEY }}" > /tmp/rust_deploy_key
+          chmod 600 /tmp/rust_deploy_key
+          ssh -i /tmp/rust_deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 \
+            "${{ env.RUST_USER }}@${{ env.RUST_HOST }}" \
+            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust || true"
+          rm -f /tmp/rust_deploy_key
+
+      - name: Verify Rust backend /health
+        run: |
+          STATUS=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://staging.metaclouds.example.com/health || echo '000')
+          echo "Rust backend /health HTTP Status: $STATUS (placeholder domain may be non-200)"

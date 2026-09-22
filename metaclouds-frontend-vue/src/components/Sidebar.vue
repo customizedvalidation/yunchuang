@@ -227,7 +227,7 @@ async function loadBadges() {
       clusterApi.list().catch(() => []),
       resourceApi.list().catch(() => []),
       tenantApi.list().catch(() => []),
-      gpuApi.devices({}).catch(() => []),
+      gpuApi.devices({ page_size: 1000 }).catch(() => []),
       partitionApi.list({}).catch(() => []),
       schedulerApi.list().catch(() => []),
       datasetApi.list().catch(() => []),

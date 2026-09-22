@@ -122,6 +122,32 @@ pub async fn get_job(
     Ok(Json(ApiResponse::success(j)))
 }
 
+/// `GET /api/v1/jobs/:id/status` — K8s 运行态（mock）。
+///
+/// 前端作业详情对话框消费 `status` / `phase`。当前 K8s 客户端走 mock，
+/// 这里以作业自身状态派生占位 phase；真实 Pod 状态待对接 K8s API 后补齐。
+#[utoipa::path(get,path="/api/v1/jobs/{id}/status",tag="jobs",responses((status=200,description="k8s status",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+pub async fn get_job_status(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(id): Path<i64>,
+) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
+    let j = job::get_job(&state.pool, id, actor_from_claims(&claims)).await?;
+    let phase = match j.status.as_str() {
+        "running" => "Running",
+        "pending" => "Pending",
+        "completed" => "Succeeded",
+        "failed" | "cancelled" => "Failed",
+        _ => "Unknown",
+    };
+    Ok(Json(ApiResponse::success(serde_json::json!({
+        "job_id": j.id,
+        "status": j.status,
+        "phase": phase,
+        "message": "K8s status wired (mock); real pod state pending K8s client integration",
+    }))))
+}
+
 /// `POST /api/v1/jobs` — 创建（201）。
 #[utoipa::path(post,path="/api/v1/jobs",request_body=CreateJobRequest,tag="jobs",responses((status=201,description="created",body=crate::models::job::JobResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_job(

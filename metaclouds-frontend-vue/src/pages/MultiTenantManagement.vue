@@ -136,6 +136,13 @@
           empty-text="暂无配额，为该维度新增 GPU / CPU / 内存 / 存储资源配额。"
           @retry="loadQuotas"
         >
+          <el-alert
+            v-if="quotaUsageSummary"
+            :title="quotaUsageSummary"
+            type="info"
+            :closable="false"
+            class="mc-mb"
+          />
           <el-table :data="quotas" row-key="id" border stripe style="width: 100%">
             <el-table-column prop="id" label="ID" width="70">
               <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
@@ -488,6 +495,8 @@ const quotaScopeId = ref<number | ''>('')
 const quotas = ref<ResourceQuota[]>([])
 const quotaLoading = ref(false)
 const quotaError = ref('')
+// GET /quotas/usage 聚合结果（按维度），用于顶部用量摘要。
+const quotaUsageRaw = ref<Record<string, unknown>>({})
 
 const RESOURCE_TYPE_OPTIONS = [
   { label: 'GPU', value: 'gpu' },
@@ -506,11 +515,23 @@ function scopeLabel(v?: string) {
 async function loadQuotas() {
   quotaLoading.value = true
   quotaError.value = ''
+  quotaUsageRaw.value = {}
   try {
     quotas.value = await quotaApi.list({
       scope_type: quotaScope.value,
       scope_id: quotaScopeId.value === '' ? undefined : Number(quotaScopeId.value),
     })
+    // 拉取该维度的实时用量（GET /quotas/usage）；失败不阻断配额列表展示。
+    if (quotaScopeId.value !== '') {
+      try {
+        quotaUsageRaw.value = await quotaApi.usage({
+          scope_type: quotaScope.value,
+          scope_id: Number(quotaScopeId.value),
+        })
+      } catch {
+        quotaUsageRaw.value = {}
+      }
+    }
   } catch (e) {
     quotaError.value = e instanceof Error ? e.message : '加载配额失败'
     quotas.value = []
@@ -518,6 +539,22 @@ async function loadQuotas() {
     quotaLoading.value = false
   }
 }
+
+// 顶部用量摘要：优先展示 /quotas/usage 返回的 GPU 用量，缺失时回退到配额表累计。
+const quotaUsageSummary = computed(() => {
+  const raw = quotaUsageRaw.value
+  const used = Number(raw.gpu_used ?? raw.used_gpu ?? raw.used ?? 0)
+  const limit = Number(raw.gpu_limit ?? raw.limit ?? 0)
+  if (limit > 0) {
+    return `GPU 用量：已用 ${used} / 上限 ${limit}（${Math.round((used / limit) * 100)}%）`
+  }
+  const totalLimit = quotas.value.reduce((s, q) => s + (q.resource_type === 'gpu' ? q.limit : 0), 0)
+  const totalUsed = quotas.value.reduce((s, q) => s + (q.resource_type === 'gpu' ? q.used : 0), 0)
+  if (totalLimit > 0) {
+    return `GPU 用量：已用 ${totalUsed} / 上限 ${totalLimit}（${Math.round((totalUsed / totalLimit) * 100)}%）`
+  }
+  return ''
+})
 
 function goQuota(row: Tenant) {
   activeTab.value = 'quotas'

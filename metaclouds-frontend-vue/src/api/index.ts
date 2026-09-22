@@ -72,6 +72,8 @@ export const jobApi = {
 // ==================== 监控告警 ====================
 export const monitoringApi = {
   metrics: () => http.get<MetricsOverview>('/monitoring/metrics').then((r) => r.data),
+  // 聚合 13 个业务指标（含 total_gpus / allocated_gpus），供 Dashboard KPI 使用。
+  dashboard: () => http.get<MetricsOverview>('/monitoring/dashboard').then((r) => r.data),
   alerts: () => http.get<Alert[]>('/monitoring/alerts').then((r) => r.data),
 }
 
