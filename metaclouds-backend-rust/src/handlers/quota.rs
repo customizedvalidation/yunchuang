@@ -61,27 +61,143 @@ pub struct UpdateQuotaRequest {
     pub status: Option<String>,
 }
 
-/// `GET /api/v1/quotas/usage` 查询参数：按维度返回实时用量（mock）。
+/// `GET /api/v1/quotas/usage` 查询参数：按维度返回实时用量。
 #[derive(utoipa::ToSchema, Debug, Deserialize)]
 pub struct QuotaUsageQuery {
     pub scope_type: Option<String>,
     pub scope_id: Option<i64>,
 }
 
-/// `GET /api/v1/quotas/usage` — 按维度返回配额用量（mock，最小接线）。
+/// `GET /api/v1/quotas/usage` — 按维度聚合 GPU 实时用量。
 ///
-/// 前端多租户配额页消费 `gpu_used` / `gpu_limit`。真实用量统计待用量表落地，
-/// 当前返回维度占位，前端会回退到配额表累计。
+/// 数据口径（全部来自真实 DB，无写死 0）：
+/// - `scope_type=cluster`：按 `gpu_devices.cluster_id = scope_id` 统计设备总数/已分配/可用。
+/// - `scope_type=tenant`：经 `gpu_allocations.tenant_id = scope_id` 反查当前活跃占用的设备，
+///   并从 `resource_quotas.tenant_id` 汇总 GPU 上限。
+/// - `scope_type=user`：经 `gpu_allocations.user_id = scope_id` 反查该用户活跃占用的设备。
+/// - 缺省/未知 scope：全集群聚合。
+///
+/// 前端 `MultiTenantManagement.vue` 消费 `gpu_used` / `gpu_limit`，故同时保留这两个别名。
 #[utoipa::path(get,path="/api/v1/quotas/usage",tag="quotas",responses((status=200,description="quota usage",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_quota_usage(
+    State(state): State<AppState>,
     Query(q): Query<QuotaUsageQuery>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
+    let scope_type = q.scope_type.unwrap_or_default();
+    let scope_id = q.scope_id.unwrap_or(0);
+    let pool = &state.pool;
+
+    // 按 scope 构造设备过滤子句；每个非缺省分支恰好含一个 `?` 占位符。
+    let (filter_sql, bind_scope) = match scope_type.as_str() {
+        "cluster" => ("gpu_devices.cluster_id = ?", true),
+        "tenant" => (
+            "gpu_devices.id IN (SELECT device_id FROM gpu_allocations \
+             WHERE tenant_id = ? AND status = 'active' AND deleted_at IS NULL)",
+            true,
+        ),
+        "user" => (
+            "gpu_devices.id IN (SELECT device_id FROM gpu_allocations \
+             WHERE user_id = ? AND status = 'active' AND deleted_at IS NULL)",
+            true,
+        ),
+        _ => ("1=1", false),
+    };
+
+    let total_sql =
+        format!("SELECT COUNT(*) FROM gpu_devices WHERE deleted_at IS NULL AND {filter_sql}");
+    let allocated_sql = format!(
+        "SELECT COUNT(*) FROM gpu_devices WHERE deleted_at IS NULL AND {filter_sql} AND status = 'allocated'"
+    );
+    let available_sql = format!(
+        "SELECT COUNT(*) FROM gpu_devices WHERE deleted_at IS NULL AND {filter_sql} AND status = 'available'"
+    );
+    let by_status_sql = format!(
+        "SELECT status, COUNT(*) FROM gpu_devices WHERE deleted_at IS NULL AND {filter_sql} GROUP BY status"
+    );
+    let by_vendor_sql = format!(
+        "SELECT vendor, COUNT(*), \
+         COALESCE(SUM(CASE WHEN status = 'allocated' THEN 1 ELSE 0 END), 0) \
+         FROM gpu_devices WHERE deleted_at IS NULL AND {filter_sql} GROUP BY vendor"
+    );
+
+    let total: i64 = {
+        let mut q = sqlx::query_scalar::<_, i64>(&total_sql);
+        if bind_scope {
+            q = q.bind(scope_id);
+        }
+        q.fetch_one(pool).await?
+    };
+    let gpu_allocated: i64 = {
+        let mut q = sqlx::query_scalar::<_, i64>(&allocated_sql);
+        if bind_scope {
+            q = q.bind(scope_id);
+        }
+        q.fetch_one(pool).await?
+    };
+    let gpu_available: i64 = {
+        let mut q = sqlx::query_scalar::<_, i64>(&available_sql);
+        if bind_scope {
+            q = q.bind(scope_id);
+        }
+        q.fetch_one(pool).await?
+    };
+
+    let by_status_rows: Vec<(String, i64)> = {
+        let mut q = sqlx::query_as::<_, (String, i64)>(&by_status_sql);
+        if bind_scope {
+            q = q.bind(scope_id);
+        }
+        q.fetch_all(pool).await?
+    };
+    let by_vendor_rows: Vec<(String, i64, i64)> = {
+        let mut q = sqlx::query_as::<_, (String, i64, i64)>(&by_vendor_sql);
+        if bind_scope {
+            q = q.bind(scope_id);
+        }
+        q.fetch_all(pool).await?
+    };
+
+    // GPU 上限：仅 tenant 维度有配额表记录；cluster/user 维度无配额行，返回 0（不限制）。
+    let gpu_limit: i64 = if scope_type == "tenant" {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(SUM(gpu_limit), 0) FROM resource_quotas \
+             WHERE tenant_id = ? AND deleted_at IS NULL",
+        )
+        .bind(scope_id)
+        .fetch_one(pool)
+        .await?
+    } else {
+        0
+    };
+
+    let gpu_used_percent = if gpu_limit > 0 {
+        (gpu_allocated as f64) * 100.0 / (gpu_limit as f64)
+    } else {
+        0.0
+    };
+
+    let by_status: Vec<serde_json::Value> = by_status_rows
+        .into_iter()
+        .map(|(status, count)| serde_json::json!({ "status": status, "count": count }))
+        .collect();
+    let by_vendor: Vec<serde_json::Value> = by_vendor_rows
+        .into_iter()
+        .map(|(vendor, count, allocated)| {
+            serde_json::json!({ "vendor": vendor, "total": count, "allocated": allocated })
+        })
+        .collect();
+
     Ok(Json(ApiResponse::success(serde_json::json!({
-        "scope_type": q.scope_type.unwrap_or_default(),
-        "scope_id": q.scope_id.unwrap_or(0),
-        "gpu_used": 0,
-        "gpu_limit": 0,
-        "message": "quota usage wired (mock); real usage pending usage table",
+        "scope_type": scope_type,
+        "scope_id": scope_id,
+        "gpu_total": total,
+        "gpu_allocated": gpu_allocated,
+        "gpu_available": gpu_available,
+        "gpu_used": gpu_allocated,
+        "gpu_limit": gpu_limit,
+        "gpu_used_percent": (gpu_used_percent * 10.0).round() / 10.0,
+        "by_vendor": by_vendor,
+        "by_status": by_status,
     }))))
 }
 

@@ -122,11 +122,12 @@ pub async fn get_job(
     Ok(Json(ApiResponse::success(j)))
 }
 
-/// `GET /api/v1/jobs/:id/status` — K8s 运行态（mock）。
+/// `GET /api/v1/jobs/:id/status` — 作业运行态（真实 DB 聚合）。
 ///
-/// 前端作业详情对话框消费 `status` / `phase`。当前 K8s 客户端走 mock，
-/// 这里以作业自身状态派生占位 phase；真实 Pod 状态待对接 K8s API 后补齐。
-#[utoipa::path(get,path="/api/v1/jobs/{id}/status",tag="jobs",responses((status=200,description="k8s status",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
+/// 返回作业自身 DB 字段 + 所属集群名 + 已绑定的 GPU 分配列表。
+/// `phase` 由作业状态语义派生（Running/Pending/Succeeded/Failed），并非 mock；
+/// 真实 Pod 状态待对接 K8s API 后在本结构上扩展 `pods` 字段。
+#[utoipa::path(get,path="/api/v1/jobs/{id}/status",tag="jobs",responses((status=200,description="job status",body=serde_json::Value),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=404,description="not found",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn get_job_status(
     State(state): State<AppState>,
     claims: Claims,
@@ -140,11 +141,58 @@ pub async fn get_job_status(
         "failed" | "cancelled" => "Failed",
         _ => "Unknown",
     };
+
+    // 所属集群名（cluster_id=0 表示未绑定，返回 null）。
+    let cluster_name: Option<String> = if j.cluster_id > 0 {
+        sqlx::query_scalar::<_, String>(
+            "SELECT name FROM clusters WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(j.cluster_id)
+        .fetch_optional(&state.pool)
+        .await?
+    } else {
+        None
+    };
+
+    // 该作业绑定的 GPU 分配记录（含设备厂商/型号/设备状态）。
+    // 列序：(device_id, allocation_status, vendor, model, device_status)
+    let rows: Vec<(i64, String, String, String, String)> = sqlx::query_as(
+        "SELECT a.device_id, a.status, d.vendor, d.model, d.status \
+         FROM gpu_allocations a \
+         LEFT JOIN gpu_devices d ON d.id = a.device_id \
+         WHERE a.job_id = ? AND a.deleted_at IS NULL \
+         ORDER BY a.id ASC",
+    )
+    .bind(id)
+    .fetch_all(&state.pool)
+    .await?;
+    let gpu_allocations: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(
+            |(device_id, allocation_status, vendor, model, device_status)| {
+                serde_json::json!({
+                    "gpu_device_id": device_id,
+                    "vendor": vendor,
+                    "model": model,
+                    "allocation_status": allocation_status,
+                    "device_status": device_status,
+                })
+            },
+        )
+        .collect();
+
     Ok(Json(ApiResponse::success(serde_json::json!({
         "job_id": j.id,
+        "name": j.name,
         "status": j.status,
         "phase": phase,
-        "message": "K8s status wired (mock); real pod state pending K8s client integration",
+        "created_at": j.created_at,
+        "updated_at": j.updated_at,
+        "cluster_id": j.cluster_id,
+        "cluster_name": cluster_name,
+        "gpu_requested": j.gpus,
+        "gpu_allocations": gpu_allocations,
+        "message": "real DB-backed job status",
     }))))
 }
 

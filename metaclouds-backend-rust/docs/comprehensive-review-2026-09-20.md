@@ -569,3 +569,71 @@ HEAD 基线 `bb225a0`（386-server full-dimension monitoring data seed）CI 全�
 - `/jobs/{id}/status`、`/quotas/usage` 为 mock 实现（占位字段），真实 Pod 状态与用量统计待 K8s 客户端/用量表落地后替换；`/checkpoints/latest/{jobId}` 为真实 DB 查询。
 - `deploy-rust-staging` 在未配置 `STAGING_SSH_KEY`/`STAGING_HOST` secrets 时为空操作，不影响现有 Go 部署链路；待目标环境实演 systemd unit 名。
 - `config.rs` 限流/熔断默认值由 `true` 改为 `false`，与中间件直读行为对齐；生产经 `RATE_LIMIT_ENABLED=true`/`CIRCUIT_BREAKER_ENABLED=true` 显式开启。
+
+---
+
+## 13. 2026-09-23 P1 修复（第三轮）：两个 mock 端点落地真实 DB
+
+HEAD 基线 `2a78d50`（P1 round2）CI 全绿后，本轮把 round2 中以 mock 占位的两个端点落到真实 DB 查询，并补集成测试与冒烟验证。
+
+### 13.1 端点 1：`GET /api/v1/jobs/{id}/status` 真实化
+
+落点：`src/handlers/job.rs::get_job_status`。
+
+- 仍经 `job::get_job` 取作业（保留租户隔离/404 语义）。
+- 新增：按 `cluster_id` 反查 `clusters.name`（`cluster_id=0` 时 `cluster_name=null`）。
+- 新增：`gpu_allocations` 左连 `gpu_devices`，返回该作业当前分配列表（`gpu_device_id / vendor / model / allocation_status / device_status`）。
+- 响应字段补全：`name / created_at / updated_at / cluster_id / cluster_name / gpu_requested / gpu_allocations / message`。
+- `phase` 仍由 `status` 语义派生（pending→Pending、running→Running、completed→Succeeded、failed/cancelled→Failed），这是合理的状态映射，非 mock。
+- `message` 由 `"K8s status wired (mock)..."` 改为 `"real DB-backed job status"`，不再含 "mock"。
+- 真实 Pod 状态待 K8s 客户端接入后在本结构上扩展 `pods` 字段。
+
+### 13.2 端点 2：`GET /api/v1/quotas/usage` 真实聚合
+
+落点：`src/handlers/quota.rs::get_quota_usage`（handler 增加 `State` 以访问连接池）。
+
+数据口径（全部来自真实 DB，无写死 0）：
+
+| scope_type | 设备过滤口径 | GPU 上限 |
+|------------|--------------|----------|
+| `cluster` | `gpu_devices.cluster_id = scope_id` | 无集群级配额行 → 0（不限制） |
+| `tenant` | `gpu_devices.id IN (SELECT device_id FROM gpu_allocations WHERE tenant_id=? AND status='active' AND deleted_at IS NULL)` | `SUM(resource_quotas.gpu_limit) WHERE tenant_id=?` |
+| `user` | `gpu_devices.id IN (... gpu_allocations.user_id=? ...)` | 0（无用户级配额行） |
+| 缺省/未知 | 全集群 `gpu_devices` | 0 |
+
+聚合输出：`gpu_total / gpu_allocated(=status='allocated') / gpu_available(=status='available')`，`by_status[]`（按设备状态分组计数）、`by_vendor[]`（按厂商分组 total + allocated），`gpu_used_percent = gpu_allocated*100/gpu_limit`（limit=0 时为 0）。为兼容前端 `MultiTenantManagement.vue`（消费 `gpu_used` / `gpu_limit`），额外保留 `gpu_used=gpu_allocated` 别名；移除旧 `message` 占位字段。
+
+> schema 说明：`clusters` 表无 `tenant_id` 列，租户→设备无法直接 join；租户维度经 `gpu_allocations.tenant_id`（该表自带租户列）反查活跃占用的设备，这是当前 schema 下最直接的真实口径。
+
+### 13.3 新增集成测试
+
+新增 `tests/p1_round3_real_endpoints_test.rs`，3 个用例：
+
+1. `round3_job_status_returns_real_db_fields`：建集群→建作业→插设备+分配→调 status，断言 `message` 不含 "mock"、`created_at/updated_at/cluster_name/gpu_allocations` 为真实值、phase 派生正确。
+2. `round3_quota_usage_aggregates_real_devices_cluster_scope`：4 块设备（2 available / 2 allocated，nvidia+amd）→ 调 cluster 维度，断言 total=4 / allocated=2 / available=2、by_status、by_vendor 细分正确、无 message 字段。
+3. `round3_quota_usage_tenant_scope_filters_by_active_allocations`：租户 1 建配额上限 100 + 2 条 active 分配 → 调 tenant 维度，断言 total=2 / allocated=1 / gpu_limit=100 / used_percent=1.0。
+
+### 13.4 冒烟验证（文件型 SQLite :8001）
+
+后端 `DATABASE_URL=sqlite:metaclouds_smoke.db` 启动后，经 curl 建 smoke-cluster（4 块设备）+ 作业 + 分配，实测：
+
+- `GET /jobs/1/status` 返回：`cluster_name="smoke-cluster"`、`created_at/updated_at` 真实时间戳、`gpu_allocations=[{gpu_device_id:1, vendor:"nvidia", model:"A100", allocation_status:"active"}]`、`message="real DB-backed job status"`（无 mock）。
+- `GET /quotas/usage?scope_type=cluster&scope_id=1` 返回：`gpu_total=4, gpu_allocated=2, gpu_available=2, gpu_used=2`，`by_status=[allocated:2, available:2]`，`by_vendor=[amd total:1 allocated:1, nvidia total:3 allocated:1]`。
+- `GET /quotas/usage?scope_type=tenant&scope_id=1`（2 条 active 分配）返回 `gpu_total=1, gpu_available=1`。
+- Vue dev server（:3000）Vite proxy 默认指向 `http://localhost:8001`，与本冒烟后端对齐；前端消费字段（`k8sStatus.status/phase`、`gpu_used/gpu_limit`）契约经源码核对一致。
+- 冒烟后已停止 cargo / npm 进程并删除 `metaclouds_smoke.db*` 临时文件。
+
+### 13.5 验证门禁
+
+| 检查 | 结果 |
+|------|------|
+| `cargo fmt --all --check` | **0 errors** |
+| `cargo test` | **333 passed; 0 failed**（含新增 3 个 round3 用例） |
+| `npx vue-tsc --noEmit` | **0 errors** |
+| `npm run build` | **built in 17.68s**（成功） |
+
+### 13.6 遗留
+
+- 真实 K8s Pod 状态（`/jobs/{id}/status` 的 `pods`）待 K8s 客户端接入。
+- 租户维度 GPU 总量依赖 `gpu_allocations` 反查；若后续 `clusters` 增加 `tenant_id` 列，可改为更完整的集群级聚合。
+- 集群/用户维度无配额行时 `gpu_limit=0`（表示不限制），如需集群级配额需扩展 `resource_quotas` schema。
