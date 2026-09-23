@@ -24,6 +24,10 @@ regexes = [
   '''test-secret-at-least-32''',
   # P1 端点对齐集成测试的占位密钥
   '''p1-align-secret-at-least-32''',
+  # P1 round3 真实 DB 实现集成测试的占位密钥
+  '''p1-round3-secret-at-least-32''',
+  # 冒烟文档中记录的占位 JWT_SECRET（非真实凭据）
+  '''smoke-test-jwt-secret-at-least-32''',
   # Go 端到端测试的占位账号密码
   '''Th1sIsA-T3st-''',
   # K8s 清单示例 Secret（base64 编码的 CHANGEME-* 占位值，仅用于演示）
