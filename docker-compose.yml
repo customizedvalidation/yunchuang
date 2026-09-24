@@ -122,9 +122,19 @@ services:
       - metaclouds-network
     restart: unless-stopped
 
+  # ============================================================================
+  # 后端：Rust（Axum）——唯一主后端。Go 版 metaclouds-backend 已退役，仅作历史对照。
+  # 与 Go 版关键差异（务必保留）：
+  #   - MEMORY_STORE_ENABLED=false  Rust 默认内存 sqlite，必须显式关闭才走 postgres。
+  #   - REDIS_ENABLED=true          Rust 默认关闭 Redis，联调栈需显式开启。
+  #   - 种子 admin 口令由 Rust 固定为 Admin@123456（seed_admin_if_empty 硬编码），
+  #     故不再读 DEFAULT_ADMIN_PASSWORD；生产请 seed 后改密或接 IdP。
+  #   - CONFIG_CENTER_*/etcd 为 Go 配置中心，Rust 不依赖，已移除。
+  # 待目标环境 docker build 实测验证。
+  # ============================================================================
   backend:
     build:
-      context: ./metaclouds-backend
+      context: ./metaclouds-backend-rust
       dockerfile: Dockerfile
     container_name: metaclouds-backend
     ports:
@@ -134,17 +144,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      etcd:
-        condition: service_healthy
       jaeger:
         condition: service_started
     environment:
+      - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8000
-      # 本 compose 是「一体化开发/联调栈」，默认 development。
-      # 生产落地请改用 deploy/kubernetes/ 清单（fail-secure 密钥、database-ssl-mode=require，
-      # 已按生产校验配置）；若坚持用 compose 起生产，需同时显式设 SERVER_ENV=production 且提供
-      # ALLOWED_ORIGINS（非 *）、DATABASE_SSL_MODE!=disable，否则 backend 会因 config.Validate 拒绝启动。
       - SERVER_ENV=${SERVER_ENV:-development}
+      - MEMORY_STORE_ENABLED=false
       - USE_SQLITE=false
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
@@ -152,32 +158,27 @@ services:
       - DATABASE_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}
       - DATABASE_NAME=${POSTGRES_DB:?POSTGRES_DB is required, see .env.example}
       - DATABASE_SSL_MODE=disable
+      - REDIS_ENABLED=true
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required, see .env.example}
       - REDIS_DB=0
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required, see .env.example}
       - JWT_EXPIRATION_HOURS=24
-      # 引导账户口令：应用在数据库为空时用它创建默认 admin/user。
-      # 未提供时非生产环境会生成一次性随机口令并写入日志，
-      # 生产环境则直接拒绝启动。
-      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:?DEFAULT_ADMIN_PASSWORD is required, see .env.example}
-      - DEFAULT_USER_PASSWORD=${DEFAULT_USER_PASSWORD:?DEFAULT_USER_PASSWORD is required, see .env.example}
       - PROMETHEUS_ENABLED=true
       - PROMETHEUS_PORT=9090
       - MONITORING_ENABLED=true
       - ALERT_ENABLED=true
       - K8S_ENABLED=true
       - K8S_NAMESPACE=metaclouds
-      - K8S_CONFIG_PATH=~/.kube/config
+      - K8S_SIMULATION_MODE=true
       - SCHEDULER_ENABLED=true
       - SCHEDULER_INTERVAL_SECONDS=10
       - TRACING_ENABLED=true
       - TRACING_SERVICE_NAME=metaclouds-backend
       - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
-      - CONFIG_CENTER_ENABLED=true
-      - CONFIG_CENTER_ENDPOINTS=etcd:2379
-      - CONFIG_CENTER_PREFIX=/metaclouds/config/
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
     networks:
       - metaclouds-network
     restart: unless-stopped

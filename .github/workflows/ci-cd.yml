@@ -54,6 +54,7 @@ env:
   NODE_VERSION: '22'
   DOCKER_REGISTRY: ghcr.io
   BACKEND_IMAGE_NAME: ${{ github.repository }}-backend
+  RUST_BACKEND_IMAGE_NAME: ${{ github.repository }}-backend-rust
   FRONTEND_IMAGE_NAME: ${{ github.repository }}-frontend
   # 覆盖率阈值：当前实际覆盖率约 30%，先设为 25% 确保流水线通过。
   # TODO(coverage-roadmap): 逐步提升计划
@@ -443,6 +444,66 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-backend-results.sarif'
+        if: success() || failure()
+
+  # ============================================================================
+  # Job 4b: Rust 后端 Docker 镜像构建与推送（主后端；Go 版 job 4 保留为历史对照）
+  # push:false —— 待配 GHCR 推送权限后改 push:true。
+  # ============================================================================
+  docker-build-backend-rust:
+    name: Build Rust Backend Docker Image
+    needs: [rust-lint-test, frontend-test]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for rust backend
+        id: meta-rust-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/${{ env.RUST_BACKEND_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha
+
+      - name: Build Rust backend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: metaclouds-backend-rust
+          file: metaclouds-backend-rust/Dockerfile
+          push: false
+          tags: ${{ steps.meta-rust-backend.outputs.tags }}
+          labels: ${{ steps.meta-rust-backend.outputs.labels }}
+          cache-from: type=gha,scope=backend-rust
+          cache-to: type=gha,mode=max,scope=backend-rust
+
+      - name: Trivy vulnerability scan (rust backend)
+        uses: aquasecurity/trivy-action@v0.20.0
+        with:
+          scan-type: 'fs'
+          scan-ref: 'metaclouds-backend-rust/'
+          skip-dirs: 'target,.git,node_modules'
+          format: 'sarif'
+          output: 'trivy-backend-rust-results.sarif'
+          severity: 'HIGH,CRITICAL'
+
+      - name: Upload Trivy scan results (rust backend)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-backend-rust-results.sarif'
         if: success() || failure()
 
   # ============================================================================
