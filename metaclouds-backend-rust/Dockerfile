@@ -8,7 +8,8 @@
 # ---- Stage 1: builder (musl static build) ----
 FROM rust:1.81-alpine AS builder
 
-RUN apk add --no-cache musl-dev pkg-config openssl-dev binutils && \
+# rustls is used (no native OpenSSL needed); only musl C headers + binutils for strip.
+RUN apk add --no-cache musl-dev binutils && \
     rm -rf /var/cache/apk/*
 
 WORKDIR /app
