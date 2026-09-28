@@ -209,7 +209,9 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-backend-rust-results.sarif'
-        if: success() || failure()
+        # 仅当 build+scan 成功才上传：scan 未产出 sarif 时此步骤会误报
+        # "Path does not exist" 并级联失败
+        if: success()
 
   # ============================================================================
   # Job 4: 前端 Docker 镜像构建与推送

@@ -1,12 +1,14 @@
 # syntax=docker/dockerfile:1
 # ==============================================================================
 # Metaclouds Backend (Rust) - multi-stage build
-# Builder: rust:1.81-alpine (musl). Runtime: alpine:3.20.
+# Builder: rust:1.96-alpine (musl). Runtime: alpine:3.20.
 # Non-root UID 10001. Target binary ~35MB.
+# NOTE: toolchain must match CI (dtolnay/rust-toolchain@1.96.0) — deps like
+#       opentelemetry 0.27 / utoipa 5 / redis 0.27 require MSRV > 1.81.
 # ==============================================================================
 
 # ---- Stage 1: builder (musl static build) ----
-FROM rust:1.81-alpine AS builder
+FROM rust:1.96-alpine AS builder
 
 # rustls is used (no native OpenSSL needed); only musl C headers + binutils for strip.
 RUN apk add --no-cache musl-dev binutils && \
