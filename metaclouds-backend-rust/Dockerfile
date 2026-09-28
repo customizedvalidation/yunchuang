@@ -35,8 +35,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
     touch src/main.rs src/lib.rs && \
     cargo build --release && \
-    ( strip /app/target/release/metaclouds-backend-rust || \
-      strip /app/target/release/metaclouds-backend )
+    mkdir -p /out && \
+    cp /app/target/release/metaclouds-backend-rust /out/metaclouds-backend-rust && \
+    strip /out/metaclouds-backend-rust
 
 # ---- Stage 2: runtime ----
 FROM alpine:3.20
@@ -52,7 +53,8 @@ RUN apk add --no-cache ca-certificates tzdata wget && \
 
 WORKDIR /app
 
-COPY --from=builder /app/target/release/metaclouds-backend-rust /usr/local/bin/metaclouds-backend
+# 产物在 /out（RUN 内从 cache mount 复制到持久层，cache mount 不落层）
+COPY --from=builder /out/metaclouds-backend-rust /usr/local/bin/metaclouds-backend
 
 COPY .env.example /app/.env.example
 
