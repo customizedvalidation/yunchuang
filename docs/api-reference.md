@@ -385,13 +385,12 @@ GET /api/v1/jobs?page=2&page_size=20&status=running
 
 ## OpenAPI 规范
 
-完整的 OpenAPI 3.0 规范文件位于：
+完整的 OpenAPI 3.0 规范由 Rust 后端（utoipa）在运行时导出：
 
-- **文件路径**：`metaclouds-backend/docs/swagger.yaml`
-- **在线访问（开发环境）**：`http://localhost:8000/api/docs/swagger.yaml`
-- **Swagger UI（开发环境）**：`http://localhost:8000/api/docs/swagger-ui/`
+- **在线访问（开发环境）**：`http://localhost:8000/api-docs/openapi.json`
+- **Swagger UI（开发环境）**：`http://localhost:8000/swagger-ui/`
 
-开发环境下访问 `http://localhost:8000/api/docs` 可查看 API 文档索引页。
+> 注：Go 后端原 `metaclouds-backend/docs/swagger.yaml` 已随 Go 退役删除；Rust 版规范为运行时生成的 openapi.json，无静态 yaml 文件。
 
 ---
 

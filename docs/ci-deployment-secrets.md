@@ -30,13 +30,13 @@
 目标服务器需满足（SSH 命令会自动执行）：
 
 ```bash
-# 1. 安装 Go（deploy.sh 需要本机构建）
+# 1. 安装 Rust toolchain（部署时在服务器上执行 cargo build --release）
 # 2. 克隆仓库到部署目录（默认 /opt/metaclouds）
 sudo mkdir -p /opt/metaclouds && sudo chown $USER /opt/metaclouds
 cd /opt/metaclouds && git clone https://github.com/customizedvalidation/yunchuang.git .
 
-# 3. 准备环境配置文件（deploy.sh 要求）
-cd /opt/metaclouds/metaclouds-backend
+# 3. 准备环境配置文件（systemd 服务 metaclouds-backend-rust 启动前必读）
+cd /opt/metaclouds/metaclouds-backend-rust
 cp .env.example .env.staging      # 按需改为 .env.development / .env.production
 # 4. 服务器上生成部署密钥对，公钥加入 authorized_keys
 ssh-keygen -t ed25519 -f ~/.ssh/metaclouds_deploy
@@ -51,7 +51,7 @@ CI 中每个部署 job 的 SSH 步骤仅在对应 `*_SSH_KEY` 与 `*_HOST` 均�
 ```bash
 echo "${{ secrets.XXX_SSH_KEY }}" > /tmp/deploy_key
 ssh -i /tmp/deploy_key user@host \
-  "cd $DEPLOY_DIR && git pull --ff-only && cd metaclouds-backend && ./deploy.sh -e <env> -l <LEVEL> -k"
+  "cd $DEPLOY_DIR && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust"
 ```
 
 未配置 secret 时步骤自动跳过，job 保持绿色，不影响主 CI 链路。

@@ -1,3 +1,4 @@
+> ⚠️ **本文档为历史记录**：Go 后端已于 2026-09 退役删除，当前后端为 Rust（`metaclouds-backend-rust`）。文中 Go 实现、`go build/test`、`deploy.sh`、`metaclouds-backend/` 路径等均为历史状态，请勿作为当前操作依据。
 # Metaclouds 前端 React → Vue 迁移说明
 
 ## 一、迁移概述

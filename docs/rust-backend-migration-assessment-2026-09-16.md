@@ -1,3 +1,4 @@
+> ✅ **迁移已完成（2026-09）**：Go 后端已退役删除，当前后端为 Rust（`metaclouds-backend-rust`），本文档为迁移阶段的历史评估/计划记录，保留供回溯。
 # Metaclouds 后端 Rust 重构可行性评估与 To do Plan
 
 > 评估日期：2026-09-16

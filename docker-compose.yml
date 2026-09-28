@@ -123,13 +123,12 @@ services:
     restart: unless-stopped
 
   # ============================================================================
-  # 后端：Rust（Axum）——唯一主后端。Go 版 metaclouds-backend 已退役，仅作历史对照。
-  # 与 Go 版关键差异（务必保留）：
+  # 后端：Rust（Axum）——唯一主后端，构建上下文为 ./metaclouds-backend-rust。
+  # 关键配置说明：
   #   - MEMORY_STORE_ENABLED=false  Rust 默认内存 sqlite，必须显式关闭才走 postgres。
   #   - REDIS_ENABLED=true          Rust 默认关闭 Redis，联调栈需显式开启。
   #   - 种子 admin 口令由 Rust 固定为 Admin@123456（seed_admin_if_empty 硬编码），
   #     故不再读 DEFAULT_ADMIN_PASSWORD；生产请 seed 后改密或接 IdP。
-  #   - CONFIG_CENTER_*/etcd 为 Go 配置中心，Rust 不依赖，已移除。
   # 待目标环境 docker build 实测验证。
   # ============================================================================
   backend:

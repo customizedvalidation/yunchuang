@@ -1,3 +1,4 @@
+> ⚠️ **本文档为历史记录**：Go 后端已于 2026-09 退役删除，当前后端为 Rust（`metaclouds-backend-rust`）。文中 Go 实现、`go build/test`、`deploy.sh`、`metaclouds-backend/` 路径等均为历史状态，请勿作为当前操作依据。
 # 操作级权限收敛：前后端对照清单
 
 > 关联提交：`381b540`（前端按角色收敛写操作按钮可见性）

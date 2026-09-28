@@ -12,7 +12,7 @@
 |---|---|---|---|---|
 | **A** | 部署 Secrets 配置（三环境 SSH 自动部署） | 🔧 待目标环境 | 目标服务器可达 | 30 分钟 |
 | **B** | Docker 镜像发布（ghcr push） | 🔧 待目标环境 | GitHub 仓库 packages 写权限 | 15 分钟 |
-| **C** | Go 后端退役（影子观察 → 灰度切流 → 退役） | 🔧 待目标环境 | A、B 完成后 | 2 周 |
+| **C** | Go 后端退役（影子观察 → 灰度切流 → 退役） | ✅ 已完成（2026-09，Go 目录已删除，后端为 Rust） | — | — |
 | **D** | K8s 真实部署（14 清单） | 🔧 待目标环境 | 集群 + Ingress + Prometheus Operator | 半天 |
 | **E** | 生产 PostgreSQL 实跑 | 🔧 待目标环境 | PG 实例 | 2 小时 |
 
@@ -51,15 +51,15 @@ E（先有数据库）→ D（K8s 部署）→ A（SSH 部署激活）→ B（�
 ### A.2 服务器前置条件（每个环境执行一次）
 
 ```bash
-# 1. 安装 Go（CI 部署命令会在服务器上执行 ./deploy.sh 本机构建）
-#    https://go.dev/dl/ 安装 1.24+，确认 go version 可用
+# 1. 安装 Rust toolchain（CI 部署命令会在服务器上执行 cargo build --release）
+#    参见 https://rustup.rs/ 安装 stable 工具链，确认 cargo --version 可用
 
 # 2. 克隆仓库到部署目录（默认 /opt/metaclouds）
 sudo mkdir -p /opt/metaclouds && sudo chown $USER /opt/metaclouds
 cd /opt/metaclouds && git clone https://github.com/customizedvalidation/yunchuang.git .
 
-# 3. 准备后端环境配置文件（deploy.sh 启动前必读）
-cd /opt/metaclouds/metaclouds-backend
+# 3. 准备后端环境配置文件（systemd 服务 metaclouds-backend-rust 启动前必读）
+cd /opt/metaclouds/metaclouds-backend-rust
 cp .env.example .env.staging       # 按环境改为 .env.development / .env.production
 #    必改：JWT_SECRET（≥32 字符）、DATABASE_URL、ALLOWED_ORIGINS
 
@@ -87,7 +87,7 @@ echo "${{ secrets.XXX_SSH_KEY }}" > /tmp/deploy_key
 chmod 600 /tmp/deploy_key
 ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
   "${{ secrets.XXX_USER }}@${{ secrets.XXX_HOST }}" \
-  "cd $DEPLOY_DIR && git pull --ff-only && cd metaclouds-backend && ./deploy.sh -e <env> -l <LEVEL> -k"
+  "cd $DEPLOY_DIR && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust"
 rm -f /tmp/deploy_key
 ```
 
@@ -99,7 +99,7 @@ rm -f /tmp/deploy_key
 1. 配置完 secrets 后，手动触发：Actions → Metaclouds CI/CD Pipeline → Run workflow
    → environment = staging
 2. 观察 "Deploy to Staging (SSH)" 步骤：
-   - 成功：日志显示 ssh 连接、git pull、deploy.sh 输出（构建 + 启动）
+   - 成功：日志显示 ssh 连接、git pull、cargo build --release + systemctl restart metaclouds-backend-rust
    - 跳过：日志显示 "Skipping"（说明 secrets 未生效，检查 secret 名拼写）
 3. 登录验证：curl http://<staging-host>:8000/health 返回 200
 ```
@@ -118,7 +118,7 @@ GitHub → **Settings → Environments → `production`**：
 
 ### B.1 现状
 
-- CI `docker-build-backend` / `docker-build-frontend` 两个 job：**构建 + Trivy 扫描（HIGH/CRITICAL）+ SARIF 上传**，但 `push: false`（`.github/workflows/ci-cd.yml` 第 424、485 行）。
+- CI `docker-build-backend-rust` / `docker-build-frontend` 两个 job：**构建 + Trivy 扫描（HIGH/CRITICAL）+ SARIF 上传**，但 `push: false`（`.github/workflows/ci-cd.yml` 第 424、485 行）。
 - 镜像仅 CI 内构建验证，**无发布通道**；部署侧走 SSH `git pull` + 本机构建，不依赖镜像仓库。
 
 ### B.2 前置：ghcr 推送权限
@@ -135,8 +135,8 @@ GitHub 仓库 **Settings → Actions → General → Workflow permissions**：
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: metaclouds-backend          # 后端；前端为 metaclouds-frontend-vue
-          file: metaclouds-backend/Dockerfile
+          context: ./metaclouds-backend-rust    # 后端；前端为 metaclouds-frontend-vue
+          file: metaclouds-backend-rust/Dockerfile
           push: true                           # ← false 改为 true
           tags: ${{ steps.meta-backend.outputs.tags }}
           ...

@@ -1,4 +1,5 @@
-﻿# Metaclouds 后端 Rust 全量重写 — 工作包级执行计划
+> ✅ **迁移已完成（2026-09）**：Go 后端已退役删除，当前后端为 Rust（`metaclouds-backend-rust`），本文档为迁移阶段的历史评估/计划记录，保留供回溯。
+# Metaclouds 后端 Rust 全量重写 — 工作包级执行计划
 
 > 编制日期：2026-09-16
 > 上游文档：`docs/rust-backend-migration-assessment-2026-09-16.md`（可行性评估与 Phase 0-4 骨架）

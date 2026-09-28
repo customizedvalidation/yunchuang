@@ -9,6 +9,11 @@
 > 本文中出现的 `deployment/metaclouds-frontend`、`svc/metaclouds-frontend`、容器名 `metaclouds-frontend` 均为**运行时 K8s 资源名**，保持不变；
 > 但镜像的**构建上下文 / Dockerfile 路径已切换为 `metaclouds-frontend-vue/`**（CI 见 `.github/workflows/ci-cd.yml`，Dockerfile 与 nginx.conf 位于 `metaclouds-frontend-vue/` 下）。
 > 旧 React 目录 `metaclouds-frontend/` 已标记 DEPRECATED，仅保留 git 历史参考，不再参与构建与部署。
+>
+> ⚠️ **后端技术栈变更（2026-09 退役）**：Go 后端 `metaclouds-backend/` 已于 2026-09 退役删除，当前后端为 Rust（`metaclouds-backend-rust/`）。
+> 文中旧路径 `metaclouds-backend-rust/k8s/` 已替换为 Rust K8s 清单目录 `metaclouds-backend-rust/k8s/`；后端镜像名由 `backend` 改为 `backend-rust`；
+> 数据库迁移由 Rust 启动期 sqlx 自动执行（无独立 migration Job）。`deployment/metaclouds-backend`、`svc/metaclouds-backend` 等运行时资源名保持不变。
+> 最新部署流程以 [`production-deployment-guide.md`](./production-deployment-guide.md) 为准。
 
 ---
 
@@ -67,7 +72,7 @@
 
 镜像托管在 GHCR（GitHub Container Registry）：
 
-- 后端：`ghcr.io/customizedvalidation/yunchuang/backend:<tag>`
+- 后端：`ghcr.io/customizedvalidation/yunchuang/backend-rust:<tag>`
 - 前端：`ghcr.io/customizedvalidation/yunchuang/frontend:<tag>`
 
 若仓库为私有，需创建 imagePullSecret：
@@ -91,7 +96,7 @@ kubectl -n metaclouds create secret docker-registry ghcr-pull-secret \
 ### 2.1 创建命名空间
 
 ```bash
-kubectl apply -f metaclouds-backend/deploy/kubernetes/00-namespace.yaml
+kubectl apply -f metaclouds-backend-rust/k8s/00-namespace.yaml
 # 验证
 kubectl get namespace metaclouds
 ```
@@ -163,30 +168,19 @@ psql -h localhost -U postgres -f init.sql
 
 ### 3.2 数据库迁移
 
-迁移文件位于 `metaclouds-backend/deploy/migrations/`：
-
-| 文件 | 说明 |
-|---|---|
-| `20260528_add_indexes.sql` | PostgreSQL 索引迁移 |
-| `20260528_add_indexes_sqlite.sql` | SQLite 索引迁移（开发用，生产忽略） |
-| `migration-job.yaml` | K8s Job 形式执行迁移 |
-| `run_migration.sh` | 迁移执行脚本 |
-| `configmap.yaml` | 迁移脚本 ConfigMap |
+Rust 后端通过 sqlx 内嵌迁移（`sqlx::migrate!("./migrations")`）在**进程启动时自动执行**，迁移文件位于 `metaclouds-backend-rust/migrations/`（`001_initial.sql` ~ `009_legacy_fixes.sql`）。无需独立 K8s Job 或手动 apply。
 
 ```bash
-# 通过 K8s Job 执行迁移
-kubectl apply -f metaclouds-backend/deploy/migrations/configmap.yaml
-kubectl apply -f metaclouds-backend/deploy/migrations/migration-job.yaml
+# 迁移随后端 Deployment 启动自动完成；查看 Pod 日志确认迁移结果
+kubectl -n metaclouds rollout status deployment/metaclouds-backend
+kubectl -n metaclouds logs -l app=metaclouds-backend --tail=50 | grep -i migrate
 
-# 查看迁移 Job 状态
-kubectl -n metaclouds get jobs -l app=metaclouds
-kubectl -n metaclouds logs job/metaclouds-db-migration
-
-# 迁移完成后清理 Job
-kubectl -n metaclouds delete job metaclouds-db-migration
+# 如需手动确认（本地连库）：
+cd metaclouds-backend-rust
+DATABASE_URL='postgres://...' sqlx migrate status
 ```
 
-> **注意**：迁移 Job 使用的 Secret 名称为 `metaclouds-db-secret`（见 `migration-job.yaml`），需确保该 Secret 存在或修改为引用 `metaclouds-secrets`。
+> **注意**：迁移在后端容器内执行，使用 Deployment 的 `DATABASE_*` 环境变量连接 PostgreSQL；无需额外的 `metaclouds-db-secret`。
 
 ---
 
@@ -198,16 +192,16 @@ kubectl -n metaclouds delete job metaclouds-db-migration
 cd D:\YCYD
 
 # 生产环境部署（使用 overlay）
-kubectl apply -k metaclouds-backend/deploy/kubernetes/overlays/production
+kubectl apply -k metaclouds-backend-rust/k8s/
 
 # 或直接使用基础清单
-kubectl apply -k metaclouds-backend/deploy/kubernetes/
+kubectl apply -k metaclouds-backend-rust/k8s/
 ```
 
 ### 4.2 按顺序手动部署（调试用）
 
 ```bash
-cd D:\YCYD/metaclouds-backend/deploy/kubernetes
+cd D:\YCYD/metaclouds-backend-rust/k8s
 
 # 1. 命名空间
 kubectl apply -f 00-namespace.yaml
@@ -358,7 +352,7 @@ kubectl -n metaclouds get hpa
 ```bash
 # 更新后端镜像（使用 git commit SHA 作为 tag，可追溯）
 kubectl -n metaclouds set image deployment/metaclouds-backend \
-  metaclouds-backend=ghcr.io/customizedvalidation/yunchuang/backend:${GIT_SHA}
+  metaclouds-backend=ghcr.io/customizedvalidation/yunchuang/backend-rust:${GIT_SHA}
 
 # 更新前端镜像
 kubectl -n metaclouds set image deployment/metaclouds-frontend \
@@ -1083,19 +1077,15 @@ curl -X POST https://api.metaclouds.com/api/v1/schedulers/1/sync \
 
 #### 执行步骤
 
+Rust 后端启动时 sqlx 自动执行全部内嵌迁移（含本次 gpu_fine_grained 变更），无需独立 migration Job：
+
 ```bash
-# 方式 1：通过 K8s Job 执行（推荐）
-kubectl apply -f metaclouds-backend/deploy/migrations/configmap.yaml
-kubectl apply -f metaclouds-backend/deploy/migrations/migration-job.yaml
+# 重新部署后端以触发迁移（sqlx 启动期自动 up）
+kubectl -n metaclouds rollout restart deployment/metaclouds-backend
+kubectl -n metaclouds rollout status deployment/metaclouds-backend
 
-# 查看迁移 Job 状态
-kubectl -n metaclouds get jobs -l app=metaclouds
-kubectl -n metaclouds logs job/metaclouds-db-migration
-
-# 方式 2：手动执行（需端口转发）
-kubectl -n metaclouds port-forward svc/postgresql 5432:5432 &
-psql -h localhost -U metaclouds_user -d metaclouds \
-  -f metaclouds-backend/deploy/migrations/000004_gpu_fine_grained.up.sql
+# 查看迁移日志
+kubectl -n metaclouds logs -l app=metaclouds-backend --tail=50 | grep -i migrate
 ```
 
 #### 验证
@@ -1113,9 +1103,8 @@ kubectl -n metaclouds exec -it <postgresql-pod> -- \
 #### 回滚
 
 ```bash
-# 执行回滚迁移
-psql -h localhost -U metaclouds_user -d metaclouds \
-  -f metaclouds-backend/deploy/migrations/000004_gpu_fine_grained.down.sql
+# Rust 迁移为 forward-only（sqlx 内嵌迁移不提供 down）；如需回滚，先从备份恢复数据库，再回退 Deployment 镜像版本
+kubectl -n metaclouds rollout undo deployment/metaclouds-backend
 ```
 
 > **注意**：迁移使用 `IF NOT EXISTS`，可安全重复执行。生产环境建议在低峰期执行，并先备份数据库。
