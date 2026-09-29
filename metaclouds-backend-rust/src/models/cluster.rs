@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -124,7 +124,7 @@ pub struct NewCluster<'a> {
 }
 
 /// INSERT 集群（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewCluster<'_>) -> AppResult<Cluster> {
+pub async fn create(pool: &PgPool, input: NewCluster<'_>) -> AppResult<Cluster> {
     let mut cluster = Cluster {
         id: 0,
         created_at: Utc::now(),
@@ -151,7 +151,7 @@ pub async fn create(pool: &SqlitePool, input: NewCluster<'_>) -> AppResult<Clust
         "INSERT INTO clusters (created_at, updated_at, name, description, status, \
          nodes, gpus, cpus, memory, storage, network_type, location, \
          gpu_vendors, scheduler_types, multi_cluster_enabled, federation_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
     )
     .bind(cluster.created_at)
     .bind(cluster.updated_at)
@@ -180,21 +180,21 @@ pub async fn create(pool: &SqlitePool, input: NewCluster<'_>) -> AppResult<Clust
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Cluster>> {
     let sql = if include_deleted {
-        "SELECT * FROM clusters WHERE id = ?1"
+        "SELECT * FROM clusters WHERE id = $1"
     } else {
-        "SELECT * FROM clusters WHERE id = ?1 AND deleted_at IS NULL"
+        "SELECT * FROM clusters WHERE id = $1 AND deleted_at IS NULL"
     };
     Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
 }
 
 /// 分页列表。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     include_deleted: bool,
 ) -> AppResult<PaginatedResult<Cluster>> {
@@ -210,7 +210,7 @@ pub async fn list(
         .await?;
 
     let rows: Vec<Cluster> = sqlx::query_as(&format!(
-        "SELECT * FROM clusters{where_clause} ORDER BY id ASC LIMIT ?1 OFFSET ?2"
+        "SELECT * FROM clusters{where_clause} ORDER BY id ASC LIMIT $1 OFFSET $2"
     ))
     .bind(params.limit())
     .bind(params.offset())
@@ -221,7 +221,7 @@ pub async fn list(
 }
 
 /// 更新集群状态（自动刷 updated_at）。
-pub async fn update_status(pool: &SqlitePool, id: i64, status: &str) -> AppResult<Option<Cluster>> {
+pub async fn update_status(pool: &PgPool, id: i64, status: &str) -> AppResult<Option<Cluster>> {
     let mut existing = match get_by_id(pool, id, false).await? {
         Some(c) => c,
         None => return Ok(None),
@@ -229,7 +229,7 @@ pub async fn update_status(pool: &SqlitePool, id: i64, status: &str) -> AppResul
     existing.status = status.to_string();
     existing.before_update();
 
-    sqlx::query("UPDATE clusters SET status = ?1, updated_at = ?2 WHERE id = ?3")
+    sqlx::query("UPDATE clusters SET status = $1, updated_at = $2 WHERE id = $3")
         .bind(&existing.status)
         .bind(existing.updated_at)
         .bind(id)
@@ -240,7 +240,7 @@ pub async fn update_status(pool: &SqlitePool, id: i64, status: &str) -> AppResul
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("clusters"))
         .bind(now)

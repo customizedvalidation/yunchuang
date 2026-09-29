@@ -10,7 +10,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -114,7 +114,7 @@ pub struct NewNode<'a> {
 }
 
 /// INSERT 节点（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewNode<'_>) -> AppResult<NodeTopology> {
+pub async fn create(pool: &PgPool, input: NewNode<'_>) -> AppResult<NodeTopology> {
     let mut node = NodeTopology {
         id: 0,
         created_at: Utc::now(),
@@ -136,7 +136,7 @@ pub async fn create(pool: &SqlitePool, input: NewNode<'_>) -> AppResult<NodeTopo
     let res = sqlx::query(
         "INSERT INTO topology_nodes (created_at, updated_at, cluster_id, hostname, ip, role, \
          cpu_cores, memory_gb, gpu_count, gpu_model, status, labels) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
     )
     .bind(node.created_at)
     .bind(node.updated_at)
@@ -161,21 +161,21 @@ pub async fn create(pool: &SqlitePool, input: NewNode<'_>) -> AppResult<NodeTopo
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<NodeTopology>> {
     let sql = if include_deleted {
-        "SELECT * FROM topology_nodes WHERE id = ?1"
+        "SELECT * FROM topology_nodes WHERE id = $1"
     } else {
-        "SELECT * FROM topology_nodes WHERE id = ?1 AND deleted_at IS NULL"
+        "SELECT * FROM topology_nodes WHERE id = $1 AND deleted_at IS NULL"
     };
     Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
 }
 
 /// 分页列表（可按 cluster_id / role 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     cluster_id: Option<i64>,
     role: Option<&str>,
@@ -220,7 +220,7 @@ pub async fn list(
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("topology_nodes"))
         .bind(now)

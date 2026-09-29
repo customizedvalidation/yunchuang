@@ -73,7 +73,7 @@ pub async fn list_nodes(
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res =
-        topology_service::list_nodes(&state.pool, params, q.cluster_id, q.role.as_deref()).await?;
+        topology_service::list_nodes(&state.pool.pool, params, q.cluster_id, q.role.as_deref()).await?;
     Ok(Json(ApiResponse::success(res.data)))
 }
 
@@ -83,7 +83,7 @@ pub async fn get_node(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<TopologyResponse>>> {
-    let n = topology_service::get_node(&state.pool, id).await?;
+    let n = topology_service::get_node(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(n)))
 }
 
@@ -106,7 +106,7 @@ pub async fn create_node(
         status: body.status.unwrap_or_else(|| "unknown".to_string()),
         labels: body.labels.unwrap_or(serde_json::json!({})),
     };
-    let n = topology_service::create_node(&state.pool, input).await?;
+    let n = topology_service::create_node(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(n),
@@ -132,7 +132,7 @@ pub async fn update_node(
         status: body.status,
         labels: body.labels,
     };
-    let n = topology_service::update_node(&state.pool, id, input).await?;
+    let n = topology_service::update_node(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(n)))
 }
 
@@ -142,7 +142,7 @@ pub async fn delete_node(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    topology_service::delete_node(&state.pool, id).await?;
+    topology_service::delete_node(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -4,7 +4,7 @@
 //! check_quota（验证资源使用是否超限，返回 allowed + 超限项）+
 //! allocate/release（更新 used 字段）。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::resource_quota::{
@@ -56,12 +56,12 @@ pub struct QuotaCheckResult {
 
 /// 创建配额（status 默认 active，同名同 scope 冲突 409）。
 pub async fn create_quota(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateQuotaInput,
 ) -> AppResult<ResourceQuotaResponse> {
     // 同名租户内唯一。
     let dup: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM resource_quotas WHERE tenant_id = ?1 AND name = ?2 AND deleted_at IS NULL LIMIT 1",
+        "SELECT id FROM resource_quotas WHERE tenant_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1",
     )
     .bind(input.tenant_id)
     .bind(&input.name)
@@ -95,7 +95,7 @@ pub async fn create_quota(
 }
 
 /// 配额详情（404 若不存在或已软删除）。
-pub async fn get_quota(pool: &SqlitePool, id: i64) -> AppResult<ResourceQuotaResponse> {
+pub async fn get_quota(pool: &PgPool, id: i64) -> AppResult<ResourceQuotaResponse> {
     let q = resource_quota::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("resource quota not found"))?;
@@ -104,7 +104,7 @@ pub async fn get_quota(pool: &SqlitePool, id: i64) -> AppResult<ResourceQuotaRes
 
 /// 分页配额列表（按 tenant_id/partition_id/status 过滤；排除软删除）。
 pub async fn list_quotas(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     tenant_id: Option<i64>,
     partition_id: Option<i64>,
@@ -126,7 +126,7 @@ pub async fn list_quotas(
 
 /// 更新配额：仅覆盖传入字段；自动刷 updated_at。
 pub async fn update_quota(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateQuotaInput,
 ) -> AppResult<ResourceQuotaResponse> {
@@ -137,15 +137,15 @@ pub async fn update_quota(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE resource_quotas SET \
-            name = COALESCE(?1, name), \
-            description = COALESCE(?2, description), \
-            gpu_limit = COALESCE(?3, gpu_limit), \
-            cpu_limit = COALESCE(?4, cpu_limit), \
-            memory_limit_gb = COALESCE(?5, memory_limit_gb), \
-            storage_limit_gb = COALESCE(?6, storage_limit_gb), \
-            status = COALESCE(?7, status), \
-            updated_at = ?8 \
-         WHERE id = ?9 AND deleted_at IS NULL",
+            name = COALESCE($1, name), \
+            description = COALESCE($2, description), \
+            gpu_limit = COALESCE($3, gpu_limit), \
+            cpu_limit = COALESCE($4, cpu_limit), \
+            memory_limit_gb = COALESCE($5, memory_limit_gb), \
+            storage_limit_gb = COALESCE($6, storage_limit_gb), \
+            status = COALESCE($7, status), \
+            updated_at = $8 \
+         WHERE id = $9 AND deleted_at IS NULL",
     )
     .bind(&input.name)
     .bind(&input.description)
@@ -166,7 +166,7 @@ pub async fn update_quota(
 }
 
 /// 软删除配额（404 若不存在或已软删除）。
-pub async fn delete_quota(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_quota(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = resource_quota::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("resource quota not found"));
@@ -179,7 +179,7 @@ pub async fn delete_quota(pool: &SqlitePool, id: i64) -> AppResult<()> {
 /// 对每类资源：若 limit > 0，则 used + requested > limit 记为超限。
 /// 返回 allowed（全部未超限）+ 超限项名称列表。
 pub async fn check_quota(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     request: QuotaRequest,
 ) -> AppResult<QuotaCheckResult> {
@@ -212,7 +212,7 @@ pub async fn check_quota(
 /// 查找匹配 (scope_type, scope_id, status=active) 的配额；无配额视为允许。
 /// 根据 resource_type 检查对应的 limit/used。
 pub async fn check_quota_by_scope(
-    pool: &SqlitePool,
+    pool: &PgPool,
     scope_type: &str,
     scope_id: i64,
     resource_type: &str,
@@ -224,7 +224,7 @@ pub async fn check_quota_by_scope(
         "tenant" => {
             sqlx::query_as(
                 "SELECT * FROM resource_quotas \
-                 WHERE tenant_id = ?1 AND status = 'active' AND deleted_at IS NULL \
+                 WHERE tenant_id = $1 AND status = 'active' AND deleted_at IS NULL \
                  ORDER BY id ASC LIMIT 1",
             )
             .bind(scope_id)
@@ -234,7 +234,7 @@ pub async fn check_quota_by_scope(
         "partition" => {
             sqlx::query_as(
                 "SELECT * FROM resource_quotas \
-                 WHERE partition_id = ?1 AND status = 'active' AND deleted_at IS NULL \
+                 WHERE partition_id = $1 AND status = 'active' AND deleted_at IS NULL \
                  ORDER BY id ASC LIMIT 1",
             )
             .bind(scope_id)
@@ -270,7 +270,7 @@ pub async fn check_quota_by_scope(
 
 /// 分配资源：先校验，未超限则累加 used；超限返回 403。
 pub async fn allocate_resources(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     request: QuotaRequest,
 ) -> AppResult<ResourceQuotaResponse> {
@@ -285,12 +285,12 @@ pub async fn allocate_resources(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE resource_quotas SET \
-            gpu_used = gpu_used + ?1, \
-            cpu_used = cpu_used + ?2, \
-            memory_used_gb = memory_used_gb + ?3, \
-            storage_used_gb = storage_used_gb + ?4, \
-            updated_at = ?5 \
-         WHERE id = ?6 AND deleted_at IS NULL",
+            gpu_used = gpu_used + $1, \
+            cpu_used = cpu_used + $2, \
+            memory_used_gb = memory_used_gb + $3, \
+            storage_used_gb = storage_used_gb + $4, \
+            updated_at = $5 \
+         WHERE id = $6 AND deleted_at IS NULL",
     )
     .bind(request.gpu)
     .bind(request.cpu)
@@ -309,7 +309,7 @@ pub async fn allocate_resources(
 
 /// 释放资源：扣减 used（不为负）。
 pub async fn release_resources(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     request: QuotaRequest,
 ) -> AppResult<ResourceQuotaResponse> {
@@ -320,12 +320,12 @@ pub async fn release_resources(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE resource_quotas SET \
-            gpu_used = MAX(gpu_used - ?1, 0), \
-            cpu_used = MAX(cpu_used - ?2, 0.0), \
-            memory_used_gb = MAX(memory_used_gb - ?3, 0.0), \
-            storage_used_gb = MAX(storage_used_gb - ?4, 0.0), \
-            updated_at = ?5 \
-         WHERE id = ?6 AND deleted_at IS NULL",
+            gpu_used = MAX(gpu_used - $1, 0), \
+            cpu_used = MAX(cpu_used - $2, 0.0), \
+            memory_used_gb = MAX(memory_used_gb - $3, 0.0), \
+            storage_used_gb = MAX(storage_used_gb - $4, 0.0), \
+            updated_at = $5 \
+         WHERE id = $6 AND deleted_at IS NULL",
     )
     .bind(request.gpu)
     .bind(request.cpu)

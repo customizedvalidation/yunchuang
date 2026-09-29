@@ -10,7 +10,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -140,7 +140,7 @@ pub struct NewResource<'a> {
 }
 
 /// INSERT 资源（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewResource<'_>) -> AppResult<Resource> {
+pub async fn create(pool: &PgPool, input: NewResource<'_>) -> AppResult<Resource> {
     let mut resource = Resource {
         id: 0,
         created_at: Utc::now(),
@@ -168,7 +168,7 @@ pub async fn create(pool: &SqlitePool, input: NewResource<'_>) -> AppResult<Reso
         "INSERT INTO resources (created_at, updated_at, cluster_id, type, name, status, \
          total, used, available, utilization, details, vendor, gpu_model, \
          vram_total_mb, vram_used_mb, vram_oversubscription_ratio, mig_enabled) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
     )
     .bind(resource.created_at)
     .bind(resource.updated_at)
@@ -198,21 +198,21 @@ pub async fn create(pool: &SqlitePool, input: NewResource<'_>) -> AppResult<Reso
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Resource>> {
     let sql = if include_deleted {
-        "SELECT * FROM resources WHERE id = ?1"
+        "SELECT * FROM resources WHERE id = $1"
     } else {
-        "SELECT * FROM resources WHERE id = ?1 AND deleted_at IS NULL"
+        "SELECT * FROM resources WHERE id = $1 AND deleted_at IS NULL"
     };
     Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
 }
 
 /// 分页列表（可按 type / cluster_id 过滤，可按 name 搜索）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     kind: Option<&str>,
     cluster_id: Option<i64>,
@@ -266,7 +266,7 @@ pub async fn list(
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("resources"))
         .bind(now)

@@ -10,7 +10,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -148,7 +148,7 @@ pub struct NewGpuDevice<'a> {
 }
 
 /// INSERT GPU 设备（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewGpuDevice<'_>) -> AppResult<GpuDevice> {
+pub async fn create(pool: &PgPool, input: NewGpuDevice<'_>) -> AppResult<GpuDevice> {
     let now = Utc::now();
     let res = sqlx::query(
         "INSERT INTO gpu_devices (created_at, updated_at, cluster_id, node_name, vendor, model, \
@@ -187,7 +187,7 @@ pub async fn create(pool: &SqlitePool, input: NewGpuDevice<'_>) -> AppResult<Gpu
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<GpuDevice>> {
@@ -209,7 +209,7 @@ pub struct GpuDeviceFilter<'a> {
 
 /// 分页列表（可按 cluster_id/vendor/status 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     filter: GpuDeviceFilter<'_>,
 ) -> AppResult<PaginatedResult<GpuDevice>> {
@@ -258,7 +258,7 @@ pub async fn list(
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("gpu_devices"))
         .bind(now)

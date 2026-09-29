@@ -79,7 +79,7 @@ pub async fn list_datasets(
     let params = PaginationParams::new(page, page_size);
 
     let res =
-        dataset_service::list_datasets(&state.pool, params, q.tenant_id, q.dataset_type.as_deref())
+        dataset_service::list_datasets(&state.pool.pool, params, q.tenant_id, q.dataset_type.as_deref())
             .await?;
     Ok(Json(ApiResponse::success(res.data)))
 }
@@ -90,7 +90,7 @@ pub async fn get_dataset(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<DatasetResponse>>> {
-    let ds = dataset_service::get_dataset(&state.pool, id).await?;
+    let ds = dataset_service::get_dataset(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(ds)))
 }
 
@@ -114,7 +114,7 @@ pub async fn create_dataset(
         status: body.status,
         labels: body.labels.unwrap_or(serde_json::json!({})),
     };
-    let ds = dataset_service::create_dataset(&state.pool, input).await?;
+    let ds = dataset_service::create_dataset(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(ds),
@@ -139,7 +139,7 @@ pub async fn update_dataset(
         status: body.status,
         labels: body.labels,
     };
-    let ds = dataset_service::update_dataset(&state.pool, id, input).await?;
+    let ds = dataset_service::update_dataset(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(ds)))
 }
 
@@ -149,6 +149,6 @@ pub async fn delete_dataset(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    dataset_service::delete_dataset(&state.pool, id).await?;
+    dataset_service::delete_dataset(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

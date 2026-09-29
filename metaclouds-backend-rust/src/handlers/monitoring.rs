@@ -36,7 +36,7 @@ pub struct AlertRulesResponse {
 pub async fn get_dashboard(
     State(state): State<AppState>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
-    let stats = monitoring::get_dashboard_stats(&state.pool).await?;
+    let stats = monitoring::get_dashboard_stats(&state.pool.pool).await?;
     Ok(Json(ApiResponse::success(stats)))
 }
 
@@ -48,11 +48,11 @@ pub async fn get_metrics(
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
     match q.name {
         Some(name) if !name.is_empty() => {
-            let m = monitoring::get_metric(&state.pool, &name).await?;
+            let m = monitoring::get_metric(&state.pool.pool, &name).await?;
             Ok(Json(ApiResponse::success(m)))
         }
         _ => {
-            let all = monitoring::get_dashboard_stats(&state.pool).await?;
+            let all = monitoring::get_dashboard_stats(&state.pool.pool).await?;
             Ok(Json(ApiResponse::success(all)))
         }
     }
@@ -71,7 +71,7 @@ pub async fn list_alert_rules() -> Json<ApiResponse<AlertRulesResponse>> {
 pub async fn evaluate_alert_rules(
     State(state): State<AppState>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
-    let triggered = monitoring::evaluate_alert_rules(&state.pool).await?;
+    let triggered = monitoring::evaluate_alert_rules(&state.pool.pool).await?;
     Ok(Json(ApiResponse::success(serde_json::json!({
         "triggered": triggered,
         "count": triggered.len(),
@@ -88,6 +88,6 @@ pub async fn list_monitoring_alerts(
 ) -> AppResult<Json<ApiResponse<Vec<AlertResponse>>>> {
     let params = PaginationParams::new(1, 1000);
     let res =
-        alert_service::list_alerts(&state.pool, params, None, None, None, None, None, None).await?;
+        alert_service::list_alerts(&state.pool.pool, params, None, None, None, None, None, None).await?;
     Ok(Json(ApiResponse::success(res.data)))
 }

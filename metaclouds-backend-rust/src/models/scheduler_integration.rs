@@ -10,7 +10,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -133,12 +133,12 @@ pub struct NewScheduler<'a> {
 }
 
 /// INSERT 调度器集成（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewScheduler<'_>) -> AppResult<SchedulerIntegration> {
+pub async fn create(pool: &PgPool, input: NewScheduler<'_>) -> AppResult<SchedulerIntegration> {
     let now = Utc::now();
     let res = sqlx::query(
         "INSERT INTO scheduler_integrations (created_at, updated_at, name, description, \
          scheduler_type, endpoint, auth_type, credentials, status, cluster_id, version, config) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
     )
     .bind(now)
     .bind(now)
@@ -163,20 +163,20 @@ pub async fn create(pool: &SqlitePool, input: NewScheduler<'_>) -> AppResult<Sch
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<SchedulerIntegration>> {
     let sql = if include_deleted {
-        "SELECT * FROM scheduler_integrations WHERE id = ?1"
+        "SELECT * FROM scheduler_integrations WHERE id = $1"
     } else {
-        "SELECT * FROM scheduler_integrations WHERE id = ?1 AND deleted_at IS NULL"
+        "SELECT * FROM scheduler_integrations WHERE id = $1 AND deleted_at IS NULL"
     };
     Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("scheduler_integrations"))
         .bind(now)
@@ -188,10 +188,10 @@ pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
 }
 
 /// 更新最后心跳时间戳。
-pub async fn touch_heartbeat(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn touch_heartbeat(pool: &PgPool, id: i64) -> AppResult<()> {
     let now = Utc::now();
     sqlx::query(
-        "UPDATE scheduler_integrations SET last_heartbeat = ?1, updated_at = ?2 WHERE id = ?3",
+        "UPDATE scheduler_integrations SET last_heartbeat = $1, updated_at = $2 WHERE id = $3",
     )
     .bind(now)
     .bind(now)
@@ -203,7 +203,7 @@ pub async fn touch_heartbeat(pool: &SqlitePool, id: i64) -> AppResult<()> {
 
 /// 分页列表（动态 WHERE：软删除 + 可选 cluster_id / status / scheduler_type）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     cluster_id: Option<i64>,
     status: Option<&str>,

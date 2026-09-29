@@ -3,7 +3,7 @@
 //! CRUD + 分页 + name 搜索 + 按 cluster_id/status/partition_type 过滤 + 软删除 +
 //! 分区资源使用情况统计。handler 只做参数提取与响应封装。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::partition::{self, NewPartition, Partition, PartitionResponse};
@@ -56,13 +56,13 @@ pub struct PartitionResources {
 
 /// 按集群 + 名称检查是否已存在未删除的分区。
 async fn name_taken(
-    pool: &SqlitePool,
+    pool: &PgPool,
     cluster_id: i64,
     name: &str,
     except_id: i64,
 ) -> AppResult<bool> {
     let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM partitions WHERE cluster_id = ?1 AND name = ?2 AND deleted_at IS NULL AND id != ?3 LIMIT 1",
+        "SELECT id FROM partitions WHERE cluster_id = $1 AND name = $2 AND deleted_at IS NULL AND id != $3 LIMIT 1",
     )
     .bind(cluster_id)
     .bind(name)
@@ -74,7 +74,7 @@ async fn name_taken(
 
 /// 创建分区（status 默认 active，对齐 Go CreatePartition）。
 pub async fn create_partition(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreatePartitionInput,
 ) -> AppResult<PartitionResponse> {
     if name_taken(pool, input.cluster_id, &input.name, 0).await? {
@@ -104,7 +104,7 @@ pub async fn create_partition(
 }
 
 /// 分区详情（404 若不存在或已软删除）。
-pub async fn get_partition(pool: &SqlitePool, id: i64) -> AppResult<PartitionResponse> {
+pub async fn get_partition(pool: &PgPool, id: i64) -> AppResult<PartitionResponse> {
     let p = partition::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("partition not found"))?;
@@ -114,7 +114,7 @@ pub async fn get_partition(pool: &SqlitePool, id: i64) -> AppResult<PartitionRes
 /// 分页分区列表（name 模糊搜索 + 按 cluster_id/status/partition_type 过滤；排除软删除）。
 #[allow(clippy::too_many_arguments)]
 pub async fn list_partitions(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     cluster_id: Option<i64>,
     status: Option<&str>,
@@ -133,7 +133,7 @@ pub async fn list_partitions(
 
 /// 更新分区：仅覆盖传入字段；重名校验；自动刷 updated_at。
 pub async fn update_partition(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdatePartitionInput,
 ) -> AppResult<PartitionResponse> {
@@ -152,18 +152,18 @@ pub async fn update_partition(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE partitions SET \
-            name = COALESCE(?1, name), \
-            description = COALESCE(?2, description), \
-            partition_type = COALESCE(?3, partition_type), \
-            gpu_count = COALESCE(?4, gpu_count), \
-            cpu_cores = COALESCE(?5, cpu_cores), \
-            memory_gb = COALESCE(?6, memory_gb), \
-            status = COALESCE(?7, status), \
-            node_selector = COALESCE(?8, node_selector), \
-            labels = COALESCE(?9, labels), \
-            tenant_id = COALESCE(?10, tenant_id), \
-            updated_at = ?11 \
-         WHERE id = ?12 AND deleted_at IS NULL",
+            name = COALESCE($1, name), \
+            description = COALESCE($2, description), \
+            partition_type = COALESCE($3, partition_type), \
+            gpu_count = COALESCE($4, gpu_count), \
+            cpu_cores = COALESCE($5, cpu_cores), \
+            memory_gb = COALESCE($6, memory_gb), \
+            status = COALESCE($7, status), \
+            node_selector = COALESCE($8, node_selector), \
+            labels = COALESCE($9, labels), \
+            tenant_id = COALESCE($10, tenant_id), \
+            updated_at = $11 \
+         WHERE id = $12 AND deleted_at IS NULL",
     )
     .bind(&input.name)
     .bind(&input.description)
@@ -187,13 +187,13 @@ pub async fn update_partition(
 }
 
 /// 更新分区调度优先级（对齐 Go `UpdatePartitionPriority`）。
-pub async fn update_priority(pool: &SqlitePool, id: i64, priority: i64) -> AppResult<()> {
+pub async fn update_priority(pool: &PgPool, id: i64, priority: i64) -> AppResult<()> {
     let _ = partition::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("partition not found"))?;
     let now = chrono::Utc::now();
     sqlx::query(
-        "UPDATE partitions SET priority = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
+        "UPDATE partitions SET priority = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL",
     )
     .bind(priority)
     .bind(now)
@@ -204,13 +204,13 @@ pub async fn update_priority(pool: &SqlitePool, id: i64, priority: i64) -> AppRe
 }
 
 /// 更新分区最大运行时长（分钟，对齐 Go `UpdatePartitionMaxRuntime`）。
-pub async fn update_max_runtime(pool: &SqlitePool, id: i64, minutes: i64) -> AppResult<()> {
+pub async fn update_max_runtime(pool: &PgPool, id: i64, minutes: i64) -> AppResult<()> {
     let _ = partition::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("partition not found"))?;
     let now = chrono::Utc::now();
     sqlx::query(
-        "UPDATE partitions SET max_runtime_minutes = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
+        "UPDATE partitions SET max_runtime_minutes = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL",
     )
     .bind(minutes)
     .bind(now)
@@ -221,13 +221,13 @@ pub async fn update_max_runtime(pool: &SqlitePool, id: i64, minutes: i64) -> App
 }
 
 /// 软删除分区（404 若不存在或已软删除）。
-pub async fn delete_partition(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_partition(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = partition::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("partition not found"));
     }
     // 级联物理删除分区授权（对齐 Go DeletePartition 级联）。
-    sqlx::query("DELETE FROM partition_permissions WHERE partition_id = ?1")
+    sqlx::query("DELETE FROM partition_permissions WHERE partition_id = $1")
         .bind(id)
         .execute(pool)
         .await?;
@@ -235,7 +235,7 @@ pub async fn delete_partition(pool: &SqlitePool, id: i64) -> AppResult<()> {
 }
 
 /// 分区资源使用情况：分区声明总量 + 按 gpu_allocations 聚合已用 GPU。
-pub async fn get_partition_resources(pool: &SqlitePool, id: i64) -> AppResult<PartitionResources> {
+pub async fn get_partition_resources(pool: &PgPool, id: i64) -> AppResult<PartitionResources> {
     let p: Partition = partition::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("partition not found"))?;
@@ -246,7 +246,7 @@ pub async fn get_partition_resources(pool: &SqlitePool, id: i64) -> AppResult<Pa
         "SELECT COALESCE(SUM(ga.fraction), 0) \
          FROM gpu_allocations ga \
          JOIN jobs j ON j.id = ga.job_id \
-         WHERE j.partition_id = ?1 AND ga.status = 'active' AND ga.deleted_at IS NULL",
+         WHERE j.partition_id = $1 AND ga.status = 'active' AND ga.deleted_at IS NULL",
     )
     .bind(id)
     .fetch_optional(pool)

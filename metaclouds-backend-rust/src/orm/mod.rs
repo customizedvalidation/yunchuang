@@ -75,7 +75,7 @@ pub const SOFT_DELETE_WHERE: &str = "deleted_at IS NULL";
 /// 约定：
 /// - 普通查询必须带 [`SOFT_DELETE_WHERE`]；
 /// - 需要查看回收站时使用 `include_deleted = true`（对应 GORM 的 `Unscoped()`）；
-/// - DELETE 操作改写为 `UPDATE ... SET deleted_at = ?1 WHERE id = ?2 AND deleted_at IS NULL`。
+/// - DELETE 操作改写为 `UPDATE ... SET deleted_at = $1 WHERE id = $2 AND deleted_at IS NULL`。
 pub trait SoftDelete {
     /// 当前行的软删除时间（None 表示未删除）。
     fn deleted_at(&self) -> Option<DateTime<Utc>>;
@@ -95,12 +95,12 @@ pub trait SoftDelete {
 
 /// 构造软删除 UPDATE 语句（表名由调用方给出，避免注入风险：表名必须是代码常量）。
 ///
-/// 返回 `"UPDATE <table> SET deleted_at = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL"`。
+/// 返回 `"UPDATE <table> SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL"`。
 /// 绑定参数顺序：deleted_at(now)、updated_at(now)、id。
 pub fn soft_delete_update_sql(table: &'static str) -> String {
     format!(
-        "UPDATE {table} SET deleted_at = ?1, updated_at = ?2 \
-         WHERE id = ?3 AND {SOFT_DELETE_WHERE}"
+        "UPDATE {table} SET deleted_at = $1, updated_at = $2 \
+         WHERE id = $3 AND {SOFT_DELETE_WHERE}"
     )
 }
 

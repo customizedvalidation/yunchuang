@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use chrono::Utc;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::auth::jwt::issue_token;
 use crate::auth::password::{hash_password, verify_password};
@@ -110,7 +110,7 @@ fn issue(config: &Config, user: &User) -> AppResult<(String, i64)> {
 
 /// 登录：校验密码、检查锁定、签发 JWT、记录 last_login_at。
 pub async fn login(
-    pool: &SqlitePool,
+    pool: &PgPool,
     config: &Config,
     username: &str,
     password: &str,
@@ -123,7 +123,7 @@ pub async fn login(
     }
 
     let row: Option<User> =
-        sqlx::query_as("SELECT * FROM users WHERE username = ?1 AND deleted_at IS NULL")
+        sqlx::query_as("SELECT * FROM users WHERE username = $1 AND deleted_at IS NULL")
             .bind(username)
             .fetch_optional(pool)
             .await?;
@@ -159,7 +159,7 @@ pub async fn login(
 }
 
 /// 登出：无状态 JWT，服务层无 DB 副作用；仅清理该账户的失败计数。
-pub async fn logout(pool: &SqlitePool, user_id: i64) -> AppResult<()> {
+pub async fn logout(pool: &PgPool, user_id: i64) -> AppResult<()> {
     if let Some(user) = user::get_by_id(pool, user_id, false).await? {
         record_success(&user.username);
     }
@@ -167,7 +167,7 @@ pub async fn logout(pool: &SqlitePool, user_id: i64) -> AppResult<()> {
 }
 
 /// 刷新：按 user_id 取活跃用户并重签 JWT（对齐 Go Refresh）。
-pub async fn refresh(pool: &SqlitePool, config: &Config, user_id: i64) -> AppResult<LoginOutput> {
+pub async fn refresh(pool: &PgPool, config: &Config, user_id: i64) -> AppResult<LoginOutput> {
     let user = user::get_by_id(pool, user_id, false)
         .await?
         .ok_or_else(|| AppError::not_found("user not found"))?;
@@ -181,7 +181,7 @@ pub async fn refresh(pool: &SqlitePool, config: &Config, user_id: i64) -> AppRes
 
 /// 修改密码：校验旧密码 → argon2 哈希新密码 → 落库。
 pub async fn change_password(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: i64,
     old_password: &str,
     new_password: &str,
@@ -196,7 +196,7 @@ pub async fn change_password(
 
     let new_hash = hash_password(new_password)?;
     let now = Utc::now();
-    sqlx::query("UPDATE users SET password_hash = ?1, updated_at = ?2 WHERE id = ?3")
+    sqlx::query("UPDATE users SET password_hash = $1, updated_at = $2 WHERE id = $3")
         .bind(new_hash)
         .bind(now)
         .bind(user_id)
@@ -206,7 +206,7 @@ pub async fn change_password(
 }
 
 /// 获取当前用户资料（数据取自 DB，不使用 JWT claims 的陈旧快照）。
-pub async fn get_profile(pool: &SqlitePool, user_id: i64) -> AppResult<UserResponse> {
+pub async fn get_profile(pool: &PgPool, user_id: i64) -> AppResult<UserResponse> {
     let user = user::get_by_id(pool, user_id, false)
         .await?
         .ok_or_else(|| AppError::not_found("user not found"))?;

@@ -10,7 +10,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -128,7 +128,7 @@ pub struct NewAccelerationSuite<'a> {
 
 /// INSERT。
 pub async fn create(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: NewAccelerationSuite<'_>,
 ) -> AppResult<AccelerationSuite> {
     let mut suite = AccelerationSuite {
@@ -154,7 +154,7 @@ pub async fn create(
         "INSERT INTO acceleration_suites (created_at, updated_at, name, description, suite_type, \
          dataset_id, training_config_id, inference_config_id, fluid_cache_id, acceleration_config, \
          tenant_id, created_by, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
     )
     .bind(suite.created_at)
     .bind(suite.updated_at)
@@ -180,22 +180,22 @@ pub async fn create(
 
 /// 按 id 查询。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<AccelerationSuite>> {
     let sql = if include_deleted {
-        "SELECT * FROM acceleration_suites WHERE id = ?1"
+        "SELECT * FROM acceleration_suites WHERE id = $1"
     } else {
-        "SELECT * FROM acceleration_suites WHERE id = ?1 AND deleted_at IS NULL"
+        "SELECT * FROM acceleration_suites WHERE id = $1 AND deleted_at IS NULL"
     };
     Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
 }
 
 /// 按名称检查是否已存在未删除的 suite。
-pub async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<bool> {
+pub async fn name_taken(pool: &PgPool, name: &str, except_id: i64) -> AppResult<bool> {
     let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM acceleration_suites WHERE name = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1",
+        "SELECT id FROM acceleration_suites WHERE name = $1 AND deleted_at IS NULL AND id != $2 LIMIT 1",
     )
     .bind(name)
     .bind(except_id)
@@ -206,7 +206,7 @@ pub async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppRes
 
 /// 分页列表（可按 tenant_id / status 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     tenant_id: Option<i64>,
     status: Option<&str>,
@@ -245,7 +245,7 @@ pub async fn list(
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("acceleration_suites"))
         .bind(now)

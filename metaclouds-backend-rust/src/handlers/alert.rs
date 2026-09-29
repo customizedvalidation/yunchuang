@@ -88,7 +88,7 @@ pub async fn list_alerts(
     let search = q.search.as_deref();
 
     let res = alert::list_alerts(
-        &state.pool,
+        &state.pool.pool,
         params,
         severity,
         kind,
@@ -107,7 +107,7 @@ pub async fn get_alert(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<AlertResponse>>> {
-    let a = alert::get_alert(&state.pool, id).await?;
+    let a = alert::get_alert(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(a)))
 }
 
@@ -132,7 +132,7 @@ pub async fn create_alert(
         tenant_id: body.tenant_id.unwrap_or(claims.tenant_id as i64),
         metadata: body.metadata,
     };
-    let a = alert::create_alert(&state.pool, input).await?;
+    let a = alert::create_alert(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(a),
@@ -157,7 +157,7 @@ pub async fn update_alert(
         status: body.status,
         metadata: body.metadata,
     };
-    let a = alert::update_alert(&state.pool, id, input).await?;
+    let a = alert::update_alert(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(a)))
 }
 
@@ -167,7 +167,7 @@ pub async fn delete_alert(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    alert::delete_alert(&state.pool, id).await?;
+    alert::delete_alert(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -178,7 +178,7 @@ pub async fn acknowledge_alert(
     claims: Claims,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<AlertResponse>>> {
-    let a = alert::acknowledge_alert(&state.pool, id, claims.user_id as i64).await?;
+    let a = alert::acknowledge_alert(&state.pool.pool, id, claims.user_id as i64).await?;
     Ok(Json(ApiResponse::success(a)))
 }
 
@@ -188,7 +188,7 @@ pub async fn resolve_alert(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<AlertResponse>>> {
-    let a = alert::resolve_alert(&state.pool, id).await?;
+    let a = alert::resolve_alert(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(a)))
 }
 
@@ -197,6 +197,6 @@ pub async fn resolve_alert(
 pub async fn get_alert_stats(
     State(state): State<AppState>,
 ) -> AppResult<Json<ApiResponse<AlertStats>>> {
-    let stats = alert::get_alert_stats(&state.pool).await?;
+    let stats = alert::get_alert_stats(&state.pool.pool).await?;
     Ok(Json(ApiResponse::success(stats)))
 }

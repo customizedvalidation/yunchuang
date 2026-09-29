@@ -70,7 +70,7 @@ pub async fn list_tenants(
     let page_size = q.page_size.unwrap_or(10) as i64;
     let params = PaginationParams::new(page, page_size);
 
-    let res = tenant_service::list_tenants(&state.pool, params).await?;
+    let res = tenant_service::list_tenants(&state.pool.pool, params).await?;
     Ok(Json(ApiResponse::success(res.data)))
 }
 
@@ -80,7 +80,7 @@ pub async fn get_tenant(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<TenantResponse>>> {
-    let tenant = tenant_service::get_tenant(&state.pool, id).await?;
+    let tenant = tenant_service::get_tenant(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(tenant)))
 }
 
@@ -99,7 +99,7 @@ pub async fn create_tenant(
         memory_quota: body.memory_quota.unwrap_or(0),
         storage_quota: body.storage_quota.unwrap_or(0),
     };
-    let tenant = tenant_service::create_tenant(&state.pool, input).await?;
+    let tenant = tenant_service::create_tenant(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(tenant),
@@ -123,7 +123,7 @@ pub async fn update_tenant(
         memory_quota: body.memory_quota,
         storage_quota: body.storage_quota,
     };
-    let tenant = tenant_service::update_tenant(&state.pool, id, input).await?;
+    let tenant = tenant_service::update_tenant(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(tenant)))
 }
 
@@ -133,6 +133,6 @@ pub async fn delete_tenant(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    tenant_service::delete_tenant(&state.pool, id).await?;
+    tenant_service::delete_tenant(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -76,7 +76,7 @@ pub async fn list_schedulers(
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = scheduler_service::list_schedulers(
-        &state.pool,
+        &state.pool.pool,
         params,
         q.cluster_id,
         q.status.as_deref(),
@@ -92,7 +92,7 @@ pub async fn get_scheduler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<SchedulerIntegrationResponse>>> {
-    let s = scheduler_service::get_scheduler(&state.pool, id).await?;
+    let s = scheduler_service::get_scheduler(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(s)))
 }
 
@@ -119,7 +119,7 @@ pub async fn create_scheduler(
         version: body.version.unwrap_or_default(),
         config: body.config.unwrap_or(Value::Object(serde_json::Map::new())),
     };
-    let s = scheduler_service::create_scheduler(&state.pool, input).await?;
+    let s = scheduler_service::create_scheduler(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(s),
@@ -145,7 +145,7 @@ pub async fn update_scheduler(
         version: body.version,
         config: body.config,
     };
-    let s = scheduler_service::update_scheduler(&state.pool, id, input).await?;
+    let s = scheduler_service::update_scheduler(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(s)))
 }
 
@@ -155,7 +155,7 @@ pub async fn delete_scheduler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    scheduler_service::delete_scheduler(&state.pool, id).await?;
+    scheduler_service::delete_scheduler(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -165,7 +165,7 @@ pub async fn test_connection(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<scheduler_service::ConnectionTest>>> {
-    let r = scheduler_service::test_connection(&state.pool, id).await?;
+    let r = scheduler_service::test_connection(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(r)))
 }
 
@@ -175,7 +175,7 @@ pub async fn sync_resources(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<scheduler_service::ResourceSync>>> {
-    let r = scheduler_service::sync_resources(&state.pool, id).await?;
+    let r = scheduler_service::sync_resources(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(r)))
 }
 

@@ -7,7 +7,7 @@
 //! 提供 [`MockSchedulerAdapter`] 返回确定性模拟结果（对齐 Go `services/scheduler_adapter.go`
 //! 的 Slurm/K8sNative/Generic mock 模式，本工作包不引入真实调度器依赖）。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::scheduler_integration::{
@@ -122,9 +122,9 @@ pub struct UpdateSchedulerInput {
 }
 
 /// 按名称检查是否已存在未删除的调度器集成。
-async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<bool> {
+async fn name_taken(pool: &PgPool, name: &str, except_id: i64) -> AppResult<bool> {
     let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM scheduler_integrations WHERE name = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1",
+        "SELECT id FROM scheduler_integrations WHERE name = $1 AND deleted_at IS NULL AND id != $2 LIMIT 1",
     )
     .bind(name)
     .bind(except_id)
@@ -135,7 +135,7 @@ async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<
 
 /// 创建调度器集成（status 默认 disconnected，auth_type 默认 none）。
 pub async fn create_scheduler(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateSchedulerInput,
 ) -> AppResult<SchedulerIntegrationResponse> {
     if name_taken(pool, &input.name, 0).await? {
@@ -171,7 +171,7 @@ pub async fn create_scheduler(
 }
 
 /// 调度器集成详情（404 若不存在或已软删除）。
-pub async fn get_scheduler(pool: &SqlitePool, id: i64) -> AppResult<SchedulerIntegrationResponse> {
+pub async fn get_scheduler(pool: &PgPool, id: i64) -> AppResult<SchedulerIntegrationResponse> {
     let s = scheduler_integration::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("scheduler integration not found"))?;
@@ -180,7 +180,7 @@ pub async fn get_scheduler(pool: &SqlitePool, id: i64) -> AppResult<SchedulerInt
 
 /// 分页调度器列表（按 cluster_id/status/scheduler_type 过滤；排除软删除）。
 pub async fn list_schedulers(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     cluster_id: Option<i64>,
     status: Option<&str>,
@@ -202,7 +202,7 @@ pub async fn list_schedulers(
 
 /// 更新调度器集成：仅覆盖传入字段；重名校验；自动刷 updated_at。
 pub async fn update_scheduler(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateSchedulerInput,
 ) -> AppResult<SchedulerIntegrationResponse> {
@@ -221,17 +221,17 @@ pub async fn update_scheduler(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE scheduler_integrations SET \
-            name = COALESCE(?1, name), \
-            description = COALESCE(?2, description), \
-            scheduler_type = COALESCE(?3, scheduler_type), \
-            endpoint = COALESCE(?4, endpoint), \
-            auth_type = COALESCE(?5, auth_type), \
-            credentials = COALESCE(?6, credentials), \
-            status = COALESCE(?7, status), \
-            version = COALESCE(?8, version), \
-            config = COALESCE(?9, config), \
-            updated_at = ?10 \
-         WHERE id = ?11 AND deleted_at IS NULL",
+            name = COALESCE($1, name), \
+            description = COALESCE($2, description), \
+            scheduler_type = COALESCE($3, scheduler_type), \
+            endpoint = COALESCE($4, endpoint), \
+            auth_type = COALESCE($5, auth_type), \
+            credentials = COALESCE($6, credentials), \
+            status = COALESCE($7, status), \
+            version = COALESCE($8, version), \
+            config = COALESCE($9, config), \
+            updated_at = $10 \
+         WHERE id = $11 AND deleted_at IS NULL",
     )
     .bind(&input.name)
     .bind(&input.description)
@@ -255,7 +255,7 @@ pub async fn update_scheduler(
 }
 
 /// 软删除调度器集成（404 若不存在或已软删除）。
-pub async fn delete_scheduler(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_scheduler(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = scheduler_integration::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("scheduler integration not found"));
@@ -265,7 +265,7 @@ pub async fn delete_scheduler(pool: &SqlitePool, id: i64) -> AppResult<()> {
 
 /// 测试连接（mock）：用 [`MockSchedulerAdapter`] 探测，返回 status + latency_ms，
 /// 并把调度器 status 刷新为探测结果。
-pub async fn test_connection(pool: &SqlitePool, id: i64) -> AppResult<ConnectionTest> {
+pub async fn test_connection(pool: &PgPool, id: i64) -> AppResult<ConnectionTest> {
     let s = scheduler_integration::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("scheduler integration not found"))?;
@@ -276,8 +276,8 @@ pub async fn test_connection(pool: &SqlitePool, id: i64) -> AppResult<Connection
     // 把探测到的连接状态回写调度器行。
     let now = chrono::Utc::now();
     sqlx::query(
-        "UPDATE scheduler_integrations SET status = ?1, last_heartbeat = ?2, updated_at = ?3 \
-         WHERE id = ?4",
+        "UPDATE scheduler_integrations SET status = $1, last_heartbeat = $2, updated_at = $3 \
+         WHERE id = $4",
     )
     .bind(&result.status)
     .bind(now)
@@ -290,7 +290,7 @@ pub async fn test_connection(pool: &SqlitePool, id: i64) -> AppResult<Connection
 }
 
 /// 同步资源（mock）：用 [`MockSchedulerAdapter`] 拉取资源快照，刷新 last_heartbeat。
-pub async fn sync_resources(pool: &SqlitePool, id: i64) -> AppResult<ResourceSync> {
+pub async fn sync_resources(pool: &PgPool, id: i64) -> AppResult<ResourceSync> {
     let s = scheduler_integration::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("scheduler integration not found"))?;

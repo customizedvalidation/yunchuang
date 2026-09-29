@@ -72,7 +72,7 @@ pub async fn list_clusters(
 ) -> AppResult<Json<ApiResponse<Vec<ClusterResponse>>>> {
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
-    let res = cluster_service::list_clusters(&state.pool, params, q.search.as_deref()).await?;
+    let res = cluster_service::list_clusters(&state.pool.pool, params, q.search.as_deref()).await?;
     Ok(Json(ApiResponse::success(res.data)))
 }
 
@@ -82,7 +82,7 @@ pub async fn get_cluster(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<ClusterResponse>>> {
-    let c = cluster_service::get_cluster(&state.pool, id).await?;
+    let c = cluster_service::get_cluster(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(c)))
 }
 
@@ -104,7 +104,7 @@ pub async fn create_cluster(
         network_type: body.network_type.unwrap_or_default(),
         location: body.location.unwrap_or_default(),
     };
-    let c = cluster_service::create_cluster(&state.pool, input).await?;
+    let c = cluster_service::create_cluster(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(c),
@@ -131,7 +131,7 @@ pub async fn update_cluster(
         network_type: body.network_type,
         location: body.location,
     };
-    let c = cluster_service::update_cluster(&state.pool, id, input).await?;
+    let c = cluster_service::update_cluster(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(c)))
 }
 
@@ -141,6 +141,6 @@ pub async fn delete_cluster(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    cluster_service::delete_cluster(&state.pool, id).await?;
+    cluster_service::delete_cluster(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

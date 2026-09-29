@@ -2,7 +2,7 @@
 //!
 //! CRUD + 按 job_id/dataset_id 过滤 + 分页。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::checkpoint::{self, Checkpoint, CheckpointResponse};
@@ -42,7 +42,7 @@ pub struct UpdateCheckpointInput {
 
 /// 创建。
 pub async fn create_checkpoint(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateCheckpointInput,
 ) -> AppResult<CheckpointResponse> {
     let status = input.status.unwrap_or_else(|| "completed".to_string());
@@ -74,7 +74,7 @@ pub async fn create_checkpoint(
 }
 
 /// 详情。
-pub async fn get_checkpoint(pool: &SqlitePool, id: i64) -> AppResult<CheckpointResponse> {
+pub async fn get_checkpoint(pool: &PgPool, id: i64) -> AppResult<CheckpointResponse> {
     let ckpt = checkpoint::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("checkpoint not found"))?;
@@ -83,7 +83,7 @@ pub async fn get_checkpoint(pool: &SqlitePool, id: i64) -> AppResult<CheckpointR
 
 /// 分页列表（按 job_id / dataset_id 过滤）。
 pub async fn list_checkpoints(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     job_id: Option<i64>,
     dataset_id: Option<i64>,
@@ -105,7 +105,7 @@ pub async fn list_checkpoints(
 
 /// 更新。
 pub async fn update_checkpoint(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateCheckpointInput,
 ) -> AppResult<CheckpointResponse> {
@@ -116,17 +116,17 @@ pub async fn update_checkpoint(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE checkpoints SET \
-            name = COALESCE(?1, name), \
-            description = COALESCE(?2, description), \
-            path = COALESCE(?3, path), \
-            format = COALESCE(?4, format), \
-            size_bytes = COALESCE(?5, size_bytes), \
-            step = COALESCE(?6, step), \
-            epoch = COALESCE(?7, epoch), \
-            metrics = COALESCE(?8, metrics), \
-            status = COALESCE(?9, status), \
-            updated_at = ?10 \
-         WHERE id = ?11 AND deleted_at IS NULL",
+            name = COALESCE($1, name), \
+            description = COALESCE($2, description), \
+            path = COALESCE($3, path), \
+            format = COALESCE($4, format), \
+            size_bytes = COALESCE($5, size_bytes), \
+            step = COALESCE($6, step), \
+            epoch = COALESCE($7, epoch), \
+            metrics = COALESCE($8, metrics), \
+            status = COALESCE($9, status), \
+            updated_at = $10 \
+         WHERE id = $11 AND deleted_at IS NULL",
     )
     .bind(input.name)
     .bind(input.description)
@@ -153,7 +153,7 @@ pub async fn update_checkpoint(
 }
 
 /// 软删除。
-pub async fn delete_checkpoint(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_checkpoint(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = checkpoint::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("checkpoint not found"));

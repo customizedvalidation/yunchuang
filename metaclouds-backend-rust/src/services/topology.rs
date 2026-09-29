@@ -2,7 +2,7 @@
 //!
 //! CRUD + 分页 + 按 cluster_id / role 过滤。handler 只做参数提取与响应封装。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::topology::{self, NewNode, NodeTopology, TopologyResponse};
@@ -38,10 +38,10 @@ pub struct UpdateNodeInput {
 }
 
 /// 创建节点。
-pub async fn create_node(pool: &SqlitePool, input: CreateNodeInput) -> AppResult<TopologyResponse> {
+pub async fn create_node(pool: &PgPool, input: CreateNodeInput) -> AppResult<TopologyResponse> {
     // hostname 在集群内唯一（对齐 Go CreateNodeTopology 的重名冲突）。
     let dup: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM topology_nodes WHERE hostname = ?1 AND cluster_id = ?2 AND deleted_at IS NULL LIMIT 1",
+        "SELECT id FROM topology_nodes WHERE hostname = $1 AND cluster_id = $2 AND deleted_at IS NULL LIMIT 1",
     )
     .bind(&input.hostname)
     .bind(input.cluster_id)
@@ -71,7 +71,7 @@ pub async fn create_node(pool: &SqlitePool, input: CreateNodeInput) -> AppResult
 }
 
 /// 节点详情（404 若不存在或已软删除）。
-pub async fn get_node(pool: &SqlitePool, id: i64) -> AppResult<TopologyResponse> {
+pub async fn get_node(pool: &PgPool, id: i64) -> AppResult<TopologyResponse> {
     let node = topology::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("node topology not found"))?;
@@ -80,7 +80,7 @@ pub async fn get_node(pool: &SqlitePool, id: i64) -> AppResult<TopologyResponse>
 
 /// 分页节点列表（可按 cluster_id / role 过滤）。
 pub async fn list_nodes(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     cluster_id: Option<i64>,
     role: Option<&str>,
@@ -98,7 +98,7 @@ pub async fn list_nodes(
 
 /// 更新节点：仅覆盖传入字段，自动刷 updated_at。
 pub async fn update_node(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateNodeInput,
 ) -> AppResult<TopologyResponse> {
@@ -115,17 +115,17 @@ pub async fn update_node(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE topology_nodes SET \
-            hostname = COALESCE(?1, hostname), \
-            ip = COALESCE(?2, ip), \
-            role = COALESCE(?3, role), \
-            cpu_cores = COALESCE(?4, cpu_cores), \
-            memory_gb = COALESCE(?5, memory_gb), \
-            gpu_count = COALESCE(?6, gpu_count), \
-            gpu_model = COALESCE(?7, gpu_model), \
-            status = COALESCE(?8, status), \
-            labels = COALESCE(?9, labels), \
-            updated_at = ?10 \
-         WHERE id = ?11 AND deleted_at IS NULL",
+            hostname = COALESCE($1, hostname), \
+            ip = COALESCE($2, ip), \
+            role = COALESCE($3, role), \
+            cpu_cores = COALESCE($4, cpu_cores), \
+            memory_gb = COALESCE($5, memory_gb), \
+            gpu_count = COALESCE($6, gpu_count), \
+            gpu_model = COALESCE($7, gpu_model), \
+            status = COALESCE($8, status), \
+            labels = COALESCE($9, labels), \
+            updated_at = $10 \
+         WHERE id = $11 AND deleted_at IS NULL",
     )
     .bind(&input.hostname)
     .bind(&input.ip)
@@ -148,7 +148,7 @@ pub async fn update_node(
 }
 
 /// 软删除节点（404 若不存在或已软删除）。
-pub async fn delete_node(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_node(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = topology::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("node topology not found"));

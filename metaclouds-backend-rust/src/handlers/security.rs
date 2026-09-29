@@ -77,7 +77,7 @@ pub async fn list_policies(
     let params = PaginationParams::new(page, page_size);
 
     let res = security::list_policies(
-        &state.pool,
+        &state.pool.pool,
         params,
         q.policy_type.as_deref(),
         q.enabled,
@@ -93,7 +93,7 @@ pub async fn get_policy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<SecurityPolicyResponse>>> {
-    let p = security::get_policy(&state.pool, id).await?;
+    let p = security::get_policy(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(p)))
 }
 
@@ -118,7 +118,7 @@ pub async fn create_policy(
         tenant_id: body.tenant_id.unwrap_or(claims.tenant_id as i64),
         created_by: claims.user_id as i64,
     };
-    let p = security::create_policy(&state.pool, input).await?;
+    let p = security::create_policy(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(p),
@@ -144,7 +144,7 @@ pub async fn update_policy(
         priority: body.priority,
         enabled: body.enabled,
     };
-    let p = security::update_policy(&state.pool, id, input).await?;
+    let p = security::update_policy(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(p)))
 }
 
@@ -154,7 +154,7 @@ pub async fn delete_policy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    security::delete_policy(&state.pool, id).await?;
+    security::delete_policy(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -164,7 +164,7 @@ pub async fn enable_policy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<SecurityPolicyResponse>>> {
-    let p = security::enable_policy(&state.pool, id).await?;
+    let p = security::enable_policy(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(p)))
 }
 
@@ -174,6 +174,6 @@ pub async fn disable_policy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<SecurityPolicyResponse>>> {
-    let p = security::disable_policy(&state.pool, id).await?;
+    let p = security::disable_policy(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(p)))
 }

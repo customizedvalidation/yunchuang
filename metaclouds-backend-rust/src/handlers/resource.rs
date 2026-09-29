@@ -90,7 +90,7 @@ pub async fn list_resources(
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = resource_service::list_resources(
-        &state.pool,
+        &state.pool.pool,
         params,
         q.kind.as_deref(),
         q.cluster_id,
@@ -106,7 +106,7 @@ pub async fn get_resource(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<ResourceResponse>>> {
-    let r = resource_service::get_resource(&state.pool, id).await?;
+    let r = resource_service::get_resource(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(r)))
 }
 
@@ -134,7 +134,7 @@ pub async fn create_resource(
         vram_oversubscription_ratio: body.vram_oversubscription_ratio.unwrap_or(1.0),
         mig_enabled: body.mig_enabled.unwrap_or(false),
     };
-    let r = resource_service::create_resource(&state.pool, input).await?;
+    let r = resource_service::create_resource(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(r),
@@ -157,7 +157,7 @@ pub async fn update_resource(
         utilization: body.utilization,
         details: body.details,
     };
-    let r = resource_service::update_resource(&state.pool, id, input).await?;
+    let r = resource_service::update_resource(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(r)))
 }
 
@@ -167,7 +167,7 @@ pub async fn delete_resource(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    resource_service::delete_resource(&state.pool, id).await?;
+    resource_service::delete_resource(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -181,7 +181,7 @@ pub async fn list_gpu_resources(
     State(state): State<AppState>,
 ) -> AppResult<Json<ApiResponse<Vec<Value>>>> {
     let params = PaginationParams::new(1, 1000);
-    let res = gpu_service::list_gpu_devices(&state.pool, params, None, None, None).await?;
+    let res = gpu_service::list_gpu_devices(&state.pool.pool, params, None, None, None).await?;
 
     // 按 model 聚合：total=总数，used=已分配，available=可用，utilization=平均利用率。
     let mut by_model: std::collections::BTreeMap<String, (String, i64, i64, f64, usize)> =

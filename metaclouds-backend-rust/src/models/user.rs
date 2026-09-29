@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use validator::Validate;
 
 use crate::error::{AppError, AppResult};
@@ -129,7 +129,7 @@ pub struct NewUser<'a> {
 }
 
 /// INSERT：自动填充 created_at / updated_at。
-pub async fn create(pool: &SqlitePool, input: NewUser<'_>) -> AppResult<User> {
+pub async fn create(pool: &PgPool, input: NewUser<'_>) -> AppResult<User> {
     let mut user = User {
         id: 0,
         created_at: Utc::now(),
@@ -147,7 +147,7 @@ pub async fn create(pool: &SqlitePool, input: NewUser<'_>) -> AppResult<User> {
 
     let res = sqlx::query(
         "INSERT INTO users (created_at, updated_at, username, email, password_hash, role, tenant_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(user.created_at)
     .bind(user.updated_at)
@@ -167,21 +167,21 @@ pub async fn create(pool: &SqlitePool, input: NewUser<'_>) -> AppResult<User> {
 
 /// 按 id 查询；`include_deleted = true` 对应 GORM 的 Unscoped()。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<User>> {
     let sql = if include_deleted {
-        "SELECT * FROM users WHERE id = ?1"
+        "SELECT * FROM users WHERE id = $1"
     } else {
-        "SELECT * FROM users WHERE id = ?1 AND deleted_at IS NULL"
+        "SELECT * FROM users WHERE id = $1 AND deleted_at IS NULL"
     };
     Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
 }
 
 /// 分页列表（默认过滤软删除）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     include_deleted: bool,
 ) -> AppResult<PaginatedResult<User>> {
@@ -197,7 +197,7 @@ pub async fn list(
         .await?;
 
     let rows: Vec<User> = sqlx::query_as(&format!(
-        "SELECT * FROM users{where_clause} ORDER BY id ASC LIMIT ?1 OFFSET ?2"
+        "SELECT * FROM users{where_clause} ORDER BY id ASC LIMIT $1 OFFSET $2"
     ))
     .bind(params.limit())
     .bind(params.offset())
@@ -208,8 +208,8 @@ pub async fn list(
 }
 
 /// 刷新 updated_at（任意字段更新后调用）。
-pub async fn touch_updated_at(pool: &SqlitePool, id: i64) -> AppResult<()> {
-    sqlx::query("UPDATE users SET updated_at = ?1 WHERE id = ?2")
+pub async fn touch_updated_at(pool: &PgPool, id: i64) -> AppResult<()> {
+    sqlx::query("UPDATE users SET updated_at = $1 WHERE id = $2")
         .bind(Utc::now())
         .bind(id)
         .execute(pool)
@@ -218,8 +218,8 @@ pub async fn touch_updated_at(pool: &SqlitePool, id: i64) -> AppResult<()> {
 }
 
 /// 记录一次成功登录时间（登录成功时调用，仅写 last_login_at）。
-pub async fn touch_last_login(pool: &SqlitePool, id: i64) -> AppResult<()> {
-    sqlx::query("UPDATE users SET last_login_at = ?1 WHERE id = ?2")
+pub async fn touch_last_login(pool: &PgPool, id: i64) -> AppResult<()> {
+    sqlx::query("UPDATE users SET last_login_at = $1 WHERE id = $2")
         .bind(Utc::now())
         .bind(id)
         .execute(pool)
@@ -229,7 +229,7 @@ pub async fn touch_last_login(pool: &SqlitePool, id: i64) -> AppResult<()> {
 
 /// 软删除：DELETE 改写为 UPDATE SET deleted_at = now()。
 /// 返回是否真的命中了一行。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("users"))
         .bind(now)

@@ -8,7 +8,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -123,7 +123,7 @@ pub struct NewSecurityPolicy<'a> {
 }
 
 /// INSERT（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewSecurityPolicy<'_>) -> AppResult<SecurityPolicy> {
+pub async fn create(pool: &PgPool, input: NewSecurityPolicy<'_>) -> AppResult<SecurityPolicy> {
     let now = Utc::now();
     let mut policy = SecurityPolicy {
         id: 0,
@@ -173,7 +173,7 @@ pub async fn create(pool: &SqlitePool, input: NewSecurityPolicy<'_>) -> AppResul
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<SecurityPolicy>> {
@@ -195,7 +195,7 @@ pub struct PolicyListFilter<'a> {
 
 /// 分页列表（可按 policy_type / enabled 过滤 + name 搜索）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     filter: PolicyListFilter<'_>,
 ) -> AppResult<PaginatedResult<SecurityPolicy>> {
@@ -245,7 +245,7 @@ pub async fn list(
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("security_policies"))
         .bind(now)

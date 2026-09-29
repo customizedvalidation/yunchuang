@@ -3,7 +3,7 @@
 //! CRUD + 分页 + 软删除。唯一性、字段合并、404 判定都在本层，
 //! handler 只负责参数提取与响应封装。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::tenant::{self, Tenant, TenantResponse};
@@ -33,9 +33,9 @@ pub struct UpdateTenantInput {
 }
 
 /// 按名称检查是否已存在未删除的租户。
-async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<bool> {
+async fn name_taken(pool: &PgPool, name: &str, except_id: i64) -> AppResult<bool> {
     let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM tenants WHERE name = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1",
+        "SELECT id FROM tenants WHERE name = $1 AND deleted_at IS NULL AND id != $2 LIMIT 1",
     )
     .bind(name)
     .bind(except_id)
@@ -46,7 +46,7 @@ async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<
 
 /// 创建租户（status 固定为 active，对齐 Go `CreateTenant`）。
 pub async fn create_tenant(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateTenantInput,
 ) -> AppResult<TenantResponse> {
     if name_taken(pool, &input.name, 0).await? {
@@ -69,7 +69,7 @@ pub async fn create_tenant(
 }
 
 /// 租户详情（404 若不存在或已软删除）。
-pub async fn get_tenant(pool: &SqlitePool, id: i64) -> AppResult<TenantResponse> {
+pub async fn get_tenant(pool: &PgPool, id: i64) -> AppResult<TenantResponse> {
     let tenant = tenant::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("tenant not found"))?;
@@ -78,7 +78,7 @@ pub async fn get_tenant(pool: &SqlitePool, id: i64) -> AppResult<TenantResponse>
 
 /// 分页租户列表（过滤软删除）。
 pub async fn list_tenants(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
 ) -> AppResult<PaginatedResult<TenantResponse>> {
     let rows: PaginatedResult<Tenant> = tenant::list(pool, params, false).await?;
@@ -93,7 +93,7 @@ pub async fn list_tenants(
 
 /// 更新租户：仅覆盖传入字段；重名校验；自动刷 updated_at。
 pub async fn update_tenant(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateTenantInput,
 ) -> AppResult<TenantResponse> {
@@ -111,15 +111,15 @@ pub async fn update_tenant(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE tenants SET \
-            name = COALESCE(?1, name), \
-            description = COALESCE(?2, description), \
-            status = COALESCE(?3, status), \
-            gpu_quota = COALESCE(?4, gpu_quota), \
-            cpu_quota = COALESCE(?5, cpu_quota), \
-            memory_quota = COALESCE(?6, memory_quota), \
-            storage_quota = COALESCE(?7, storage_quota), \
-            updated_at = ?8 \
-         WHERE id = ?9 AND deleted_at IS NULL",
+            name = COALESCE($1, name), \
+            description = COALESCE($2, description), \
+            status = COALESCE($3, status), \
+            gpu_quota = COALESCE($4, gpu_quota), \
+            cpu_quota = COALESCE($5, cpu_quota), \
+            memory_quota = COALESCE($6, memory_quota), \
+            storage_quota = COALESCE($7, storage_quota), \
+            updated_at = $8 \
+         WHERE id = $9 AND deleted_at IS NULL",
     )
     .bind(input.name)
     .bind(input.description)
@@ -140,7 +140,7 @@ pub async fn update_tenant(
 }
 
 /// 软删除租户（404 若不存在或已软删除）。
-pub async fn delete_tenant(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_tenant(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = tenant::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("tenant not found"));

@@ -9,7 +9,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::AppResult;
 use crate::orm::{PaginatedResult, PaginationParams};
@@ -79,7 +79,7 @@ impl From<GpuAllocation> for GpuAllocationResponse {
 }
 
 /// 按 id 查询（分配记录不做软删除过滤，按 id 精确取）。
-pub async fn get_by_id(pool: &SqlitePool, id: i64) -> AppResult<Option<GpuAllocation>> {
+pub async fn get_by_id(pool: &PgPool, id: i64) -> AppResult<Option<GpuAllocation>> {
     Ok(sqlx::query_as("SELECT * FROM gpu_allocations WHERE id = ?")
         .bind(id)
         .fetch_optional(pool)
@@ -96,7 +96,7 @@ pub struct GpuAllocationFilter<'a> {
 
 /// 分页列表（可按 job_id/user_id/status 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     filter: GpuAllocationFilter<'_>,
 ) -> AppResult<PaginatedResult<GpuAllocation>> {

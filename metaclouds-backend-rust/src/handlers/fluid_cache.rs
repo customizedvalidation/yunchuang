@@ -69,7 +69,7 @@ pub async fn list_fluid_caches(
 ) -> AppResult<Json<ApiResponse<Vec<FluidCacheResponse>>>> {
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
-    let res = service::list_fluid_caches(&state.pool, params, Some(dataset_id)).await?;
+    let res = service::list_fluid_caches(&state.pool.pool, params, Some(dataset_id)).await?;
     Ok(Json(ApiResponse::success(res.data)))
 }
 
@@ -91,7 +91,7 @@ pub async fn create_fluid_cache(
         replicas: body.replicas.unwrap_or(1),
         status: body.status,
     };
-    let cache = service::create_fluid_cache(&state.pool, input).await?;
+    let cache = service::create_fluid_cache(&state.pool.pool, input).await?;
     Ok((StatusCode::CREATED, Json(ApiResponse::success(cache))))
 }
 
@@ -109,7 +109,7 @@ pub async fn update_fluid_cache(
         replicas: body.replicas,
         status: body.status,
     };
-    let cache = service::update_fluid_cache(&state.pool, cache_id, input).await?;
+    let cache = service::update_fluid_cache(&state.pool.pool, cache_id, input).await?;
     Ok(Json(ApiResponse::success(cache)))
 }
 
@@ -118,7 +118,7 @@ pub async fn delete_fluid_cache(
     State(state): State<AppState>,
     Path(cache_id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    service::delete_fluid_cache(&state.pool, cache_id).await?;
+    service::delete_fluid_cache(&state.pool.pool, cache_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -127,7 +127,7 @@ pub async fn enable_fluid_cache(
     State(state): State<AppState>,
     Path(cache_id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
-    let cache = service::set_status(&state.pool, cache_id, "active").await?;
+    let cache = service::set_status(&state.pool.pool, cache_id, "active").await?;
     Ok(Json(ApiResponse::success(serde_json::json!({
         "message": "fluid cache enabled",
         "cache": cache,
@@ -139,7 +139,7 @@ pub async fn disable_fluid_cache(
     State(state): State<AppState>,
     Path(cache_id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
-    let cache = service::set_status(&state.pool, cache_id, "inactive").await?;
+    let cache = service::set_status(&state.pool.pool, cache_id, "inactive").await?;
     Ok(Json(ApiResponse::success(serde_json::json!({
         "message": "fluid cache disabled",
         "cache": cache,
@@ -151,7 +151,7 @@ pub async fn prefetch_fluid_cache(
     State(state): State<AppState>,
     Path(cache_id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
-    service::trigger_prefetch(&state.pool, cache_id).await?;
+    service::trigger_prefetch(&state.pool.pool, cache_id).await?;
     Ok(Json(ApiResponse::success(serde_json::json!({
         "message": "prefetch triggered",
     }))))

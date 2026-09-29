@@ -3,7 +3,7 @@
 //!
 //! Suite CRUD + 组合查询（含关联对象详情）+ suite 状态流转（start/stop）。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::acceleration_suite::{self, AccelerationSuite, AccelerationSuiteResponse};
@@ -41,7 +41,7 @@ pub struct UpdateSuiteInput {
 
 /// 组装带关联对象的响应。
 async fn build_response(
-    pool: &SqlitePool,
+    pool: &PgPool,
     suite: AccelerationSuite,
 ) -> AppResult<AccelerationSuiteResponse> {
     let mut resp: AccelerationSuiteResponse = suite.into();
@@ -49,7 +49,7 @@ async fn build_response(
     // 组合查询：按需加载关联对象
     if let Some(ds_id) = resp.dataset_id {
         if let Ok(Some(row)) = sqlx::query_as::<_, crate::models::dataset::Dataset>(
-            "SELECT * FROM datasets WHERE id = ?1 AND deleted_at IS NULL",
+            "SELECT * FROM datasets WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(ds_id)
         .fetch_optional(pool)
@@ -66,7 +66,7 @@ async fn build_response(
             _,
             crate::models::distributed_training_config::DistributedTrainingConfig,
         >(
-            "SELECT * FROM distributed_training_configs WHERE id = ?1 AND deleted_at IS NULL",
+            "SELECT * FROM distributed_training_configs WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(tc_id)
         .fetch_optional(pool)
@@ -81,7 +81,7 @@ async fn build_response(
     if let Some(ic_id) = resp.inference_config_id {
         if let Ok(Some(row)) =
             sqlx::query_as::<_, crate::models::inference_config::InferenceConfig>(
-                "SELECT * FROM inference_configs WHERE id = ?1 AND deleted_at IS NULL",
+                "SELECT * FROM inference_configs WHERE id = $1 AND deleted_at IS NULL",
             )
             .bind(ic_id)
             .fetch_optional(pool)
@@ -97,7 +97,7 @@ async fn build_response(
     }
     if let Some(fc_id) = resp.fluid_cache_id {
         if let Ok(Some(row)) = sqlx::query_as::<_, crate::models::fluid_cache::FluidCache>(
-            "SELECT * FROM fluid_caches WHERE id = ?1 AND deleted_at IS NULL",
+            "SELECT * FROM fluid_caches WHERE id = $1 AND deleted_at IS NULL",
         )
         .bind(fc_id)
         .fetch_optional(pool)
@@ -115,7 +115,7 @@ async fn build_response(
 
 /// 创建 suite。
 pub async fn create_suite(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateSuiteInput,
 ) -> AppResult<AccelerationSuiteResponse> {
     if acceleration_suite::name_taken(pool, &input.name, 0).await? {
@@ -143,7 +143,7 @@ pub async fn create_suite(
 }
 
 /// Suite 详情（含关联对象）。
-pub async fn get_suite(pool: &SqlitePool, id: i64) -> AppResult<AccelerationSuiteResponse> {
+pub async fn get_suite(pool: &PgPool, id: i64) -> AppResult<AccelerationSuiteResponse> {
     let suite = acceleration_suite::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("acceleration suite not found"))?;
@@ -152,7 +152,7 @@ pub async fn get_suite(pool: &SqlitePool, id: i64) -> AppResult<AccelerationSuit
 
 /// 分页列表（不含关联对象，仅主表）。
 pub async fn list_suites(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     tenant_id: Option<i64>,
     status: Option<&str>,
@@ -174,7 +174,7 @@ pub async fn list_suites(
 
 /// 更新 suite。
 pub async fn update_suite(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateSuiteInput,
 ) -> AppResult<AccelerationSuiteResponse> {
@@ -191,17 +191,17 @@ pub async fn update_suite(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE acceleration_suites SET \
-            name = COALESCE(?1, name), \
-            description = COALESCE(?2, description), \
-            suite_type = COALESCE(?3, suite_type), \
-            dataset_id = COALESCE(?4, dataset_id), \
-            training_config_id = COALESCE(?5, training_config_id), \
-            inference_config_id = COALESCE(?6, inference_config_id), \
-            fluid_cache_id = COALESCE(?7, fluid_cache_id), \
-            acceleration_config = COALESCE(?8, acceleration_config), \
-            status = COALESCE(?9, status), \
-            updated_at = ?10 \
-         WHERE id = ?11 AND deleted_at IS NULL",
+            name = COALESCE($1, name), \
+            description = COALESCE($2, description), \
+            suite_type = COALESCE($3, suite_type), \
+            dataset_id = COALESCE($4, dataset_id), \
+            training_config_id = COALESCE($5, training_config_id), \
+            inference_config_id = COALESCE($6, inference_config_id), \
+            fluid_cache_id = COALESCE($7, fluid_cache_id), \
+            acceleration_config = COALESCE($8, acceleration_config), \
+            status = COALESCE($9, status), \
+            updated_at = $10 \
+         WHERE id = $11 AND deleted_at IS NULL",
     )
     .bind(input.name)
     .bind(input.description)
@@ -228,7 +228,7 @@ pub async fn update_suite(
 }
 
 /// 软删除。
-pub async fn delete_suite(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_suite(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = acceleration_suite::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("acceleration suite not found"));
@@ -237,11 +237,11 @@ pub async fn delete_suite(pool: &SqlitePool, id: i64) -> AppResult<()> {
 }
 
 /// 启动 suite：状态 → running。
-pub async fn start_suite(pool: &SqlitePool, id: i64) -> AppResult<AccelerationSuiteResponse> {
+pub async fn start_suite(pool: &PgPool, id: i64) -> AppResult<AccelerationSuiteResponse> {
     let now = chrono::Utc::now();
     let res = sqlx::query(
-        "UPDATE acceleration_suites SET status = 'running', updated_at = ?1 \
-         WHERE id = ?2 AND deleted_at IS NULL",
+        "UPDATE acceleration_suites SET status = 'running', updated_at = $1 \
+         WHERE id = $2 AND deleted_at IS NULL",
     )
     .bind(now)
     .bind(id)
@@ -257,11 +257,11 @@ pub async fn start_suite(pool: &SqlitePool, id: i64) -> AppResult<AccelerationSu
 }
 
 /// 停止 suite：状态 → stopped。
-pub async fn stop_suite(pool: &SqlitePool, id: i64) -> AppResult<AccelerationSuiteResponse> {
+pub async fn stop_suite(pool: &PgPool, id: i64) -> AppResult<AccelerationSuiteResponse> {
     let now = chrono::Utc::now();
     let res = sqlx::query(
-        "UPDATE acceleration_suites SET status = 'stopped', updated_at = ?1 \
-         WHERE id = ?2 AND deleted_at IS NULL",
+        "UPDATE acceleration_suites SET status = 'stopped', updated_at = $1 \
+         WHERE id = $2 AND deleted_at IS NULL",
     )
     .bind(now)
     .bind(id)

@@ -70,7 +70,7 @@ impl From<TestConfig> for crate::config::Config {
 /// Build the axum router against an already-connected pool.
 ///
 /// Shared by `main.rs` (production) and integration tests (in-memory sqlite).
-pub fn build_app(pool: sqlx::SqlitePool, config: impl Into<crate::config::Config>) -> axum::Router {
+pub fn build_app(pool: crate::db::DatabasePool, config: impl Into<crate::config::Config>) -> axum::Router {
     let state = AppState {
         pool,
         config: Arc::new(config.into()),

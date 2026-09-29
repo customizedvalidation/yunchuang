@@ -7,7 +7,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use tracing::{error, info, warn};
 
 use crate::config::Config;

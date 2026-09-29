@@ -2,7 +2,7 @@
 //!
 //! CRUD + 分页。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::distributed_training_config::{
@@ -44,7 +44,7 @@ pub struct UpdateTrainingConfigInput {
 
 /// 创建。
 pub async fn create_training_config(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateTrainingConfigInput,
 ) -> AppResult<DistributedTrainingConfigResponse> {
     let status = input.status.unwrap_or_else(|| "active".to_string());
@@ -71,7 +71,7 @@ pub async fn create_training_config(
 
 /// 详情。
 pub async fn get_training_config(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
 ) -> AppResult<DistributedTrainingConfigResponse> {
     let cfg = distributed_training_config::get_by_id(pool, id, false)
@@ -82,7 +82,7 @@ pub async fn get_training_config(
 
 /// 分页列表。
 pub async fn list_training_configs(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     tenant_id: Option<i64>,
 ) -> AppResult<PaginatedResult<DistributedTrainingConfigResponse>> {
@@ -103,7 +103,7 @@ pub async fn list_training_configs(
 
 /// 更新。
 pub async fn update_training_config(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateTrainingConfigInput,
 ) -> AppResult<DistributedTrainingConfigResponse> {
@@ -114,18 +114,18 @@ pub async fn update_training_config(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE distributed_training_configs SET \
-            name = COALESCE(?1, name), \
-            description = COALESCE(?2, description), \
-            framework = COALESCE(?3, framework), \
-            worker_replicas = COALESCE(?4, worker_replicas), \
-            gpu_per_worker = COALESCE(?5, gpu_per_worker), \
-            cpu_per_worker = COALESCE(?6, cpu_per_worker), \
-            memory_per_worker_gb = COALESCE(?7, memory_per_worker_gb), \
-            entrypoint = COALESCE(?8, entrypoint), \
-            env_vars = COALESCE(?9, env_vars), \
-            status = COALESCE(?10, status), \
-            updated_at = ?11 \
-         WHERE id = ?12 AND deleted_at IS NULL",
+            name = COALESCE($1, name), \
+            description = COALESCE($2, description), \
+            framework = COALESCE($3, framework), \
+            worker_replicas = COALESCE($4, worker_replicas), \
+            gpu_per_worker = COALESCE($5, gpu_per_worker), \
+            cpu_per_worker = COALESCE($6, cpu_per_worker), \
+            memory_per_worker_gb = COALESCE($7, memory_per_worker_gb), \
+            entrypoint = COALESCE($8, entrypoint), \
+            env_vars = COALESCE($9, env_vars), \
+            status = COALESCE($10, status), \
+            updated_at = $11 \
+         WHERE id = $12 AND deleted_at IS NULL",
     )
     .bind(input.name)
     .bind(input.description)
@@ -153,7 +153,7 @@ pub async fn update_training_config(
 }
 
 /// 软删除。
-pub async fn delete_training_config(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_training_config(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = distributed_training_config::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("distributed training config not found"));

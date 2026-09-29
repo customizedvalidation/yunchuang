@@ -49,7 +49,7 @@ pub struct HealthStatus {
 /// readiness 摘除故障实例；DB 正常时 200 信封结构与此前完全一致。
 pub async fn health(State(state): State<AppState>) -> AppResult<Json<ApiResponse<HealthStatus>>> {
     sqlx::query("SELECT 1")
-        .execute(&state.pool)
+        .execute(&state.pool.pool)
         .await
         .map_err(|e| {
             tracing::warn!(error = %e, "health db probe failed");

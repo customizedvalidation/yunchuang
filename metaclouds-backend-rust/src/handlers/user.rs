@@ -33,20 +33,20 @@ pub async fn list_users(
         Some(like) => {
             sqlx::query_as(
                 "SELECT * FROM users \
-                 WHERE username LIKE ?1 OR email LIKE ?1 \
-                 ORDER BY id ASC LIMIT ?2 OFFSET ?3",
+                 WHERE username LIKE $1 OR email LIKE $1 \
+                 ORDER BY id ASC LIMIT $2 OFFSET $3",
             )
             .bind(like)
             .bind(page_size)
             .bind(offset)
-            .fetch_all(&state.pool)
+            .fetch_all(&state.pool.pool)
             .await?
         }
         None => {
-            sqlx::query_as("SELECT * FROM users ORDER BY id ASC LIMIT ?1 OFFSET ?2")
+            sqlx::query_as("SELECT * FROM users ORDER BY id ASC LIMIT $1 OFFSET $2")
                 .bind(page_size)
                 .bind(offset)
-                .fetch_all(&state.pool)
+                .fetch_all(&state.pool.pool)
                 .await?
         }
     };
@@ -71,7 +71,7 @@ pub async fn create_user(
 
     let result = sqlx::query(
         "INSERT INTO users (created_at, updated_at, username, email, password_hash, role, tenant_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(now)
     .bind(now)
@@ -80,7 +80,7 @@ pub async fn create_user(
     .bind(&hash)
     .bind(&role)
     .bind(tenant_id)
-    .execute(&state.pool)
+    .execute(&state.pool.pool)
     .await;
 
     if let Err(sqlx::Error::Database(ref db_err)) = result {
@@ -90,9 +90,9 @@ pub async fn create_user(
     }
     let result = result?;
 
-    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?1")
+    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
         .bind(result.last_insert_rowid())
-        .fetch_one(&state.pool)
+        .fetch_one(&state.pool.pool)
         .await?;
 
     Ok(WithStatus {
@@ -107,9 +107,9 @@ pub async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<UserResponse>>> {
-    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?1")
+    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
         .bind(id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.pool.pool)
         .await?
         .ok_or_else(|| AppError::not_found("user not found"))?;
     Ok(Json(ApiResponse::success(user.into())))
@@ -125,9 +125,9 @@ pub async fn update_user(
     body.validate()?;
 
     // Load existing row; fail 404 early.
-    let existing: User = sqlx::query_as("SELECT * FROM users WHERE id = ?1")
+    let existing: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
         .bind(id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.pool.pool)
         .await?
         .ok_or_else(|| AppError::not_found("user not found"))?;
 
@@ -142,7 +142,7 @@ pub async fn update_user(
     let now = chrono::Utc::now();
 
     let result = sqlx::query(
-        "UPDATE users SET username = ?1, email = ?2, password_hash = ?3, role = ?4, tenant_id = ?5, updated_at = ?6 WHERE id = ?7",
+        "UPDATE users SET username = $1, email = $2, password_hash = $3, role = $4, tenant_id = $5, updated_at = $6 WHERE id = $7",
     )
     .bind(&username)
     .bind(&email)
@@ -151,7 +151,7 @@ pub async fn update_user(
     .bind(tenant_id)
     .bind(now)
     .bind(id)
-    .execute(&state.pool)
+    .execute(&state.pool.pool)
     .await;
     if let Err(sqlx::Error::Database(ref db_err)) = result {
         if db_err.is_unique_violation() {
@@ -160,9 +160,9 @@ pub async fn update_user(
     }
     result?;
 
-    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?1")
+    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
         .bind(id)
-        .fetch_one(&state.pool)
+        .fetch_one(&state.pool.pool)
         .await?;
     Ok(Json(ApiResponse::success(user.into())))
 }
@@ -173,9 +173,9 @@ pub async fn delete_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<()>>> {
-    let result = sqlx::query("DELETE FROM users WHERE id = ?1")
+    let result = sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&state.pool.pool)
         .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::not_found("user not found"));

@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 
@@ -76,12 +76,12 @@ pub struct NewPermission {
 }
 
 /// INSERT 授权（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewPermission) -> AppResult<PartitionPermission> {
+pub async fn create(pool: &PgPool, input: NewPermission) -> AppResult<PartitionPermission> {
     let now = Utc::now();
     let res = sqlx::query(
         "INSERT INTO partition_permissions (created_at, updated_at, partition_id, user_id, \
          tenant_id, permission_type, granted_by, granted_at, expires_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(now)
     .bind(now)
@@ -102,9 +102,9 @@ pub async fn create(pool: &SqlitePool, input: NewPermission) -> AppResult<Partit
 }
 
 /// 按 id 查询授权。
-pub async fn get_by_id(pool: &SqlitePool, id: i64) -> AppResult<Option<PartitionPermission>> {
+pub async fn get_by_id(pool: &PgPool, id: i64) -> AppResult<Option<PartitionPermission>> {
     Ok(
-        sqlx::query_as("SELECT * FROM partition_permissions WHERE id = ?1")
+        sqlx::query_as("SELECT * FROM partition_permissions WHERE id = $1")
             .bind(id)
             .fetch_optional(pool)
             .await?,
@@ -113,11 +113,11 @@ pub async fn get_by_id(pool: &SqlitePool, id: i64) -> AppResult<Option<Partition
 
 /// 按 partition_id 列出授权。
 pub async fn list_by_partition(
-    pool: &SqlitePool,
+    pool: &PgPool,
     partition_id: i64,
 ) -> AppResult<Vec<PartitionPermission>> {
     Ok(sqlx::query_as(
-        "SELECT * FROM partition_permissions WHERE partition_id = ?1 ORDER BY id ASC",
+        "SELECT * FROM partition_permissions WHERE partition_id = $1 ORDER BY id ASC",
     )
     .bind(partition_id)
     .fetch_all(pool)
@@ -125,9 +125,9 @@ pub async fn list_by_partition(
 }
 
 /// 按 user_id 列出授权。
-pub async fn list_by_user(pool: &SqlitePool, user_id: i64) -> AppResult<Vec<PartitionPermission>> {
+pub async fn list_by_user(pool: &PgPool, user_id: i64) -> AppResult<Vec<PartitionPermission>> {
     Ok(
-        sqlx::query_as("SELECT * FROM partition_permissions WHERE user_id = ?1 ORDER BY id ASC")
+        sqlx::query_as("SELECT * FROM partition_permissions WHERE user_id = $1 ORDER BY id ASC")
             .bind(user_id)
             .fetch_all(pool)
             .await?,
@@ -135,8 +135,8 @@ pub async fn list_by_user(pool: &SqlitePool, user_id: i64) -> AppResult<Vec<Part
 }
 
 /// 物理删除授权（rows_affected > 0 表示命中）。
-pub async fn delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
-    let res = sqlx::query("DELETE FROM partition_permissions WHERE id = ?1")
+pub async fn delete(pool: &PgPool, id: i64) -> AppResult<bool> {
+    let res = sqlx::query("DELETE FROM partition_permissions WHERE id = $1")
         .bind(id)
         .execute(pool)
         .await?;

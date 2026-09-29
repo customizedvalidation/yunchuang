@@ -3,7 +3,7 @@
 //! CRUD + 分页 + name 搜索 + 软删除 + 集群资源状态统计。
 //! handler 只做参数提取与响应封装。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::cluster::{self, Cluster, ClusterResponse};
@@ -49,9 +49,9 @@ pub struct ClusterResourceStats {
 }
 
 /// 按名称检查是否已存在未删除的集群。
-async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<bool> {
+async fn name_taken(pool: &PgPool, name: &str, except_id: i64) -> AppResult<bool> {
     let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM clusters WHERE name = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1",
+        "SELECT id FROM clusters WHERE name = $1 AND deleted_at IS NULL AND id != $2 LIMIT 1",
     )
     .bind(name)
     .bind(except_id)
@@ -62,7 +62,7 @@ async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<
 
 /// 创建集群（status 固定 active，对齐 Go `CreateCluster`）。
 pub async fn create_cluster(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateClusterInput,
 ) -> AppResult<ClusterResponse> {
     if name_taken(pool, &input.name, 0).await? {
@@ -92,7 +92,7 @@ pub async fn create_cluster(
 }
 
 /// 集群详情（404 若不存在或已软删除）。
-pub async fn get_cluster(pool: &SqlitePool, id: i64) -> AppResult<ClusterResponse> {
+pub async fn get_cluster(pool: &PgPool, id: i64) -> AppResult<ClusterResponse> {
     let c = cluster::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("cluster not found"))?;
@@ -101,7 +101,7 @@ pub async fn get_cluster(pool: &SqlitePool, id: i64) -> AppResult<ClusterRespons
 
 /// 分页集群列表（可按 name 模糊搜索；过滤软删除）。
 pub async fn list_clusters(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     search: Option<&str>,
 ) -> AppResult<PaginatedResult<ClusterResponse>> {
@@ -146,7 +146,7 @@ pub async fn list_clusters(
 
 /// 更新集群：仅覆盖传入字段；重名校验；自动刷 updated_at。
 pub async fn update_cluster(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateClusterInput,
 ) -> AppResult<ClusterResponse> {
@@ -163,18 +163,18 @@ pub async fn update_cluster(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE clusters SET \
-            name = COALESCE(?1, name), \
-            description = COALESCE(?2, description), \
-            status = COALESCE(?3, status), \
-            nodes = COALESCE(?4, nodes), \
-            gpus = COALESCE(?5, gpus), \
-            cpus = COALESCE(?6, cpus), \
-            memory = COALESCE(?7, memory), \
-            storage = COALESCE(?8, storage), \
-            network_type = COALESCE(?9, network_type), \
-            location = COALESCE(?10, location), \
-            updated_at = ?11 \
-         WHERE id = ?12 AND deleted_at IS NULL",
+            name = COALESCE($1, name), \
+            description = COALESCE($2, description), \
+            status = COALESCE($3, status), \
+            nodes = COALESCE($4, nodes), \
+            gpus = COALESCE($5, gpus), \
+            cpus = COALESCE($6, cpus), \
+            memory = COALESCE($7, memory), \
+            storage = COALESCE($8, storage), \
+            network_type = COALESCE($9, network_type), \
+            location = COALESCE($10, location), \
+            updated_at = $11 \
+         WHERE id = $12 AND deleted_at IS NULL",
     )
     .bind(&input.name)
     .bind(&input.description)
@@ -198,7 +198,7 @@ pub async fn update_cluster(
 }
 
 /// 软删除集群（404 若不存在或已软删除）。
-pub async fn delete_cluster(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_cluster(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = cluster::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("cluster not found"));
@@ -207,14 +207,14 @@ pub async fn delete_cluster(pool: &SqlitePool, id: i64) -> AppResult<()> {
 }
 
 /// 集群资源状态统计（按 GPU 资源聚合，对齐 Go GetClusterStatus 口径）。
-pub async fn cluster_stats(pool: &SqlitePool, id: i64) -> AppResult<ClusterResourceStats> {
+pub async fn cluster_stats(pool: &PgPool, id: i64) -> AppResult<ClusterResourceStats> {
     // 404 早判。
     cluster::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("cluster not found"))?;
 
     let total_resources: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM resources WHERE cluster_id = ?1 AND deleted_at IS NULL",
+        "SELECT COUNT(*) FROM resources WHERE cluster_id = $1 AND deleted_at IS NULL",
     )
     .bind(id)
     .fetch_one(pool)
@@ -222,7 +222,7 @@ pub async fn cluster_stats(pool: &SqlitePool, id: i64) -> AppResult<ClusterResou
 
     let (total_gpu, used_gpu): (Option<i64>, Option<i64>) = sqlx::query_as(
         "SELECT COALESCE(SUM(total), 0), COALESCE(SUM(used), 0) \
-         FROM resources WHERE cluster_id = ?1 AND type = 'gpu' AND deleted_at IS NULL",
+         FROM resources WHERE cluster_id = $1 AND type = 'gpu' AND deleted_at IS NULL",
     )
     .bind(id)
     .fetch_one(pool)

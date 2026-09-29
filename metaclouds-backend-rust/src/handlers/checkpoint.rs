@@ -79,7 +79,7 @@ pub async fn list_checkpoints(
     let params = PaginationParams::new(page, page_size);
 
     let res =
-        checkpoint_service::list_checkpoints(&state.pool, params, q.job_id, q.dataset_id).await?;
+        checkpoint_service::list_checkpoints(&state.pool.pool, params, q.job_id, q.dataset_id).await?;
     Ok(Json(ApiResponse::success(res.data)))
 }
 
@@ -89,7 +89,7 @@ pub async fn get_checkpoint(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<CheckpointResponse>>> {
-    let ckpt = checkpoint_service::get_checkpoint(&state.pool, id).await?;
+    let ckpt = checkpoint_service::get_checkpoint(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(ckpt)))
 }
 
@@ -103,7 +103,7 @@ pub async fn get_latest_checkpoint(
     Path(job_id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<CheckpointResponse>>> {
     let params = PaginationParams::new(1, 1);
-    let res = checkpoint_service::list_checkpoints(&state.pool, params, Some(job_id), None).await?;
+    let res = checkpoint_service::list_checkpoints(&state.pool.pool, params, Some(job_id), None).await?;
     let latest = res
         .data
         .into_iter()
@@ -135,7 +135,7 @@ pub async fn create_checkpoint(
         created_by: claims.user_id as i64,
         status: body.status,
     };
-    let ckpt = checkpoint_service::create_checkpoint(&state.pool, input).await?;
+    let ckpt = checkpoint_service::create_checkpoint(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(ckpt),
@@ -161,7 +161,7 @@ pub async fn update_checkpoint(
         metrics: body.metrics,
         status: body.status,
     };
-    let ckpt = checkpoint_service::update_checkpoint(&state.pool, id, input).await?;
+    let ckpt = checkpoint_service::update_checkpoint(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(ckpt)))
 }
 
@@ -171,6 +171,6 @@ pub async fn delete_checkpoint(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    checkpoint_service::delete_checkpoint(&state.pool, id).await?;
+    checkpoint_service::delete_checkpoint(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

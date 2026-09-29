@@ -6,7 +6,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -91,7 +91,7 @@ pub struct NewFluidCache<'a> {
 }
 
 /// INSERT fluid_cache。
-pub async fn create(pool: &SqlitePool, input: NewFluidCache<'_>) -> AppResult<FluidCache> {
+pub async fn create(pool: &PgPool, input: NewFluidCache<'_>) -> AppResult<FluidCache> {
     let mut cache = FluidCache {
         id: 0,
         created_at: Utc::now(),
@@ -109,7 +109,7 @@ pub async fn create(pool: &SqlitePool, input: NewFluidCache<'_>) -> AppResult<Fl
 
     let res = sqlx::query(
         "INSERT INTO fluid_caches (created_at, updated_at, name, dataset_id, namespace, \
-         path, cache_class, replicas, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         path, cache_class, replicas, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(cache.created_at)
     .bind(cache.updated_at)
@@ -131,21 +131,21 @@ pub async fn create(pool: &SqlitePool, input: NewFluidCache<'_>) -> AppResult<Fl
 
 /// 按 id 查询。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<FluidCache>> {
     let sql = if include_deleted {
-        "SELECT * FROM fluid_caches WHERE id = ?1"
+        "SELECT * FROM fluid_caches WHERE id = $1"
     } else {
-        "SELECT * FROM fluid_caches WHERE id = ?1 AND deleted_at IS NULL"
+        "SELECT * FROM fluid_caches WHERE id = $1 AND deleted_at IS NULL"
     };
     Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
 }
 
 /// 按 dataset_id 过滤分页列表。
 pub async fn list_by_dataset(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     dataset_id: Option<i64>,
 ) -> AppResult<PaginatedResult<FluidCache>> {
@@ -175,7 +175,7 @@ pub async fn list_by_dataset(
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("fluid_caches"))
         .bind(now)

@@ -88,7 +88,7 @@ pub async fn list_jobs(
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = job::list_jobs(
-        &state.pool,
+        &state.pool.pool,
         params,
         q.status.as_deref(),
         q.kind.as_deref(),
@@ -107,7 +107,7 @@ pub async fn get_job_stats(
     State(state): State<AppState>,
     claims: Claims,
 ) -> AppResult<Json<ApiResponse<std::collections::HashMap<String, i64>>>> {
-    let stats = job::get_job_stats(&state.pool, actor_from_claims(&claims)).await?;
+    let stats = job::get_job_stats(&state.pool.pool, actor_from_claims(&claims)).await?;
     Ok(Json(ApiResponse::success(stats)))
 }
 
@@ -118,7 +118,7 @@ pub async fn get_job(
     claims: Claims,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<JobResponse>>> {
-    let j = job::get_job(&state.pool, id, actor_from_claims(&claims)).await?;
+    let j = job::get_job(&state.pool.pool, id, actor_from_claims(&claims)).await?;
     Ok(Json(ApiResponse::success(j)))
 }
 
@@ -133,7 +133,7 @@ pub async fn get_job_status(
     claims: Claims,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
-    let j = job::get_job(&state.pool, id, actor_from_claims(&claims)).await?;
+    let j = job::get_job(&state.pool.pool, id, actor_from_claims(&claims)).await?;
     let phase = match j.status.as_str() {
         "running" => "Running",
         "pending" => "Pending",
@@ -148,7 +148,7 @@ pub async fn get_job_status(
             "SELECT name FROM clusters WHERE id = ? AND deleted_at IS NULL",
         )
         .bind(j.cluster_id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&state.pool.pool)
         .await?
     } else {
         None
@@ -164,7 +164,7 @@ pub async fn get_job_status(
          ORDER BY a.id ASC",
     )
     .bind(id)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.pool.pool)
     .await?;
     let gpu_allocations: Vec<serde_json::Value> = rows
         .into_iter()
@@ -215,7 +215,7 @@ pub async fn create_job(
         duration: body.duration.unwrap_or(0),
         cluster_id: body.cluster_id.unwrap_or(0),
     };
-    let j = job::create_job(&state.pool, input, actor_from_claims(&claims)).await?;
+    let j = job::create_job(&state.pool.pool, input, actor_from_claims(&claims)).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(j),
@@ -240,7 +240,7 @@ pub async fn update_job(
         output_path: body.output_path,
         error_msg: body.error_msg,
     };
-    let j = job::update_job(&state.pool, id, input, actor_from_claims(&claims)).await?;
+    let j = job::update_job(&state.pool.pool, id, input, actor_from_claims(&claims)).await?;
     Ok(Json(ApiResponse::success(j)))
 }
 
@@ -251,7 +251,7 @@ pub async fn delete_job(
     claims: Claims,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    job::delete_job(&state.pool, id, actor_from_claims(&claims)).await?;
+    job::delete_job(&state.pool.pool, id, actor_from_claims(&claims)).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -262,7 +262,7 @@ pub async fn cancel_job(
     claims: Claims,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<JobResponse>>> {
-    let j = job::cancel_job(&state.pool, id, actor_from_claims(&claims)).await?;
+    let j = job::cancel_job(&state.pool.pool, id, actor_from_claims(&claims)).await?;
     Ok(Json(ApiResponse::success(j)))
 }
 
@@ -277,7 +277,7 @@ pub async fn submit_job_to_k8s(
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
     // 校验作业存在（兼做归属校验），不存在则 404。
-    job::get_job(&state.pool, id, actor_from_claims(&claims)).await?;
+    job::get_job(&state.pool.pool, id, actor_from_claims(&claims)).await?;
     Ok(Json(ApiResponse::success(serde_json::json!({
         "message": "submit accepted",
         "job_id": id,

@@ -111,7 +111,7 @@ pub async fn list_partitions(
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = partition_service::list_partitions(
-        &state.pool,
+        &state.pool.pool,
         params,
         q.cluster_id,
         q.status.as_deref(),
@@ -128,7 +128,7 @@ pub async fn get_partition(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<PartitionResponse>>> {
-    let p = partition_service::get_partition(&state.pool, id).await?;
+    let p = partition_service::get_partition(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(p)))
 }
 
@@ -154,7 +154,7 @@ pub async fn create_partition(
         labels: body.labels.unwrap_or(Value::Object(serde_json::Map::new())),
         tenant_id: body.tenant_id,
     };
-    let p = partition_service::create_partition(&state.pool, input).await?;
+    let p = partition_service::create_partition(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(p),
@@ -181,7 +181,7 @@ pub async fn update_partition(
         labels: body.labels,
         tenant_id: body.tenant_id.map(Some),
     };
-    let p = partition_service::update_partition(&state.pool, id, input).await?;
+    let p = partition_service::update_partition(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(p)))
 }
 
@@ -191,7 +191,7 @@ pub async fn delete_partition(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    partition_service::delete_partition(&state.pool, id).await?;
+    partition_service::delete_partition(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -201,7 +201,7 @@ pub async fn get_partition_resources(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<partition_service::PartitionResources>>> {
-    let r = partition_service::get_partition_resources(&state.pool, id).await?;
+    let r = partition_service::get_partition_resources(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(r)))
 }
 
@@ -227,7 +227,7 @@ pub async fn grant_permission(
         granted_by: 1,
         expires_at,
     };
-    let perm = permission_service::grant_permission(&state.pool, input).await?;
+    let perm = permission_service::grant_permission(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(perm),
@@ -240,7 +240,7 @@ pub async fn revoke_permission(
     State(state): State<AppState>,
     Path((_id, perm_id)): Path<(i64, i64)>,
 ) -> AppResult<StatusCode> {
-    permission_service::revoke_permission(&state.pool, perm_id).await?;
+    permission_service::revoke_permission(&state.pool.pool, perm_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -254,7 +254,7 @@ pub async fn revoke_permission_by_id(
     State(state): State<AppState>,
     Path(perm_id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    permission_service::revoke_permission(&state.pool, perm_id).await?;
+    permission_service::revoke_permission(&state.pool.pool, perm_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -264,7 +264,7 @@ pub async fn update_priority(
     Path(id): Path<i64>,
     Json(body): Json<UpdatePriorityRequest>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
-    partition_service::update_priority(&state.pool, id, body.priority).await?;
+    partition_service::update_priority(&state.pool.pool, id, body.priority).await?;
     Ok(Json(ApiResponse::success(serde_json::json!({
         "message": "priority updated",
     }))))
@@ -276,7 +276,7 @@ pub async fn update_max_runtime(
     Path(id): Path<i64>,
     Json(body): Json<UpdateMaxRuntimeRequest>,
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
-    partition_service::update_max_runtime(&state.pool, id, body.max_runtime_minutes).await?;
+    partition_service::update_max_runtime(&state.pool.pool, id, body.max_runtime_minutes).await?;
     Ok(Json(ApiResponse::success(serde_json::json!({
         "message": "max runtime updated",
     }))))
@@ -287,6 +287,6 @@ pub async fn list_partition_permissions(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<Vec<PartitionPermissionResponse>>>> {
-    let perms = permission_service::list_permissions_by_partition(&state.pool, id).await?;
+    let perms = permission_service::list_permissions_by_partition(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(perms)))
 }

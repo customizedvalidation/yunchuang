@@ -3,7 +3,7 @@
 //! CRUD + 分页 + 按 type/cluster_id 过滤 + name 搜索 + 软删除。
 //! handler 只做参数提取与响应封装，所有 DB 操作在本层。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::resource::{self, NewResource, Resource, ResourceResponse};
@@ -42,7 +42,7 @@ pub struct UpdateResourceInput {
 
 /// 创建资源。
 pub async fn create_resource(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateResourceInput,
 ) -> AppResult<ResourceResponse> {
     let resource = resource::create(
@@ -70,7 +70,7 @@ pub async fn create_resource(
 }
 
 /// 资源详情（404 若不存在或已软删除）。
-pub async fn get_resource(pool: &SqlitePool, id: i64) -> AppResult<ResourceResponse> {
+pub async fn get_resource(pool: &PgPool, id: i64) -> AppResult<ResourceResponse> {
     let resource = resource::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("resource not found"))?;
@@ -79,7 +79,7 @@ pub async fn get_resource(pool: &SqlitePool, id: i64) -> AppResult<ResourceRespo
 
 /// 分页资源列表（可按 type / cluster_id 过滤，按 name 搜索）。
 pub async fn list_resources(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     kind: Option<&str>,
     cluster_id: Option<i64>,
@@ -98,7 +98,7 @@ pub async fn list_resources(
 
 /// 更新资源：仅覆盖传入字段，自动刷 updated_at。
 pub async fn update_resource(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateResourceInput,
 ) -> AppResult<ResourceResponse> {
@@ -109,14 +109,14 @@ pub async fn update_resource(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE resources SET \
-            status = COALESCE(?1, status), \
-            total = COALESCE(?2, total), \
-            used = COALESCE(?3, used), \
-            available = COALESCE(?4, available), \
-            utilization = COALESCE(?5, utilization), \
-            details = COALESCE(?6, details), \
-            updated_at = ?7 \
-         WHERE id = ?8 AND deleted_at IS NULL",
+            status = COALESCE($1, status), \
+            total = COALESCE($2, total), \
+            used = COALESCE($3, used), \
+            available = COALESCE($4, available), \
+            utilization = COALESCE($5, utilization), \
+            details = COALESCE($6, details), \
+            updated_at = $7 \
+         WHERE id = $8 AND deleted_at IS NULL",
     )
     .bind(&input.status)
     .bind(input.total)
@@ -136,7 +136,7 @@ pub async fn update_resource(
 }
 
 /// 软删除资源（404 若不存在或已软删除）。
-pub async fn delete_resource(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_resource(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = resource::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("resource not found"));

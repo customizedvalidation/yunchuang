@@ -85,7 +85,7 @@ pub async fn get_quota_usage(
 ) -> AppResult<Json<ApiResponse<serde_json::Value>>> {
     let scope_type = q.scope_type.unwrap_or_default();
     let scope_id = q.scope_id.unwrap_or(0);
-    let pool = &state.pool;
+    let pool = &state.pool.pool;
 
     // 按 scope 构造设备过滤子句；每个非缺省分支恰好含一个 `?` 占位符。
     let (filter_sql, bind_scope) = match scope_type.as_str() {
@@ -228,7 +228,7 @@ pub async fn list_quotas(
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = quota_service::list_quotas(
-        &state.pool,
+        &state.pool.pool,
         params,
         q.tenant_id,
         q.partition_id,
@@ -244,7 +244,7 @@ pub async fn get_quota(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<ResourceQuotaResponse>>> {
-    let q = quota_service::get_quota(&state.pool, id).await?;
+    let q = quota_service::get_quota(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(q)))
 }
 
@@ -266,7 +266,7 @@ pub async fn create_quota(
         storage_limit_gb: body.storage_limit_gb.unwrap_or(0.0),
         status: body.status,
     };
-    let q = quota_service::create_quota(&state.pool, input).await?;
+    let q = quota_service::create_quota(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(q),
@@ -290,7 +290,7 @@ pub async fn update_quota(
         storage_limit_gb: body.storage_limit_gb,
         status: body.status,
     };
-    let q = quota_service::update_quota(&state.pool, id, input).await?;
+    let q = quota_service::update_quota(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(q)))
 }
 
@@ -300,7 +300,7 @@ pub async fn delete_quota(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    quota_service::delete_quota(&state.pool, id).await?;
+    quota_service::delete_quota(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -311,7 +311,7 @@ pub async fn check_quota(
     Json(body): Json<CheckQuotaRequest>,
 ) -> AppResult<Json<ApiResponse<CheckQuotaResponse>>> {
     let allowed = quota_service::check_quota_by_scope(
-        &state.pool,
+        &state.pool.pool,
         &body.scope_type,
         body.scope_id,
         &body.resource_type,

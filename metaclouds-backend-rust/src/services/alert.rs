@@ -4,7 +4,7 @@
 
 use chrono::Utc;
 use serde::Serialize;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::alert::{self, Alert, AlertListFilter, AlertResponse, NewAlert};
@@ -40,7 +40,7 @@ pub struct UpdateAlertInput {
 }
 
 /// 创建。
-pub async fn create_alert(pool: &SqlitePool, input: CreateAlertInput) -> AppResult<AlertResponse> {
+pub async fn create_alert(pool: &PgPool, input: CreateAlertInput) -> AppResult<AlertResponse> {
     let alert = alert::create(
         pool,
         NewAlert {
@@ -62,7 +62,7 @@ pub async fn create_alert(pool: &SqlitePool, input: CreateAlertInput) -> AppResu
 }
 
 /// 详情。
-pub async fn get_alert(pool: &SqlitePool, id: i64) -> AppResult<AlertResponse> {
+pub async fn get_alert(pool: &PgPool, id: i64) -> AppResult<AlertResponse> {
     let a = alert::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("alert not found"))?;
@@ -72,7 +72,7 @@ pub async fn get_alert(pool: &SqlitePool, id: i64) -> AppResult<AlertResponse> {
 /// 分页列表。
 #[allow(clippy::too_many_arguments)]
 pub async fn list_alerts(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     severity: Option<&str>,
     kind: Option<&str>,
@@ -105,7 +105,7 @@ pub async fn list_alerts(
 
 /// 更新。
 pub async fn update_alert(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateAlertInput,
 ) -> AppResult<AlertResponse> {
@@ -150,7 +150,7 @@ pub async fn update_alert(
 }
 
 /// 软删除。
-pub async fn delete_alert(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_alert(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = alert::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("alert not found"));
@@ -160,7 +160,7 @@ pub async fn delete_alert(pool: &SqlitePool, id: i64) -> AppResult<()> {
 
 /// 确认告警：status → acknowledged，记录 acknowledged_at / acknowledged_by。
 pub async fn acknowledge_alert(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     user_id: i64,
 ) -> AppResult<AlertResponse> {
@@ -190,7 +190,7 @@ pub async fn acknowledge_alert(
 }
 
 /// 解决告警：status → resolved，记录 resolved_at。
-pub async fn resolve_alert(pool: &SqlitePool, id: i64) -> AppResult<AlertResponse> {
+pub async fn resolve_alert(pool: &PgPool, id: i64) -> AppResult<AlertResponse> {
     alert::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("alert not found"))?;
@@ -221,7 +221,7 @@ pub struct AlertStats {
     pub active: i64,
 }
 
-pub async fn get_alert_stats(pool: &SqlitePool) -> AppResult<AlertStats> {
+pub async fn get_alert_stats(pool: &PgPool) -> AppResult<AlertStats> {
     let sev_rows = alert::count_by_severity(pool).await?;
     let status_rows = alert::count_by_status(pool).await?;
 

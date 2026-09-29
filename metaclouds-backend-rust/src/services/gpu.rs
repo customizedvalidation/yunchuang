@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::gpu_allocation::{
@@ -72,7 +72,7 @@ pub struct AllocateGpuInput {
 
 /// 创建 GPU 设备。
 pub async fn create_gpu_device(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateGpuDeviceInput,
 ) -> AppResult<GpuDeviceResponse> {
     let device = gpu_device::create(
@@ -102,7 +102,7 @@ pub async fn create_gpu_device(
 }
 
 /// GPU 设备详情。
-pub async fn get_gpu_device(pool: &SqlitePool, id: i64) -> AppResult<GpuDeviceResponse> {
+pub async fn get_gpu_device(pool: &PgPool, id: i64) -> AppResult<GpuDeviceResponse> {
     let device = gpu_device::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("GPU device not found"))?;
@@ -111,7 +111,7 @@ pub async fn get_gpu_device(pool: &SqlitePool, id: i64) -> AppResult<GpuDeviceRe
 
 /// 分页 GPU 设备列表（按 cluster_id/vendor/status 过滤）。
 pub async fn list_gpu_devices(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     cluster_id: Option<i64>,
     vendor: Option<&str>,
@@ -134,7 +134,7 @@ pub async fn list_gpu_devices(
 
 /// 更新 GPU 设备：仅覆盖传入字段。
 pub async fn update_gpu_device(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateGpuDeviceInput,
 ) -> AppResult<GpuDeviceResponse> {
@@ -190,7 +190,7 @@ pub async fn update_gpu_device(
 }
 
 /// 软删除 GPU 设备。
-pub async fn delete_gpu_device(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_gpu_device(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = gpu_device::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("GPU device not found"));
@@ -200,7 +200,7 @@ pub async fn delete_gpu_device(pool: &SqlitePool, id: i64) -> AppResult<()> {
 
 /// 分配 GPU：挑选满足 vendor/显存/fraction 容量的可用设备，创建 allocation 并联动设备状态。
 pub async fn allocate_gpu(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: AllocateGpuInput,
 ) -> AppResult<GpuAllocationResponse> {
     // 查找可用设备：status available/allocated，vendor 匹配，显存充足，fraction 未超限。
@@ -286,7 +286,7 @@ pub async fn allocate_gpu(
 }
 
 /// 释放 GPU 分配：标记 released，回写设备显存与状态。
-pub async fn release_gpu(pool: &SqlitePool, allocation_id: i64) -> AppResult<()> {
+pub async fn release_gpu(pool: &PgPool, allocation_id: i64) -> AppResult<()> {
     let alloc = gpu_allocation::get_by_id(pool, allocation_id)
         .await?
         .ok_or_else(|| AppError::not_found("GPU allocation not found"))?;
@@ -328,7 +328,7 @@ pub async fn release_gpu(pool: &SqlitePool, allocation_id: i64) -> AppResult<()>
 
 /// 分页分配记录列表（按 job_id/user_id/status 过滤）。
 pub async fn list_allocations(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     job_id: Option<i64>,
     user_id: Option<i64>,
@@ -355,7 +355,7 @@ pub async fn list_allocations(
 
 /// GPU 利用率汇总（按 cluster_id 可选过滤）。
 pub async fn get_gpu_utilization_summary(
-    pool: &SqlitePool,
+    pool: &PgPool,
     cluster_id: Option<i64>,
 ) -> AppResult<HashMap<String, serde_json::Value>> {
     let rows: Vec<GpuDevice> = match cluster_id {

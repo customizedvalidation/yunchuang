@@ -81,7 +81,7 @@ pub async fn list_suites(
     let params = PaginationParams::new(page, page_size);
 
     let res =
-        acceleration_service::list_suites(&state.pool, params, q.tenant_id, q.status.as_deref())
+        acceleration_service::list_suites(&state.pool.pool, params, q.tenant_id, q.status.as_deref())
             .await?;
     Ok(Json(ApiResponse::success(res.data)))
 }
@@ -92,7 +92,7 @@ pub async fn get_suite(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<AccelerationSuiteResponse>>> {
-    let suite = acceleration_service::get_suite(&state.pool, id).await?;
+    let suite = acceleration_service::get_suite(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(suite)))
 }
 
@@ -117,7 +117,7 @@ pub async fn create_suite(
         created_by: claims.user_id as i64,
         status: body.status,
     };
-    let suite = acceleration_service::create_suite(&state.pool, input).await?;
+    let suite = acceleration_service::create_suite(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(suite),
@@ -143,7 +143,7 @@ pub async fn update_suite(
         acceleration_config: body.acceleration_config,
         status: body.status,
     };
-    let suite = acceleration_service::update_suite(&state.pool, id, input).await?;
+    let suite = acceleration_service::update_suite(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(suite)))
 }
 
@@ -153,7 +153,7 @@ pub async fn delete_suite(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    acceleration_service::delete_suite(&state.pool, id).await?;
+    acceleration_service::delete_suite(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -163,7 +163,7 @@ pub async fn start_suite(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<AccelerationSuiteResponse>>> {
-    let suite = acceleration_service::start_suite(&state.pool, id).await?;
+    let suite = acceleration_service::start_suite(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(suite)))
 }
 
@@ -173,6 +173,6 @@ pub async fn stop_suite(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<AccelerationSuiteResponse>>> {
-    let suite = acceleration_service::stop_suite(&state.pool, id).await?;
+    let suite = acceleration_service::stop_suite(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(suite)))
 }

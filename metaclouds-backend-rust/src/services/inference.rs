@@ -2,7 +2,7 @@
 //!
 //! CRUD + 分页。
 
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::inference_config::{self, InferenceConfig, InferenceConfigResponse};
@@ -44,7 +44,7 @@ pub struct UpdateInferenceConfigInput {
 
 /// 创建。
 pub async fn create_inference_config(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateInferenceConfigInput,
 ) -> AppResult<InferenceConfigResponse> {
     let status = input.status.unwrap_or_else(|| "active".to_string());
@@ -72,7 +72,7 @@ pub async fn create_inference_config(
 
 /// 详情。
 pub async fn get_inference_config(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
 ) -> AppResult<InferenceConfigResponse> {
     let cfg = inference_config::get_by_id(pool, id, false)
@@ -83,7 +83,7 @@ pub async fn get_inference_config(
 
 /// 分页列表。
 pub async fn list_inference_configs(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     tenant_id: Option<i64>,
 ) -> AppResult<PaginatedResult<InferenceConfigResponse>> {
@@ -104,7 +104,7 @@ pub async fn list_inference_configs(
 
 /// 更新。
 pub async fn update_inference_config(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateInferenceConfigInput,
 ) -> AppResult<InferenceConfigResponse> {
@@ -115,19 +115,19 @@ pub async fn update_inference_config(
     let now = chrono::Utc::now();
     sqlx::query(
         "UPDATE inference_configs SET \
-            name = COALESCE(?1, name), \
-            description = COALESCE(?2, description), \
-            model_path = COALESCE(?3, model_path), \
-            runtime = COALESCE(?4, runtime), \
-            replicas = COALESCE(?5, replicas), \
-            gpu_per_replica = COALESCE(?6, gpu_per_replica), \
-            cpu_per_replica = COALESCE(?7, cpu_per_replica), \
-            memory_per_replica_gb = COALESCE(?8, memory_per_replica_gb), \
-            port = COALESCE(?9, port), \
-            health_check_path = COALESCE(?10, health_check_path), \
-            status = COALESCE(?11, status), \
-            updated_at = ?12 \
-         WHERE id = ?13 AND deleted_at IS NULL",
+            name = COALESCE($1, name), \
+            description = COALESCE($2, description), \
+            model_path = COALESCE($3, model_path), \
+            runtime = COALESCE($4, runtime), \
+            replicas = COALESCE($5, replicas), \
+            gpu_per_replica = COALESCE($6, gpu_per_replica), \
+            cpu_per_replica = COALESCE($7, cpu_per_replica), \
+            memory_per_replica_gb = COALESCE($8, memory_per_replica_gb), \
+            port = COALESCE($9, port), \
+            health_check_path = COALESCE($10, health_check_path), \
+            status = COALESCE($11, status), \
+            updated_at = $12 \
+         WHERE id = $13 AND deleted_at IS NULL",
     )
     .bind(input.name)
     .bind(input.description)
@@ -152,7 +152,7 @@ pub async fn update_inference_config(
 }
 
 /// 软删除。
-pub async fn delete_inference_config(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_inference_config(pool: &PgPool, id: i64) -> AppResult<()> {
     let hit = inference_config::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("inference config not found"));

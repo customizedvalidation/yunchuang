@@ -9,7 +9,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -120,13 +120,13 @@ pub struct NewQuota {
 }
 
 /// INSERT 配额（自动时间戳；used 字段初始化为 0）。
-pub async fn create(pool: &SqlitePool, input: NewQuota) -> AppResult<ResourceQuota> {
+pub async fn create(pool: &PgPool, input: NewQuota) -> AppResult<ResourceQuota> {
     let now = Utc::now();
     let res = sqlx::query(
         "INSERT INTO resource_quotas (created_at, updated_at, name, description, tenant_id, \
          partition_id, gpu_limit, gpu_used, cpu_limit, cpu_used, memory_limit_gb, memory_used_gb, \
          storage_limit_gb, storage_used_gb, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, 0, ?9, 0, ?10, 0, ?11)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, 0, $9, 0, $10, 0, $11)",
     )
     .bind(now)
     .bind(now)
@@ -150,20 +150,20 @@ pub async fn create(pool: &SqlitePool, input: NewQuota) -> AppResult<ResourceQuo
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<ResourceQuota>> {
     let sql = if include_deleted {
-        "SELECT * FROM resource_quotas WHERE id = ?1"
+        "SELECT * FROM resource_quotas WHERE id = $1"
     } else {
-        "SELECT * FROM resource_quotas WHERE id = ?1 AND deleted_at IS NULL"
+        "SELECT * FROM resource_quotas WHERE id = $1 AND deleted_at IS NULL"
     };
     Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("resource_quotas"))
         .bind(now)
@@ -176,7 +176,7 @@ pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
 
 /// 分页列表（动态 WHERE：软删除 + 可选 tenant_id / partition_id / status）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     tenant_id: Option<i64>,
     partition_id: Option<i64>,

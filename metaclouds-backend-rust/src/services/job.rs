@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::job::{self, status as job_status, Job, JobFilter, JobResponse, NewJob};
@@ -51,7 +51,7 @@ pub struct UpdateJobInput {
 
 /// 创建作业：初始化状态 pending，priority 夹紧到 [0,3]。
 pub async fn create_job(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: CreateJobInput,
     actor: Actor,
 ) -> AppResult<JobResponse> {
@@ -83,7 +83,7 @@ pub async fn create_job(
 }
 
 /// 作业详情（租户隔离：越权返回 404）。
-pub async fn get_job(pool: &SqlitePool, id: i64, actor: Actor) -> AppResult<JobResponse> {
+pub async fn get_job(pool: &PgPool, id: i64, actor: Actor) -> AppResult<JobResponse> {
     let job = job::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("job not found"))?;
@@ -96,7 +96,7 @@ pub async fn get_job(pool: &SqlitePool, id: i64, actor: Actor) -> AppResult<JobR
 /// 分页作业列表（按 status/type/cluster_id/user_id 过滤，按 name 搜索；非管理员限本租户）。
 #[allow(clippy::too_many_arguments)]
 pub async fn list_jobs(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     status: Option<&str>,
     kind: Option<&str>,
@@ -157,7 +157,7 @@ fn allowed_transition(from: &str, to: &str) -> bool {
 
 /// 更新作业：仅覆盖传入字段；状态流转走状态机校验。
 pub async fn update_job(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     input: UpdateJobInput,
     actor: Actor,
@@ -224,7 +224,7 @@ pub async fn update_job(
 }
 
 /// 软删除作业（租户隔离）。
-pub async fn delete_job(pool: &SqlitePool, id: i64, actor: Actor) -> AppResult<()> {
+pub async fn delete_job(pool: &PgPool, id: i64, actor: Actor) -> AppResult<()> {
     let existing = job::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("job not found"))?;
@@ -239,7 +239,7 @@ pub async fn delete_job(pool: &SqlitePool, id: i64, actor: Actor) -> AppResult<(
 }
 
 /// 取消作业：仅 pending / running 可取消，置为 cancelled。
-pub async fn cancel_job(pool: &SqlitePool, id: i64, actor: Actor) -> AppResult<JobResponse> {
+pub async fn cancel_job(pool: &PgPool, id: i64, actor: Actor) -> AppResult<JobResponse> {
     let existing = job::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("job not found"))?;
@@ -270,7 +270,7 @@ pub async fn cancel_job(pool: &SqlitePool, id: i64, actor: Actor) -> AppResult<J
 }
 
 /// 按状态统计作业数量（非管理员限本租户）。
-pub async fn get_job_stats(pool: &SqlitePool, actor: Actor) -> AppResult<HashMap<String, i64>> {
+pub async fn get_job_stats(pool: &PgPool, actor: Actor) -> AppResult<HashMap<String, i64>> {
     let tenant_filter = if actor.is_admin {
         None
     } else {
@@ -282,7 +282,7 @@ pub async fn get_job_stats(pool: &SqlitePool, actor: Actor) -> AppResult<HashMap
 
 /// 供内部/调度器按 id 取作业（无租户隔离；HTTP 入口勿用）。
 #[allow(dead_code)]
-pub async fn get_job_unscoped(pool: &SqlitePool, id: i64) -> AppResult<Job> {
+pub async fn get_job_unscoped(pool: &PgPool, id: i64) -> AppResult<Job> {
     job::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("job not found"))

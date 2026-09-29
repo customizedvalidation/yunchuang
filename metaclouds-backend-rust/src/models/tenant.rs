@@ -6,7 +6,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -93,7 +93,7 @@ pub struct NewTenant<'a> {
 }
 
 /// INSERT 租户（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewTenant<'_>) -> AppResult<Tenant> {
+pub async fn create(pool: &PgPool, input: NewTenant<'_>) -> AppResult<Tenant> {
     let mut tenant = Tenant {
         id: 0,
         created_at: Utc::now(),
@@ -112,7 +112,7 @@ pub async fn create(pool: &SqlitePool, input: NewTenant<'_>) -> AppResult<Tenant
     let res = sqlx::query(
         "INSERT INTO tenants (created_at, updated_at, name, description, status, \
          gpu_quota, cpu_quota, memory_quota, storage_quota) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(tenant.created_at)
     .bind(tenant.updated_at)
@@ -134,21 +134,21 @@ pub async fn create(pool: &SqlitePool, input: NewTenant<'_>) -> AppResult<Tenant
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Tenant>> {
     let sql = if include_deleted {
-        "SELECT * FROM tenants WHERE id = ?1"
+        "SELECT * FROM tenants WHERE id = $1"
     } else {
-        "SELECT * FROM tenants WHERE id = ?1 AND deleted_at IS NULL"
+        "SELECT * FROM tenants WHERE id = $1 AND deleted_at IS NULL"
     };
     Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
 }
 
 /// 分页列表。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     include_deleted: bool,
 ) -> AppResult<PaginatedResult<Tenant>> {
@@ -164,7 +164,7 @@ pub async fn list(
         .await?;
 
     let rows: Vec<Tenant> = sqlx::query_as(&format!(
-        "SELECT * FROM tenants{where_clause} ORDER BY id ASC LIMIT ?1 OFFSET ?2"
+        "SELECT * FROM tenants{where_clause} ORDER BY id ASC LIMIT $1 OFFSET $2"
     ))
     .bind(params.limit())
     .bind(params.offset())
@@ -176,7 +176,7 @@ pub async fn list(
 
 /// 更新租户状态与配额（自动刷 updated_at）。
 pub async fn update(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     status: Option<&str>,
     gpu_quota: Option<i64>,
@@ -193,7 +193,7 @@ pub async fn update(
     }
     existing.before_update();
 
-    sqlx::query("UPDATE tenants SET status = ?1, gpu_quota = ?2, updated_at = ?3 WHERE id = ?4")
+    sqlx::query("UPDATE tenants SET status = $1, gpu_quota = $2, updated_at = $3 WHERE id = $4")
         .bind(&existing.status)
         .bind(existing.gpu_quota)
         .bind(existing.updated_at)
@@ -205,7 +205,7 @@ pub async fn update(
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("tenants"))
         .bind(now)

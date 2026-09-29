@@ -127,7 +127,7 @@ pub async fn list_gpu_devices(
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = gpu::list_gpu_devices(
-        &state.pool,
+        &state.pool.pool,
         params,
         q.cluster_id,
         q.vendor.as_deref(),
@@ -143,7 +143,7 @@ pub async fn get_gpu_device(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<GpuDeviceResponse>>> {
-    let d = gpu::get_gpu_device(&state.pool, id).await?;
+    let d = gpu::get_gpu_device(&state.pool.pool, id).await?;
     Ok(Json(ApiResponse::success(d)))
 }
 
@@ -173,7 +173,7 @@ pub async fn create_gpu_device(
         power_draw: body.power_draw.unwrap_or(0),
         details: body.details.unwrap_or_default(),
     };
-    let d = gpu::create_gpu_device(&state.pool, input).await?;
+    let d = gpu::create_gpu_device(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(d),
@@ -205,7 +205,7 @@ pub async fn update_gpu_device(
         power_draw: body.power_draw,
         details: body.details,
     };
-    let d = gpu::update_gpu_device(&state.pool, id, input).await?;
+    let d = gpu::update_gpu_device(&state.pool.pool, id, input).await?;
     Ok(Json(ApiResponse::success(d)))
 }
 
@@ -215,7 +215,7 @@ pub async fn delete_gpu_device(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    gpu::delete_gpu_device(&state.pool, id).await?;
+    gpu::delete_gpu_device(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -228,7 +228,7 @@ pub async fn list_allocations(
     let params =
         PaginationParams::new(q.page.unwrap_or(1) as i64, q.page_size.unwrap_or(10) as i64);
     let res = gpu::list_allocations(
-        &state.pool,
+        &state.pool.pool,
         params,
         q.job_id,
         q.user_id,
@@ -253,7 +253,7 @@ pub async fn allocate_gpu(
         memory_gb: body.memory_gb.unwrap_or(0),
         vendor: body.vendor.unwrap_or_default(),
     };
-    let a = gpu::allocate_gpu(&state.pool, input).await?;
+    let a = gpu::allocate_gpu(&state.pool.pool, input).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(a),
@@ -266,7 +266,7 @@ pub async fn release_gpu(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    gpu::release_gpu(&state.pool, id).await?;
+    gpu::release_gpu(&state.pool.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -276,6 +276,6 @@ pub async fn get_gpu_utilization(
     State(state): State<AppState>,
     Query(q): Query<GpuListQuery>,
 ) -> AppResult<Json<ApiResponse<std::collections::HashMap<String, serde_json::Value>>>> {
-    let summary = gpu::get_gpu_utilization_summary(&state.pool, q.cluster_id).await?;
+    let summary = gpu::get_gpu_utilization_summary(&state.pool.pool, q.cluster_id).await?;
     Ok(Json(ApiResponse::success(summary)))
 }

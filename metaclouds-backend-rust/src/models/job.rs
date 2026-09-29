@@ -13,7 +13,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -224,7 +224,7 @@ pub struct NewJob {
 }
 
 /// INSERT 作业（自动时间戳，初始状态 pending）。
-pub async fn create(pool: &SqlitePool, input: NewJob) -> AppResult<Job> {
+pub async fn create(pool: &PgPool, input: NewJob) -> AppResult<Job> {
     let now = Utc::now();
     let res = sqlx::query(
         "INSERT INTO jobs (created_at, updated_at, cluster_id, tenant_id, user_id, name, \
@@ -255,7 +255,7 @@ pub async fn create(pool: &SqlitePool, input: NewJob) -> AppResult<Job> {
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Job>> {
@@ -280,7 +280,7 @@ pub struct JobFilter<'a> {
 
 /// 分页列表（可按 status/type/cluster_id/user_id/tenant_id 过滤，按 name 搜索）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     filter: JobFilter<'_>,
 ) -> AppResult<PaginatedResult<Job>> {
@@ -350,7 +350,7 @@ pub async fn list(
 
 /// 按状态统计数量（过滤条件之外，跨状态聚合；用于 GET /jobs/stats）。
 pub async fn count_by_status(
-    pool: &SqlitePool,
+    pool: &PgPool,
     tenant_id: Option<i64>,
 ) -> AppResult<Vec<(String, i64)>> {
     let rows: Vec<(String, i64)> = if let Some(tid) = tenant_id {
@@ -370,7 +370,7 @@ pub async fn count_by_status(
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("jobs"))
         .bind(now)

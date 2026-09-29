@@ -8,7 +8,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -118,7 +118,7 @@ pub struct NewInferenceConfig<'a> {
 
 /// INSERT。
 pub async fn create(
-    pool: &SqlitePool,
+    pool: &PgPool,
     input: NewInferenceConfig<'_>,
 ) -> AppResult<InferenceConfig> {
     let mut cfg = InferenceConfig {
@@ -146,7 +146,7 @@ pub async fn create(
         "INSERT INTO inference_configs (created_at, updated_at, name, description, model_path, \
          runtime, replicas, gpu_per_replica, cpu_per_replica, memory_per_replica_gb, port, \
          health_check_path, tenant_id, created_by, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
     )
     .bind(cfg.created_at)
     .bind(cfg.updated_at)
@@ -174,21 +174,21 @@ pub async fn create(
 
 /// 按 id 查询。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<InferenceConfig>> {
     let sql = if include_deleted {
-        "SELECT * FROM inference_configs WHERE id = ?1"
+        "SELECT * FROM inference_configs WHERE id = $1"
     } else {
-        "SELECT * FROM inference_configs WHERE id = ?1 AND deleted_at IS NULL"
+        "SELECT * FROM inference_configs WHERE id = $1 AND deleted_at IS NULL"
     };
     Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
 }
 
 /// 分页列表（可按 tenant_id 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &PgPool,
     params: PaginationParams,
     tenant_id: Option<i64>,
 ) -> AppResult<PaginatedResult<InferenceConfig>> {
@@ -219,7 +219,7 @@ pub async fn list(
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &PgPool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
     let res = sqlx::query(&soft_delete_update_sql("inference_configs"))
         .bind(now)
