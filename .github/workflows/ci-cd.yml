@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Metaclouds CI/CD Pipeline (Monorepo)
 # ==============================================================================
 # 工作流已从 metaclouds-backend/.github/workflows/ 迁移至仓库根目录。
@@ -734,3 +734,83 @@ jobs:
           total = sum(len(v) for v in manifests.values())
           print(f"K8s manifest validation PASSED: {total} resources in {len(manifests)} files")
           PYEOF
+
+  # ============================================================================
+  # Job 9: K8s 真实部署（kustomize apply + set image 注入 GIT_SHA）
+  # 依赖：镜像构建完成 + 仓库配置 KUBE_CONFIG secret（base64 的 kubeconfig）。
+  # 未配置 KUBE_CONFIG 时自动跳过（K8S_ENABLED=false 分支），不阻塞其他 job。
+  # ============================================================================
+  deploy-k8s:
+    name: Deploy to Kubernetes
+    needs: [docker-build-backend-rust, docker-build-frontend, validate-k8s]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment:
+      name: k8s
+      url: https://app.metaclouds.example.com
+    env:
+      K8S_ENABLED: ${{ secrets.KUBE_CONFIG != '' }}
+      K8S_NAMESPACE: metaclouds
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl + kustomize
+        run: |
+          curl -sSfL "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+          chmod +x /usr/local/bin/kubectl
+          curl -sSfL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" -o /tmp/kustomize.tgz
+          tar -xzf /tmp/kustomize.tgz -C /usr/local/bin kustomize
+          kubectl version --client && kustomize version
+
+      - name: Configure kubeconfig
+        if: env.K8S_ENABLED == 'true'
+        run: |
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
+          chmod 600 /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+          kubectl config view --minify -o yaml | head -20
+
+      - name: Apply manifests (kustomize)
+        if: env.K8S_ENABLED == 'true'
+        run: |
+          export KUBECONFIG=/tmp/kubeconfig
+          # 先应用命名空间，其余资源等命名空间就绪
+          kubectl apply -f metaclouds-backend-rust/k8s/00-namespace.yaml
+          kustomize build metaclouds-backend-rust/k8s | kubectl apply -f -
+          kubectl -n ${{ env.K8S_NAMESPACE }} rollout status deployment/metaclouds-backend --timeout=300s
+          kubectl -n ${{ env.K8S_NAMESPACE }} rollout status deployment/metaclouds-frontend --timeout=120s
+
+      - name: Inject image tag (GIT_SHA)
+        if: env.K8S_ENABLED == 'true'
+        run: |
+          export KUBECONFIG=/tmp/kubeconfig
+          GIT_SHA=${{ github.sha }}
+          kubectl -n ${{ env.K8S_NAMESPACE }} set image deployment/metaclouds-backend \
+            metaclouds-backend=ghcr.io/customizedvalidation/yunchuang/backend-rust:${GIT_SHA}
+          kubectl -n ${{ env.K8S_NAMESPACE }} set image deployment/metaclouds-frontend \
+            metaclouds-frontend=ghcr.io/customizedvalidation/yunchuang/frontend:${GIT_SHA}
+          kubectl -n ${{ env.K8S_NAMESPACE }} rollout status deployment/metaclouds-backend --timeout=300s
+          kubectl -n ${{ env.K8S_NAMESPACE }} rollout status deployment/metaclouds-frontend --timeout=120s
+
+      - name: Verify K8s deployment
+        if: env.K8S_ENABLED == 'true'
+        run: |
+          export KUBECONFIG=/tmp/kubeconfig
+          echo "=== Pods ==="
+          kubectl -n ${{ env.K8S_NAMESPACE }} get pods -o wide
+          echo "=== Services ==="
+          kubectl -n ${{ env.K8S_NAMESPACE }} get svc
+          echo "=== Ingress ==="
+          kubectl -n ${{ env.K8S_NAMESPACE }} get ingress
+          echo "=== Health via port-forward ==="
+          kubectl -n ${{ env.K8S_NAMESPACE }} port-forward svc/metaclouds-backend 18080:8000 &
+          PF_PID=$!
+          sleep 5
+          curl -sf http://localhost:18080/health || echo "Warning: health check via port-forward failed (may be placeholder cluster)"
+          kill $PF_PID 2>/dev/null || true
+
+      - name: Skip notice (KUBE_CONFIG not configured)
+        if: env.K8S_ENABLED != 'true'
+        run: |
+          echo "::warning::KUBE_CONFIG secret not configured — K8s deploy skipped. Configure repo secret KUBE_CONFIG (base64 kubeconfig) to activate."
+          echo "Skipped deploy-k8s job (K8S_ENABLED=false)"

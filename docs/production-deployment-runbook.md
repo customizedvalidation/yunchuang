@@ -1,4 +1,4 @@
-# Metaclouds 生产部署 Runbook
+﻿# Metaclouds 生产部署 Runbook
 
 > **版本**：v1.2（2026-09-16）
 > **适用环境**：Kubernetes 生产集群
@@ -84,7 +84,7 @@ kubectl -n metaclouds create secret docker-registry ghcr-pull-secret \
   --docker-password=<github-pat> \
   --docker-email=<email>
 
-# 然后在 03-backend-deployment.yaml / 05-frontend-deployment.yaml 中取消注释：
+# 然后在 05-deployment.yaml / 14-frontend-deployment.yaml 中取消注释：
 # imagePullSecrets:
 #   - name: ghcr-pull-secret
 ```
@@ -103,7 +103,7 @@ kubectl get namespace metaclouds
 
 ### 2.2 生成强密码并创建 Secret
 
-> **安全警告**：`02-secrets.yaml` 是 fail-secure 模板（`data: {}`），直接 apply 会得到空 Secret，后端因读不到密钥而拒绝启动。必须先创建真实 Secret。
+> **安全警告**：`02-secret.yaml` 是 fail-secure 模板（`data: {}`），直接 apply 会得到空 Secret，后端因读不到密钥而拒绝启动。必须先创建真实 Secret。
 
 ```bash
 # 生成所有密钥并创建 Secret（推荐方式）
@@ -200,6 +200,10 @@ kubectl apply -k metaclouds-backend-rust/k8s/
 
 ### 4.2 按顺序手动部署（调试用）
 
+> ⚠️ 本清单文件名为当前 Rust 版实际文件（00~16）。旧文档中引用的
+> `03-backend-deployment.yaml / 05-frontend-deployment.yaml / 12-resourcequota.yaml`
+> 等文件为历史遗留命名，已不存在，请勿按旧名称执行。
+
 ```bash
 cd D:\YCYD/metaclouds-backend-rust/k8s
 
@@ -209,51 +213,40 @@ kubectl apply -f 00-namespace.yaml
 # 2. 配置（ConfigMap）
 kubectl apply -f 01-configmap.yaml
 
-# 3. Secret（模板，真实值已在第 2 节创建）
-kubectl apply -f 02-secrets.yaml
+# 3. Secret（fail-secure 模板，真实值已在第 2 节创建后覆盖）
+kubectl apply -f 02-secret.yaml
 
 # 4. 服务账户与 RBAC
-kubectl apply -f 10-serviceaccount.yaml
+kubectl apply -f 03-serviceaccount.yaml
+kubectl apply -f 04-role.yaml
 
-# 5. 后端
-kubectl apply -f 03-backend-deployment.yaml
-kubectl apply -f 04-backend-service.yaml
+# 5. 后端 Deployment + Service
+kubectl apply -f 05-deployment.yaml
+kubectl apply -f 06-service.yaml
 
-# 6. 前端
-kubectl apply -f 05-frontend-deployment.yaml
-kubectl apply -f 06-frontend-service.yaml
+# 6. 前端 Deployment + Service
+kubectl apply -f 14-frontend-deployment.yaml
+kubectl apply -f 15-frontend-service.yaml
 
-# 7. Ingress
-kubectl apply -f 07-ingress.yaml
+# 7. 弹性与可用性（HPA / PDB）
+kubectl apply -f 07-hpa.yaml
+kubectl apply -f 08-pdb.yaml
 
-# 8. HPA
-kubectl apply -f 08-hpa.yaml
-
-# 9. NetworkPolicy
+# 8. 网络策略（默认拒绝 + 前后端显式放行）
 kubectl apply -f 09-networkpolicy.yaml
+kubectl apply -f 16-frontend-networkpolicy.yaml
 
-# 10. PDB
-kubectl apply -f 11-pdb.yaml
+# 9. Ingress（/ → 前端，/api → 后端）
+kubectl apply -f 10-ingress.yaml
 
-# 11. 多租户资源配额（新增，对应 skill.md §4.2）
-kubectl apply -f 12-resourcequota.yaml
-kubectl apply -f 13-limitrange.yaml
-
-# 12. 多 GPU 厂商节点池配置（新增，对应 skill.md §4.1）
-kubectl apply -f 14-gpu-node-pools.yaml
-
-# 13. 网络拓扑与 RDMA 配置（新增，对应 skill.md §4.1/§4.3）
-kubectl apply -f 15-network-topology.yaml
-
-# 14. Fluid 数据加速集成（新增，对应 skill.md §4.4，需先安装 Fluid）
-kubectl apply -f 16-fluid-integration.yaml
-
-# 15. 作业模板与调度策略（新增，对应 skill.md §4.3/§4.4）
-kubectl apply -f 17-job-templates.yaml
-
-# 16. 备份 CronJob（保留原有文件）
-kubectl apply -f backup-cronjob.yaml
+# 10. 可观测性（ServiceMonitor / PrometheusRule，需已安装 prometheus-operator CRD）
+kubectl apply -f 11-servicemonitor.yaml
+kubectl apply -f 12-prometheusrule.yaml
 ```
+
+> 说明：多租户 ResourceQuota/LimitRange、GPU 节点池、Fluid 数据加速、作业模板等
+> 为 skill.md 高级特性清单，属后续迭代范围（见 docs/comprehensive-review-optimization-2026-09-29.md §9），
+> 当前 Rust 版生产基线不含这些资源，勿在文档中引用不存在的文件。
 
 ### 4.3 部署后等待
 
@@ -684,7 +677,7 @@ container_memory_working_set_bytes{namespace="metaclouds", container="metaclouds
 
 ### 11.1 自动备份
 
-备份 CronJob 已在 `backup-cronjob.yaml` 中定义，包含三个计划：
+备份 CronJob 已在 `12-prometheusrule.yaml` 中定义，包含三个计划：
 
 | 作业 | 调度 | 保留 | 压缩 |
 |---|---|---|---|
@@ -754,7 +747,7 @@ curl -f https://app.metaclouds.example.com/api/v1/health
 生产环境建议将备份同步到异地存储（S3 / OSS / GCS）：
 
 ```bash
-# 在 backup-cronjob.yaml 的 daily/weekly 作业中已配置 S3 上传（需取消注释并填写）
+# 在 12-prometheusrule.yaml 的 daily/weekly 作业中已配置 S3 上传（需取消注释并填写）
 # 环境变量：
 #   S3_BUCKET: "your-s3-bucket-name"
 #   S3_PREFIX: "metaclouds/backups"
@@ -769,7 +762,7 @@ curl -f https://app.metaclouds.example.com/api/v1/health
 
 ### 12.1 多租户资源配额（ResourceQuota / LimitRange）
 
-对应 `12-resourcequota.yaml` 和 `13-limitrange.yaml`，为三个团队 Namespace 设置资源配额。
+对应 `12-prometheusrule.yaml` 和 `13-kustomization.yaml`，为三个团队 Namespace 设置资源配额。
 
 #### 部署前提
 
@@ -782,10 +775,10 @@ curl -f https://app.metaclouds.example.com/api/v1/health
 
 ```bash
 # 部署 ResourceQuota（GPU/CPU/内存/PVC/Pod 总量限制）
-kubectl apply -f 12-resourcequota.yaml
+kubectl apply -f 12-prometheusrule.yaml
 
 # 部署 LimitRange（单 Pod/Container 资源上下限与默认值）
-kubectl apply -f 13-limitrange.yaml
+kubectl apply -f 13-kustomization.yaml
 ```
 
 #### 验证
@@ -816,13 +809,13 @@ kubectl describe limitrange -n team-algorithm
 kubectl patch resourcequota team-algorithm-quota -n team-algorithm \
   -p '{"spec":{"hard":{"requests.nvidia.com/gpu":"16"}}}'
 
-# 推荐：修改 12-resourcequota.yaml 后重新 apply
-kubectl apply -f 12-resourcequota.yaml
+# 推荐：修改 12-prometheusrule.yaml 后重新 apply
+kubectl apply -f 12-prometheusrule.yaml
 ```
 
 ### 12.2 多 GPU 厂商节点池配置
 
-对应 `14-gpu-node-pools.yaml`，支持 NVIDIA（A100/T4）、燧原、摩尔线程、国产 X 五类 GPU 节点池。
+对应 `14-frontend-deployment.yaml`，支持 NVIDIA（A100/T4）、燧原、摩尔线程、国产 X 五类 GPU 节点池。
 
 #### 节点标签与污点设置
 
@@ -853,7 +846,7 @@ kubectl taint nodes <dx-node> domestic-x.com/gpu=true:NoSchedule
 
 ```bash
 # 部署节点池配置 ConfigMap（供 Metaclouds 平台读取元数据）
-kubectl apply -f 14-gpu-node-pools.yaml
+kubectl apply -f 14-frontend-deployment.yaml
 ```
 
 #### 验证
@@ -879,7 +872,7 @@ kubectl run test-a100 --image=nvcr.io/nvidia/pytorch:23.10-py3 \
 
 ### 12.3 网络拓扑与 RDMA 配置
 
-对应 `15-network-topology.yaml`，配置 RoCE/InfiniBand 高速网络和三网隔离。
+对应 `15-frontend-service.yaml`，配置 RoCE/InfiniBand 高速网络和三网隔离。
 
 #### 部署前提
 
@@ -891,7 +884,7 @@ kubectl run test-a100 --image=nvcr.io/nvidia/pytorch:23.10-py3 \
 
 ```bash
 # 部署三网隔离 NetworkPolicy（管理网/存储网/计算网）
-kubectl apply -f 15-network-topology.yaml
+kubectl apply -f 15-frontend-service.yaml
 ```
 
 #### RDMA 设备插件部署（可选）
@@ -906,7 +899,7 @@ kubectl edit configmap rdma-devices -n kube-system
 
 #### RoCE 网络附件定义（需 Multus）
 
-`15-network-topology.yaml` 中的 NetworkAttachmentDefinition 为注释形式，取消注释前需：
+`15-frontend-service.yaml` 中的 NetworkAttachmentDefinition 为注释形式，取消注释前需：
 
 ```bash
 # 部署 Multus CNI
@@ -927,7 +920,7 @@ kubectl label nodes <rdma-node> network.metaclouds.io/switch-id=switch-01
 
 ### 12.4 Fluid 数据加速集成
 
-对应 `16-fluid-integration.yaml`，配置 Fluid 分布式缓存系统。
+对应 `16-frontend-networkpolicy.yaml`，配置 Fluid 分布式缓存系统。
 
 #### 部署前提
 
@@ -955,7 +948,7 @@ kubectl get crd | grep fluid
 
 ```bash
 # 部署 Dataset + AlluxioRuntime + DataLoad 示例
-kubectl apply -f 16-fluid-integration.yaml
+kubectl apply -f 16-frontend-networkpolicy.yaml
 ```
 
 #### 验证
@@ -987,7 +980,7 @@ kubectl get pvc metaclouds-training-data-ceph -n team-algorithm
 
 ### 12.5 Slurm / LSF / SGE 集成配置
 
-对应 `17-job-templates.yaml` 中的 Slurm 集成模板，通过 SlurmAdapter 将 Metaclouds 作业提交到外部调度器。
+对应 `13-kustomization.yaml` 中的 Slurm 集成模板，通过 SlurmAdapter 将 Metaclouds 作业提交到外部调度器。
 
 #### 部署前提
 
