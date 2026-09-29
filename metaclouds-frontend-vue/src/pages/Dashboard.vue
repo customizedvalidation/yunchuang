@@ -45,7 +45,7 @@
           <el-card shadow="never">
             <template #header>
               <div class="chart-card-head">
-                <span>资源分布</span>
+                <h3 class="chart-card-title">资源分布</h3>
                 <span class="chart-card-extra">GPU 卡</span>
               </div>
             </template>
@@ -57,7 +57,7 @@
           <el-card shadow="never">
             <template #header>
               <div class="chart-card-head">
-                <span>作业状态分布</span>
+                <h3 class="chart-card-title">作业状态分布</h3>
                 <span class="chart-card-extra">共 {{ totalJobs }} 个</span>
               </div>
             </template>
@@ -69,7 +69,7 @@
           <el-card shadow="never">
             <template #header>
               <div class="chart-card-head">
-                <span>GPU 厂商分布</span>
+                <h3 class="chart-card-title">GPU 厂商分布</h3>
                 <span class="chart-card-extra">共 {{ gpuDevices.length }} 张</span>
               </div>
             </template>
@@ -83,7 +83,7 @@
       <el-card shadow="never" class="mc-mt">
         <template #header>
           <div class="chart-card-head">
-            <span>最近告警</span>
+            <h3 class="chart-card-title">最近告警</h3>
             <span class="chart-card-extra">按严重程度排序</span>
           </div>
         </template>
@@ -92,7 +92,7 @@
           <li v-for="item in topAlerts" :key="item.id" class="alert-item">
             <div class="alert-line">
               <span class="mc-status" :class="alertLevelClass(item.level)">
-                <i class="mc-status-dot" :style="{ background: alertColor(item.level) }" />
+                <i class="mc-status-dot" />
                 {{ alertText(item.level) }}
               </span>
               <span class="alert-message">{{ item.message || item.details || '未知告警' }}</span>
@@ -106,10 +106,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { Refresh, Coin, Cloudy, Timer, Bell, UserFilled, Grid, Operation } from '@element-plus/icons-vue'
 import PageState from '@/components/PageState.vue'
+import { registerMcLightTheme, palette } from '@/theme/echarts'
+import { colorTokens } from '@/theme/tokens'
+
+// 注册 MDS 图表主题（幂等）；所有 ECharts 实例统一使用 'mc-light'。
+// 测试环境 echarts 被 mock（仅 init），无 registerTheme，此处静默降级。
+try {
+  registerMcLightTheme()
+} catch {
+  /* noop in test env */
+}
 import {
   clusterApi,
   resourceApi,
@@ -204,7 +214,7 @@ const kpiCards = computed(() => [
     value: clustersData.value.length,
     suffix: ' 个',
     icon: Coin,
-    bg: 'linear-gradient(135deg,#2f6bff,#5b8bff)',
+    bg: 'var(--mc-brand-grad)',
     footer: '统一纳管的计算集群',
   },
   {
@@ -212,7 +222,7 @@ const kpiCards = computed(() => [
     value: utilization.value,
     suffix: '%',
     icon: Cloudy,
-    bg: 'linear-gradient(135deg,#1f52e0,#2f6bff)',
+    bg: 'var(--mc-brand-grad)',
     footer: `<span class="mc-num">已用 ${gpuUsed.value} / 共 ${gpuTotal.value}</span>`,
   },
   {
@@ -220,7 +230,7 @@ const kpiCards = computed(() => [
     value: runningJobs.value,
     suffix: ` / ${totalJobs.value}`,
     icon: Timer,
-    bg: 'linear-gradient(135deg,#5b8bff,#69b1ff)',
+    bg: 'var(--mc-brand-grad)',
     footer: `排队中 <b class="mc-num">${pendingJobs.value}</b> 个`,
   },
   {
@@ -228,18 +238,15 @@ const kpiCards = computed(() => [
     value: alertCount.value,
     suffix: ' 条',
     icon: Bell,
-    bg:
-      alertCount.value > 0
-        ? 'linear-gradient(135deg,#ff5c7a,#ff7a9c)'
-        : 'linear-gradient(135deg,#2f6bff,#5b8bff)',
-    footer: alertCount.value > 0 ? '<span style="color:var(--mc-danger)">需要关注</span>' : '运行正常',
+    bg: alertCount.value > 0 ? 'var(--mc-danger-fg)' : 'var(--mc-brand-grad)',
+    footer: alertCount.value > 0 ? '<span style="color:var(--mc-danger-fg)">需要关注</span>' : '运行正常',
   },
   {
     title: '租户数量',
     value: tenants.value.length,
     suffix: ' 个',
     icon: UserFilled,
-    bg: 'linear-gradient(135deg,#2f6bff,#5b8bff)',
+    bg: 'var(--mc-brand-grad)',
     footer: '多租户资源隔离与配额',
   },
   {
@@ -247,7 +254,7 @@ const kpiCards = computed(() => [
     value: partitionStats.value.total,
     suffix: ' 个',
     icon: Grid,
-    bg: 'linear-gradient(135deg,#2f6bff,#5b8bff)',
+    bg: 'var(--mc-brand-grad)',
     footer: `活跃 ${partitionStats.value.active} · 维护 ${partitionStats.value.maintenance}`,
   },
   {
@@ -255,7 +262,7 @@ const kpiCards = computed(() => [
     value: schedulerStats.value.total,
     suffix: ' 个',
     icon: Operation,
-    bg: 'linear-gradient(135deg,#1f52e0,#2f6bff)',
+    bg: 'var(--mc-brand-grad)',
     footer: `活跃 ${schedulerStats.value.active}${schedulerStats.value.error > 0 ? ` · 异常 ${schedulerStats.value.error}` : ''}`,
   },
 ])
@@ -267,11 +274,12 @@ const VENDOR_LABEL: Record<string, string> = {
   moore_threads: '摩尔线程',
   domestic_x: '国产X',
 }
+// 厂商分类色取自 MDS chartPalette（饼图色块，非文字）
 const VENDOR_COLOR: Record<string, string> = {
-  nvidia: '#76b900',
-  enflame: '#2f6bff',
-  moore_threads: '#7c5cff',
-  domestic_x: '#fa8c16',
+  nvidia: palette[0],
+  enflame: palette[1],
+  moore_threads: palette[6],
+  domestic_x: palette[3],
 }
 const STATUS_TEXT: Record<string, string> = {
   running: '运行中',
@@ -286,18 +294,19 @@ const STATUS_TEXT: Record<string, string> = {
   error: '错误',
   critical: '严重',
 }
+// 状态色取自 MDS chartPalette（饼图色块）
 const STATUS_COLOR: Record<string, string> = {
-  running: '#2f6bff',
-  pending: '#ffb020',
-  completed: '#16c784',
-  failed: '#ff5c7a',
-  cancelled: '#647189',
-  active: '#2f6bff',
-  maintenance: '#ffb020',
-  info: '#2f6bff',
-  warning: '#ffb020',
-  error: '#ff5c7a',
-  critical: '#ff5c7a',
+  running: palette[0],
+  pending: palette[3],
+  completed: palette[2],
+  failed: palette[4],
+  cancelled: palette[9],
+  active: palette[0],
+  maintenance: palette[3],
+  info: palette[6],
+  warning: palette[3],
+  error: palette[4],
+  critical: palette[4],
 }
 
 const jobStatusData = computed(() => {
@@ -309,7 +318,7 @@ const jobStatusData = computed(() => {
   return Object.entries(groups).map(([status, value]) => ({
     value,
     name: STATUS_TEXT[status] ?? status,
-    itemStyle: { color: STATUS_COLOR[status] ?? '#647189' },
+    itemStyle: { color: STATUS_COLOR[status] ?? palette[9] },
   }))
 })
 
@@ -322,22 +331,22 @@ const gpuVendorData = computed(() => {
   return Object.entries(groups).map(([vendor, value]) => ({
     value,
     name: VENDOR_LABEL[vendor] ?? vendor,
-    itemStyle: { color: VENDOR_COLOR[vendor] ?? '#647189' },
+    itemStyle: { color: VENDOR_COLOR[vendor] ?? palette[9] },
   }))
 })
 
 function pieOption(data: unknown[], tooltipFmt: string) {
   return {
     tooltip: { trigger: 'item' as const, formatter: tooltipFmt },
-    legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: { color: '#647189', fontSize: 12 } },
+    legend: { bottom: 0, itemWidth: 10, itemHeight: 10 },
     series: [
       {
         type: 'pie' as const,
         radius: ['52%', '74%'],
         center: ['50%', '44%'],
         avoidLabelOverlap: true,
-        itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
-        label: { show: true, color: '#647189', fontSize: 12, formatter: '{d}%' },
+        itemStyle: { borderRadius: 8, borderColor: colorTokens.neutral.surface, borderWidth: 2 },
+        label: { show: true, fontSize: 12, formatter: '{d}%' },
         data,
       },
     ],
@@ -347,8 +356,8 @@ function pieOption(data: unknown[], tooltipFmt: string) {
 const resourceOption = computed(() =>
   pieOption(
     [
-      { value: gpuUsed.value, name: '已使用', itemStyle: { color: '#2f6bff' } },
-      { value: Math.max(gpuTotal.value - gpuUsed.value, 0), name: '可分配', itemStyle: { color: '#e4eaf3' } },
+      { value: gpuUsed.value, name: '已使用', itemStyle: { color: palette[0] } },
+      { value: Math.max(gpuTotal.value - gpuUsed.value, 0), name: '可分配', itemStyle: { color: colorTokens.neutral.line } },
     ],
     '{b}: {c} ({d}%)',
   ),
@@ -363,64 +372,64 @@ let resourceChart: echarts.ECharts | null = null
 let jobChart: echarts.ECharts | null = null
 let vendorChart: echarts.ECharts | null = null
 
+let resizeObserver: ResizeObserver | null = null
+
 function resizeCharts() {
   resourceChart?.resize()
   jobChart?.resize()
   vendorChart?.resize()
 }
 
-onMounted(() => {
-  if (resourceChartRef.value) {
-    resourceChart = echarts.init(resourceChartRef.value)
-    resourceChart.setOption(resourceOption.value)
+// 统一在容器真实挂载（v-if 已渲染、ref 已 attach）后再 init；
+// 之后的数据更新仅 setOption，避免重复 init。修复此前 watch 为 pre-flush、
+// v-if 容器尚未挂载导致 ref 为空、echarts 永不初始化的时序竞争。
+function syncCharts() {
+  if (resourceChartRef.value && !resourceChart) {
+    resourceChart = echarts.init(resourceChartRef.value, 'mc-light')
   }
-  if (jobChartRef.value && jobStatusData.value.length > 0) {
-    jobChart = echarts.init(jobChartRef.value)
-    jobChart.setOption(jobOption.value)
+  if (resourceChart) resourceChart.setOption(resourceOption.value, true)
+
+  if (jobChartRef.value && jobStatusData.value.length > 0 && !jobChart) {
+    jobChart = echarts.init(jobChartRef.value, 'mc-light')
   }
-  if (vendorChartRef.value && gpuVendorData.value.length > 0) {
-    vendorChart = echarts.init(vendorChartRef.value)
-    vendorChart.setOption(vendorOption.value)
+  if (jobChart) jobChart.setOption(jobOption.value, true)
+
+  if (vendorChartRef.value && gpuVendorData.value.length > 0 && !vendorChart) {
+    vendorChart = echarts.init(vendorChartRef.value, 'mc-light')
   }
+  if (vendorChart) vendorChart.setOption(vendorOption.value, true)
+}
+
+async function syncChartsAfterTick() {
+  await nextTick()
+  syncCharts()
+}
+
+onMounted(async () => {
+  await syncChartsAfterTick()
   window.addEventListener('resize', resizeCharts)
+  // 主内容区尺寸变化（侧栏折叠 / 响应式断点切换）时自适应重绘
+  resizeObserver = new ResizeObserver(() => resizeCharts())
+  const content = document.querySelector('.mc-app-content')
+  if (content) resizeObserver.observe(content)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeCharts)
+  resizeObserver?.disconnect()
   resourceChart?.dispose()
   jobChart?.dispose()
   vendorChart?.dispose()
 })
 
-watch(resourceOption, (opt) => {
-  if (resourceChart) resourceChart.setOption(opt, true)
-  else if (resourceChartRef.value && !resourceChart) {
-    resourceChart = echarts.init(resourceChartRef.value)
-    resourceChart.setOption(opt)
-  }
-})
-watch(jobOption, (opt) => {
-  if (jobChart) jobChart.setOption(opt, true)
-  else if (jobChartRef.value && jobStatusData.value.length > 0) {
-    jobChart = echarts.init(jobChartRef.value)
-    jobChart.setOption(opt)
-  }
-})
-watch(vendorOption, (opt) => {
-  if (vendorChart) vendorChart.setOption(opt, true)
-  else if (vendorChartRef.value && gpuVendorData.value.length > 0) {
-    vendorChart = echarts.init(vendorChartRef.value)
-    vendorChart.setOption(opt)
-  }
-})
+watch(resourceOption, syncChartsAfterTick, { flush: 'post' })
+watch(jobStatusData, syncChartsAfterTick, { flush: 'post' })
+watch(gpuVendorData, syncChartsAfterTick, { flush: 'post' })
 
 // ---------- 告警 ----------
 const topAlerts = computed(() => alertsData.value.slice(0, 6))
 function alertText(level?: string) {
   return STATUS_TEXT[level ?? 'info'] ?? level ?? '信息'
-}
-function alertColor(level?: string) {
-  return STATUS_COLOR[level ?? 'info'] ?? '#647189'
 }
 function alertLevelClass(level?: string) {
   if (level === 'critical' || level === 'error') return 'failed'
@@ -439,10 +448,10 @@ function alertLevelClass(level?: string) {
   background: var(--mc-surface);
   border-radius: var(--mc-radius-lg);
   box-shadow: var(--mc-shadow-raised-sm);
-  padding: 20px;
+  padding: var(--mc-gap);
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--mc-gap);
 }
 .kpi-icon {
   width: 44px;
@@ -461,6 +470,7 @@ function alertLevelClass(level?: string) {
 
 .chart-box { height: 280px; }
 .chart-card-head { display: flex; justify-content: space-between; align-items: center; }
+.chart-card-title { margin: 0; font-size: var(--mc-fs-h2); font-weight: 650; color: var(--mc-text-1); }
 .chart-card-extra { font-size: 12px; color: var(--mc-text-3); font-weight: 400; }
 
 .alert-list { list-style: none; margin: 0; padding: 0; }

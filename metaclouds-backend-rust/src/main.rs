@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use metaclouds_backend_rust::auth::middleware::AppState;
 use metaclouds_backend_rust::config::Config;
-use metaclouds_backend_rust::db;
+use metaclouds_backend_rust::db::{self, DatabasePool};
+use metaclouds_backend_rust::error::{AppError, ErrorCode};
 use metaclouds_backend_rust::tracing::{init_tracing, shutdown_tracing};
 
 #[tokio::main]
@@ -23,8 +24,38 @@ async fn main() -> anyhow::Result<()> {
         "starting metaclouds-backend-rust"
     );
 
-    let pool = db::connect_and_migrate(&config.database_url).await?;
-    db::seed_admin_if_empty(&pool).await?;
+    // 按配置选择连接驱动：
+    // - 默认（USE_SQLITE=true / sqlite url）：与 Phase 0 行为完全一致。
+    // - USE_SQLITE=false 或 DATABASE_URL=postgres(s)://：真正连接 Postgres，
+    //   跑 migrations/postgres 方言迁移并播种 admin（此前 connect_pool /
+    //   DatabasePool::Postgres 是死代码，compose 下发 postgresql:// 时被静默
+    //   忽略、错误地按 SQLite 打开了一个同名文件）。
+    let pool = if db::wants_postgres(&config) {
+        let db_pool = db::connect_pool(&config).await?;
+        db::run_migrations(&db_pool).await.map_err(|e| {
+            AppError::with_source(
+                ErrorCode::InternalServerError,
+                "database migration failed",
+                e,
+            )
+        })?;
+        match &db_pool {
+            DatabasePool::Postgres(pg) => db::seed_admin_if_empty_postgres(pg).await?,
+            DatabasePool::Sqlite(p) => db::seed_admin_if_empty(p).await?,
+        }
+        // 请求层（?N 占位符 / last_insert_rowid）尚未移植到 Postgres 方言，
+        // 属下一阶段。此处不再静默兜底到 SQLite 文件——显式报错以免错配数据。
+        db_pool.as_sqlite().cloned().ok_or_else(|| {
+            AppError::internal(
+                "postgres connected and migrated, but the request layer is not yet \
+                 ported to postgres dialect (next stage)",
+            )
+        })?
+    } else {
+        let pool = db::connect_and_migrate(&config.database_url).await?;
+        db::seed_admin_if_empty(&pool).await?;
+        pool
+    };
 
     let state = AppState {
         pool,

@@ -48,7 +48,7 @@
           <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip />
           <el-table-column label="类型" width="100">
             <template #default="{ row }">
-              <el-tag :type="row.type === 'cpu' ? 'info' : row.type === 'gpu' ? 'primary' : 'success'" size="small">
+              <el-tag type="info" size="small">
                 {{ typeLabel(row.type) }}
               </el-tag>
             </template>
@@ -258,9 +258,9 @@ function typeLabel(t: string) {
 function vendorLabel(v: GPUVendor) {
   return VENDOR_LABEL[v] ?? v
 }
-function vendorTagType(v: GPUVendor): 'success' | 'primary' | 'warning' | 'danger' {
-  const map: Record<GPUVendor, 'success' | 'primary' | 'warning' | 'danger'> = { nvidia: 'success', enflame: 'primary', moore_threads: 'warning', domestic_x: 'danger' }
-  return map[v] ?? 'primary'
+function vendorTagType(_v: GPUVendor): 'info' {
+  // 厂商是分类维度，统一中性 info，不复用 success/warning/danger
+  return 'info'
 }
 function statusText(status?: string) {
   const map: Record<string, string> = {
@@ -274,11 +274,11 @@ function statusText(status?: string) {
   }
   return map[status ?? ''] ?? status ?? '-'
 }
-function statusTagType(status?: string): 'success' | 'warning' | 'danger' | 'info' | 'primary' {
+function statusTagType(status?: string): 'success' | 'warning' | 'danger' | 'info' {
   if (status === 'available' || status === 'active' || status === 'running') return 'success'
   if (status === 'maintenance') return 'warning'
   if (status === 'fault' || status === 'failed' || status === 'error') return 'danger'
-  if (status === 'busy') return 'primary'
+  // busy 是资源占用状态，用中性 info，不用品牌蓝 primary
   return 'info'
 }
 </script>
@@ -293,7 +293,8 @@ function statusTagType(status?: string): 'success' | 'warning' | 'danger' | 'inf
 .gpu-stat-value { font-size: 28px; font-weight: 680; color: var(--mc-text-1); }
 .gpu-stat-unit { font-size: 14px; font-weight: 400; color: var(--mc-text-3); margin-left: 4px; }
 
-.toolbar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.toolbar { display: flex; gap: var(--mc-gap); margin-bottom: var(--mc-gap); flex-wrap: wrap; }
 .toolbar-search { flex: 1; min-width: 240px; max-width: 380px; }
-.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
+.pager { display: flex; justify-content: flex-end; margin-top: var(--mc-gap); }
+:deep(.el-dialog) { max-width: 92vw; }
 </style>

@@ -66,15 +66,36 @@ impl DatabasePool {
             DatabasePool::Postgres(_) => None,
         }
     }
+
+    /// 取内部的 Postgres 池（SQLite 变体返回 None）。
+    pub fn as_postgres(&self) -> Option<&PgPool> {
+        match self {
+            DatabasePool::Postgres(p) => Some(p),
+            DatabasePool::Sqlite(_) => None,
+        }
+    }
 }
 
-/// 根据 DSN scheme 判断驱动：`postgres://...` → Postgres，其余一律按 SQLite 处理。
-///
-/// 说明：当前 `config::Config` 尚未包含 `use_sqlite` / `memory_store_enabled` 字段
-/// （由后续整合统一接入），因此从 `DATABASE_URL` 的 scheme 推断；
-/// 若 url 中出现 `:memory:`，按内存模式对待。
+/// DSN 是否为 Postgres 连接串：`postgres://...` 与 `postgresql://...` 均识别
+/// （docker-compose 下发的是 `postgresql://...`，sqlx 两种 scheme 都接受）。
+pub fn is_postgres_url(url: &str) -> bool {
+    let u = url.trim_start();
+    u.starts_with("postgres://") || u.starts_with("postgresql://")
+}
+
+/// 根据 DSN scheme 判断驱动：`postgres(s)://...` → Postgres，其余一律按 SQLite 处理。
 pub fn is_sqlite_url(url: &str) -> bool {
-    !url.trim_start().starts_with("postgres://")
+    !is_postgres_url(url)
+}
+
+/// 启动路径是否应走 Postgres 驱动：
+/// `USE_SQLITE=false`（[`Config::use_sqlite`]）或 `DATABASE_URL` 为 `postgres(s)://` 即走 Postgres。
+///
+/// 此前 main.rs 无条件调 [`connect_and_migrate`]（只连 SQLite），导致 docker-compose
+/// 下发 `postgresql://...` 时被静默忽略、错误地按 SQLite 打开了一个同名文件——本函数
+/// 让启动路径真正按配置选择驱动。
+pub fn wants_postgres(config: &Config) -> bool {
+    !config.use_sqlite || is_postgres_url(&config.database_url)
 }
 
 /// 连接池工厂：按 Go `InitDB` 的三分支语义创建对应驱动的池。
@@ -97,8 +118,15 @@ pub async fn connect_pool(config: &Config) -> AppResult<DatabasePool> {
         return Ok(DatabasePool::Sqlite(pool));
     }
 
-    let dsn = config.get_database_dsn();
-    tracing::info!(host = %config.database_host, db = %config.database_name, "database: using postgres");
+    // 优先使用显式 DATABASE_URL（docker-compose 下发完整 postgresql:// 连接串）；
+    // 否则按 host/port/user/password/db 字段拼装 libpq DSN（对齐 Go GetDatabaseDSN）。
+    let dsn = if is_postgres_url(&config.database_url) {
+        tracing::info!(url = %config.database_url, "database: using postgres (explicit DATABASE_URL)");
+        config.database_url.clone()
+    } else {
+        tracing::info!(host = %config.database_host, db = %config.database_name, "database: using postgres");
+        config.get_database_dsn()
+    };
     let pool = connect_postgres(&dsn).await?;
     Ok(DatabasePool::Postgres(pool))
 }
@@ -158,7 +186,7 @@ async fn connect_postgres(url: &str) -> AppResult<PgPool> {
 ///
 /// 这是一个纯函数，不触碰文件系统，便于单元测试。
 pub fn resolve_migration_dir(database_url: &str) -> &'static str {
-    if database_url.trim_start().starts_with("postgres://") {
+    if is_postgres_url(database_url) {
         "migrations/postgres"
     } else {
         "migrations"
@@ -264,6 +292,53 @@ pub async fn seed_admin_if_empty(pool: &SqlitePool) -> AppResult<()> {
     Ok(())
 }
 
+/// Postgres 方言的播种：与 [`seed_admin_if_empty`] 语义一致，占位符用 `$N`、
+/// 自增 id 用 `RETURNING id`。仅在 Postgres 启动路径调用。
+pub async fn seed_admin_if_empty_postgres(pool: &PgPool) -> AppResult<()> {
+    let tenant_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tenants")
+        .fetch_one(pool)
+        .await?;
+    let admin_tenant_id: i64 = if tenant_count == 0 {
+        let now = chrono::Utc::now();
+        sqlx::query_scalar(
+            "INSERT INTO tenants (created_at, updated_at, name, description, status, \
+             gpu_quota, cpu_quota, memory_quota, storage_quota) \
+             VALUES ($1, $2, '默认租户', '系统默认租户', 'active', 10, 100, 1000, 10000) \
+             RETURNING id",
+        )
+        .bind(now)
+        .bind(now)
+        .fetch_one(pool)
+        .await?
+    } else {
+        sqlx::query_scalar("SELECT COALESCE(MIN(id), 1) FROM tenants")
+            .fetch_one(pool)
+            .await?
+    };
+
+    let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(pool)
+        .await?;
+    if user_count > 0 {
+        return Ok(());
+    }
+
+    let hash = crate::auth::password::hash_password("Admin@123456")?;
+    let now = chrono::Utc::now();
+    sqlx::query(
+        "INSERT INTO users (created_at, updated_at, username, email, password_hash, role, tenant_id) \
+         VALUES ($1, $2, 'admin', 'admin@example.com', $3, 'admin', $4)",
+    )
+    .bind(now)
+    .bind(now)
+    .bind(hash)
+    .bind(admin_tenant_id)
+    .execute(pool)
+    .await?;
+    tracing::info!("seeded default admin user (postgres)");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,5 +388,42 @@ mod tests {
     #[test]
     fn resolve_migration_dir_unknown_scheme_defaults_sqlite() {
         assert_eq!(resolve_migration_dir("mysql://localhost/db"), "migrations");
+    }
+
+    #[test]
+    fn is_postgres_url_recognizes_both_schemes() {
+        assert!(is_postgres_url("postgres://user:pass@localhost:5432/db"));
+        // docker-compose 实际下发的 scheme。
+        assert!(is_postgres_url(
+            "postgresql://metaclouds_user:pw@postgres:5432/metaclouds?sslmode=disable"
+        ));
+        assert!(is_postgres_url("  postgres://localhost/db"));
+        assert!(!is_postgres_url("sqlite::memory:"));
+        assert!(!is_postgres_url("sqlite://metaclouds.db"));
+        assert!(!is_postgres_url(""));
+    }
+
+    #[test]
+    fn wants_postgres_default_config_is_false() {
+        // 默认 USE_SQLITE=true + sqlite::memory: → 必须保持 SQLite 启动路径。
+        let cfg = Config::default();
+        assert!(!wants_postgres(&cfg));
+    }
+
+    #[test]
+    fn wants_postgres_triggered_by_flag_or_dsn() {
+        // USE_SQLITE=false 即走 Postgres。
+        let cfg = Config {
+            use_sqlite: false,
+            ..Config::default()
+        };
+        assert!(wants_postgres(&cfg));
+
+        // 仅 DATABASE_URL 为 postgresql:// 也走 Postgres（compose 下发形态）。
+        let cfg = Config {
+            database_url: "postgresql://u:p@postgres:5432/metaclouds".to_string(),
+            ..Config::default()
+        };
+        assert!(wants_postgres(&cfg));
     }
 }

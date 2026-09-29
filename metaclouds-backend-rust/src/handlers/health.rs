@@ -14,8 +14,11 @@ use std::time::Instant;
 
 use serde::Serialize;
 
+use axum::extract::State;
 use axum::Json;
 
+use crate::auth::middleware::AppState;
+use crate::error::{AppError, AppResult};
 use crate::response::ApiResponse;
 
 /// 进程启动时刻。`main` 启动时调用 [`init_start`] 记录。
@@ -41,10 +44,21 @@ pub struct HealthStatus {
 }
 
 /// `GET /health` — 存活/就绪探针，无需认证。
-pub async fn health() -> Json<ApiResponse<HealthStatus>> {
-    Json(ApiResponse::success(HealthStatus {
+///
+/// P1：轻量探活数据库（`SELECT 1`）。DB 不可用时返回 503，便于 K8s
+/// readiness 摘除故障实例；DB 正常时 200 信封结构与此前完全一致。
+pub async fn health(State(state): State<AppState>) -> AppResult<Json<ApiResponse<HealthStatus>>> {
+    sqlx::query("SELECT 1")
+        .execute(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = %e, "health db probe failed");
+            AppError::service_unavailable("database unavailable")
+        })?;
+
+    Ok(Json(ApiResponse::success(HealthStatus {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
         uptime: uptime_secs(),
-    }))
+    })))
 }

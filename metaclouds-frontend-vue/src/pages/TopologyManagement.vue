@@ -60,7 +60,7 @@
           </el-table-column>
           <el-table-column label="网络类型" width="110">
             <template #default="{ row }">
-              <el-tag v-if="netLabel(row.network_type)" type="primary" size="small">{{ netLabel(row.network_type) }}</el-tag>
+              <el-tag v-if="netLabel(row.network_type)" size="small" class="mc-chip">{{ netLabel(row.network_type) }}</el-tag>
               <span v-else>-</span>
             </template>
           </el-table-column>
@@ -225,6 +225,7 @@ import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
 import { topologyApi, clusterApi, jobApi } from '@/api'
 import { useFetch } from '@/utils/useFetch'
+import { colorTokens } from '@/theme/tokens'
 import type { NodeTopology, Cluster, Job } from '@/types'
 
 const NETWORK_TYPE_OPTIONS = [
@@ -390,7 +391,11 @@ const scoreEntries = computed(() => {
     .sort((a, b) => b.score - a.score)
 })
 function scoreColor(score: number) {
-  return score >= 80 ? '#00b8a9' : score >= 50 ? '#2f6bff' : '#faad14'
+  return score >= 80
+    ? colorTokens.semantic.successFg
+    : score >= 50
+      ? colorTokens.brand.base
+      : colorTokens.semantic.warningFg
 }
 
 async function calculateScore() {
@@ -418,11 +423,19 @@ async function calculateScore() {
 </script>
 
 <style scoped>
-.toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.toolbar { display: flex; flex-wrap: wrap; gap: var(--mc-gap); align-items: center; }
+.mc-chip {
+  background: var(--mc-surface-3) !important;
+  border-color: var(--mc-line) !important;
+  color: var(--mc-text-2) !important;
+}
 .detail-row { display: flex; padding: 8px 0; border-bottom: 1px solid var(--mc-line); }
 .detail-label { width: 110px; color: var(--mc-text-3); flex-shrink: 0; }
 .detail-value { flex: 1; word-break: break-all; }
 .score-title { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
 .score-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
 .score-name { width: 150px; flex-shrink: 0; font-size: 13px; color: var(--mc-text-2); }
+:deep(.el-table .el-button.is-link) {
+  min-height: 44px;
+}
 </style>

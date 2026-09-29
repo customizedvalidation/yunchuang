@@ -14,28 +14,28 @@
     <!-- KPI 指标卡 -->
     <div class="kpi-grid">
       <div class="kpi-card">
-        <div class="kpi-icon" style="background: var(--mc-brand)"><OfficeBuilding /></div>
+        <div class="kpi-icon" style="background: var(--mc-brand-50); color: var(--mc-brand-fg)"><OfficeBuilding /></div>
         <div>
           <div class="kpi-label">集群总数</div>
           <div class="kpi-value mc-num">{{ kpi.clusterTotal }}</div>
         </div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-icon" style="background: var(--mc-success)"><Monitor /></div>
+        <div class="kpi-icon" style="background: var(--mc-success-soft); color: var(--mc-success-fg)"><Monitor /></div>
         <div>
           <div class="kpi-label">在线节点</div>
           <div class="kpi-value mc-num">{{ kpi.onlineNodes }}</div>
         </div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-icon" style="background: var(--mc-danger)"><Cpu /></div>
+        <div class="kpi-icon" style="background: var(--mc-info-soft); color: var(--mc-info-fg)"><Cpu /></div>
         <div>
           <div class="kpi-label">GPU 利用率</div>
           <div class="kpi-value mc-num">{{ kpi.gpuUtil }}%</div>
         </div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-icon" style="background: var(--mc-warning)"><Bell /></div>
+        <div class="kpi-icon" style="background: var(--mc-warning-soft); color: var(--mc-warning-fg)"><Bell /></div>
         <div>
           <div class="kpi-label">活跃告警</div>
           <div class="kpi-value mc-num">{{ kpi.activeAlerts }}</div>
@@ -129,6 +129,7 @@
         </el-table>
         <el-pagination
           class="mc-mt"
+          style="justify-content: flex-end"
           layout="total, prev, pager, next"
           :total="filteredAlerts.length"
           v-model:current-page="page.current"
@@ -173,12 +174,22 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { monitoringApi } from '@/api'
 import type { Alert, AlertLevel, AlertStatus, MetricsOverview } from '@/types'
 import { useFetch } from '@/utils/useFetch'
+import { colorTokens } from '@/theme/tokens'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
 
 echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const TIME_POINTS = ['00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00']
+
+/* 折线取色：用 MDS 深色语义版（-fg / brand-base），保证白线白底 ≥3:1 图形对比。 */
+const CHART_LINE_COLORS = [
+  colorTokens.brand.base,
+  colorTokens.semantic.successFg,
+  colorTokens.brand['400'],
+  colorTokens.semantic.warningFg,
+  colorTokens.semantic.dangerFg,
+]
 
 const LEVEL_OPTIONS: { label: string; value: AlertLevel }[] = [
   { label: '严重', value: 'critical' },
@@ -263,8 +274,14 @@ function levelTagType(l?: string) {
   if (l === 'warning') return 'warning'
   return 'info'
 }
+const ALERT_STATUS_CLASS: Record<string, string> = {
+  active: 'pending',
+  resolved: 'completed',
+  ignored: 'idle',
+}
+const LEGACY_STATUS = ['running', 'pending', 'completed', 'failed', 'cancelled']
 function statusClass(s?: string) {
-  return ['running', 'pending', 'completed', 'failed', 'cancelled'].includes(s ?? '') ? (s as string) : 'idle'
+  return ALERT_STATUS_CLASS[s ?? ''] ?? (LEGACY_STATUS.includes(s ?? '') ? (s as string) : 'idle')
 }
 function statusText(s?: string) {
   const map: Record<string, string> = {
@@ -293,11 +310,12 @@ function renderTrend() {
   if (!trendChart) return
   const gpu = kpi.value.gpuUtil
   trendChart.setOption({
+    color: CHART_LINE_COLORS,
     tooltip: { trigger: 'axis' },
     legend: { data: ['CPU', '内存', '磁盘', '网络', 'GPU'], top: 0 },
     grid: { top: 40, left: 44, right: 16, bottom: 28 },
-    xAxis: { type: 'category', data: TIME_POINTS },
-    yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
+    xAxis: { type: 'category', data: TIME_POINTS, axisLabel: { color: colorTokens.neutral.text3 } },
+    yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%', color: colorTokens.neutral.text3 } },
     series: [
       { name: 'CPU', type: 'line', smooth: true, data: buildTrend(45, 12, 1) },
       { name: '内存', type: 'line', smooth: true, data: buildTrend(58, 8, 3) },
@@ -315,10 +333,11 @@ function renderThroughput() {
     Math.max(4, Math.round(20 + Math.sin(i / 1.8) * 12 + (i % 3) * 3)),
   )
   throughputChart.setOption({
+    color: [colorTokens.brand.base],
     tooltip: { trigger: 'axis' },
     grid: { top: 24, left: 44, right: 16, bottom: 28 },
-    xAxis: { type: 'category', data: TIME_POINTS },
-    yAxis: { type: 'value', name: '作业/小时' },
+    xAxis: { type: 'category', data: TIME_POINTS, axisLabel: { color: colorTokens.neutral.text3 } },
+    yAxis: { type: 'value', name: '作业/小时', axisLabel: { color: colorTokens.neutral.text3 } },
     series: [{ name: '作业吞吐量', type: 'bar', data, itemStyle: { borderRadius: [4, 4, 0, 0] } }],
   })
 }
@@ -367,7 +386,7 @@ void metricsLoading
 .kpi-card {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--mc-gap);
   padding: 16px 18px;
   background: var(--mc-surface);
   border-radius: var(--mc-radius-lg);
@@ -380,11 +399,14 @@ void metricsLoading
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
   font-size: 20px;
   flex-shrink: 0;
 }
 .kpi-label { font-size: 12.5px; color: var(--mc-text-3); }
 .kpi-value { font-size: 22px; font-weight: 680; color: var(--mc-text-1); }
 .chart-box { width: 100%; height: 300px; }
+/* 表格内 link 按钮触控目标不小于 44px */
+:deep(.el-table .el-button.is-link) {
+  min-height: 44px;
+}
 </style>

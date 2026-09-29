@@ -130,12 +130,14 @@
 
 <script setup lang="ts">
 import { onUnmounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock, Promotion, Connection, Lightning } from '@element-plus/icons-vue'
-import { authApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const route = useRoute()
+const authStore = useAuthStore()
 
 const FEATURES = [
   {
@@ -193,22 +195,13 @@ async function onSubmit() {
 
   loading.value = true
   try {
-    const { user, expires_at } = await authApi.login({
-      username: form.username,
-      password: form.password,
-    })
-    localStorage.setItem(
-      'user',
-      JSON.stringify({
-        username: user?.username ?? '',
-        email: user?.email ?? '',
-        role: user?.role ?? '',
-      }),
-    )
-    localStorage.setItem('auth_expiry', String((expires_at ?? 0) * 1000))
+    // 走 auth store：成功后会同步更新 pinia user（isLoggedIn=true）并持久化，
+    // 否则路由守卫仍会把已登录用户弹回 /login。
+    await authStore.login(form.username, form.password)
     ElMessage.success('登录成功')
     loginAttempts.value = 0
-    router.push('/dashboard')
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
+    router.push(redirect || '/dashboard')
   } catch (e) {
     loginAttempts.value += 1
     if (loginAttempts.value >= 5) {

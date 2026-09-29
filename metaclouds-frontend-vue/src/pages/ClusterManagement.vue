@@ -68,7 +68,7 @@
                 <el-tag
                   v-for="v in splitTags(row.gpu_vendors)"
                   :key="v"
-                  type="primary"
+                  type="info"
                   size="small"
                   style="margin-right: 4px"
                 >{{ v }}</el-tag>
@@ -82,7 +82,7 @@
                 <el-tag
                   v-for="s in splitTags(row.scheduler_types)"
                   :key="s"
-                  type="warning"
+                  type="info"
                   size="small"
                   style="margin-right: 4px"
                 >{{ s }}</el-tag>
@@ -276,7 +276,7 @@
           <el-col :span="12"><p><b>联邦ID：</b>{{ detailCluster.federation_id ?? '-' }}</p></el-col>
         </el-row>
 
-        <h3 class="detail-h">高可用</h3>
+        <div class="detail-h">高可用</div>
         <div class="detail-tags">
           <el-tag :type="detailCluster.ha_enabled ? 'success' : 'info'">
             管理平台HA {{ detailCluster.ha_enabled ? '开启' : '关闭' }}
@@ -289,14 +289,14 @@
           </el-tag>
         </div>
 
-        <h3 class="detail-h">访问方式</h3>
+        <div class="detail-h">访问方式</div>
         <div class="detail-tags">
           <el-tag v-for="m in accessMethodList(detailCluster.access_methods)" :key="m" type="info">{{ m }}</el-tag>
         </div>
 
         <p class="detail-desc"><b>描述：</b>{{ detailCluster.description ?? '-' }}</p>
 
-        <h3 class="detail-h">分区列表</h3>
+        <div class="detail-h">分区列表</div>
         <el-table :data="clusterPartitions(detailCluster.id)" row-key="id" size="small" style="width: 100%">
           <el-table-column prop="name" label="名称" />
           <el-table-column prop="description" label="描述" show-overflow-tooltip />
@@ -521,22 +521,24 @@ function statusText(status?: string) {
   }
   return map[status ?? ''] ?? status ?? '-'
 }
-function statusTagType(status?: string): 'success' | 'warning' | 'danger' | 'info' | 'primary' {
+function statusTagType(status?: string): 'success' | 'warning' | 'danger' | 'info' {
   if (status === 'active' || status === 'running') return 'success'
   if (status === 'maintenance' || status === 'rebuilding' || status === 'pending') return 'warning'
   if (status === 'failed' || status === 'error') return 'danger'
   if (status === 'inactive' || status === 'drained') return 'info'
-  return 'primary'
+  return 'info'
 }
 </script>
 
 <style scoped>
-.toolbar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.toolbar { display: flex; gap: var(--mc-gap); margin-bottom: var(--mc-gap); flex-wrap: wrap; }
 .toolbar-search { flex: 1; min-width: 240px; max-width: 420px; }
-.pager { display: flex; justify-content: flex-end; margin-top: 16px; }
-.scale-tip { color: var(--mc-text-3); font-size: 12.5px; margin: 0 0 16px; }
-.detail-h { margin: 18px 0 8px; font-size: 14px; }
+.pager { display: flex; justify-content: flex-end; margin-top: var(--mc-gap); }
+.scale-tip { color: var(--mc-text-3); font-size: 12.5px; margin: 0 0 var(--mc-gap); }
+.detail-h { margin: 18px 0 8px; font-size: var(--mc-fs-h2); font-weight: 650; color: var(--mc-text-1); }
 .detail-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.detail-desc { margin-top: 16px; }
+.detail-desc { margin-top: var(--mc-gap); }
 .detail-desc :deep(p) { margin: 0 0 8px; }
+:deep(.el-dialog) { max-width: 92vw; }
+:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }
 </style>

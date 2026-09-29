@@ -25,7 +25,7 @@
           style="width: 240px"
           aria-label="搜索节点"
         />
-        <el-button type="primary" :icon="Refresh" :loading="gpuLoading" @click="loadGpu">刷新GPU资源</el-button>
+        <el-button :icon="Refresh" :loading="gpuLoading" @click="loadGpu">刷新GPU资源</el-button>
       </div>
       <PageState
         :loading="gpuLoading"
@@ -47,25 +47,10 @@
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="CPU请求" width="100">
-            <template #default>—</template>
-          </el-table-column>
-          <el-table-column label="CPU限制" width="100">
-            <template #default>—</template>
-          </el-table-column>
-          <el-table-column label="内存请求" width="100">
-            <template #default>—</template>
-          </el-table-column>
-          <el-table-column label="内存限制" width="100">
-            <template #default>—</template>
-          </el-table-column>
           <el-table-column label="GPU" width="120">
             <template #default="{ row }">
               <span class="mc-num">{{ row.used ?? 0 }} / {{ row.total ?? 0 }}</span>
             </template>
-          </el-table-column>
-          <el-table-column label="标签" min-width="120">
-            <template #default>—</template>
           </el-table-column>
           <el-table-column label="操作" width="100" fixed="right">
             <template #default="{ row }">
@@ -94,7 +79,7 @@
           style="width: 240px"
           aria-label="搜索 Pod"
         />
-        <el-button type="primary" :icon="Refresh" :loading="jobsLoading" @click="loadJobs">刷新</el-button>
+        <el-button :icon="Refresh" :loading="jobsLoading" @click="loadJobs">刷新</el-button>
       </div>
       <PageState
         :loading="jobsLoading"
@@ -107,9 +92,6 @@
           <el-table-column label="名称" min-width="180">
             <template #default="{ row }">{{ row.name }}</template>
           </el-table-column>
-          <el-table-column label="命名空间" width="130">
-            <template #default>—</template>
-          </el-table-column>
           <el-table-column label="状态" width="110">
             <template #default="{ row }">
               <span class="mc-status" :class="statusClass(row.status)">
@@ -117,17 +99,11 @@
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="节点" width="140">
-            <template #default>—</template>
-          </el-table-column>
           <el-table-column label="CPU" width="90">
             <template #default="{ row }"><span class="mc-num">{{ row.cpus ?? '-' }}</span></template>
           </el-table-column>
           <el-table-column label="内存(GB)" width="100">
             <template #default="{ row }"><span class="mc-num">{{ row.memory ?? '-' }}</span></template>
-          </el-table-column>
-          <el-table-column label="重启次数" width="90">
-            <template #default>0</template>
           </el-table-column>
           <el-table-column label="创建时间" width="170">
             <template #default="{ row }">{{ row.created_at || '-' }}</template>
@@ -154,7 +130,7 @@
           style="width: 240px"
           aria-label="搜索服务"
         />
-        <el-button type="primary" :icon="Refresh" :loading="svcLoading" @click="loadSvc">刷新</el-button>
+        <el-button :icon="Refresh" :loading="svcLoading" @click="loadSvc">刷新</el-button>
       </div>
       <PageState
         :loading="svcLoading"
@@ -167,22 +143,10 @@
           <el-table-column label="名称" min-width="160">
             <template #default="{ row }">{{ row.name }}</template>
           </el-table-column>
-          <el-table-column label="命名空间" width="130">
-            <template #default>—</template>
-          </el-table-column>
           <el-table-column label="类型" width="110">
             <template #default="{ row }">
               <el-tag>{{ row.type || '-' }}</el-tag>
             </template>
-          </el-table-column>
-          <el-table-column label="集群IP" width="140">
-            <template #default>—</template>
-          </el-table-column>
-          <el-table-column label="端口" width="100">
-            <template #default>—</template>
-          </el-table-column>
-          <el-table-column label="选择器" min-width="140">
-            <template #default>—</template>
           </el-table-column>
           <el-table-column label="创建时间" width="170">
             <template #default="{ row }">{{ row.created_at || '-' }}</template>
@@ -222,7 +186,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { jobApi, resourceApi } from '@/api'
 import type { Job, GPUResource, Resource } from '@/types'
@@ -307,9 +270,14 @@ const pagedSvcs = computed(() => {
 
 // ---------- 展示辅助 ----------
 function statusClass(s?: string) {
-  return ['running', 'pending', 'completed', 'failed', 'cancelled', 'active', 'online'].includes(s ?? '')
-    ? (s as string)
-    : 'idle'
+  // CSS 仅定义 running/pending/completed/failed/idle 五种修饰类；
+  // active/online/ready/available 均归并到 running（brand-fg 运行态）
+  const runningSet = ['running', 'active', 'online', 'ready', 'available']
+  if (runningSet.includes(s ?? '')) return 'running'
+  if (s === 'pending') return 'pending'
+  if (s === 'completed') return 'completed'
+  if (s === 'failed' || s === 'error') return 'failed'
+  return 'idle'
 }
 function statusText(s?: string) {
   const map: Record<string, string> = {
@@ -327,6 +295,9 @@ function showNodeDetail(row: GPUResource) {
   nodeDetail.value = row
   nodeName.value = row.gpuName
   nodeDetailVisible.value = true
-  ElMessage.success(`查看节点 ${row.gpuName}`)
 }
 </script>
+
+<style scoped>
+:deep(.el-dialog) { max-width: 92vw; }
+</style>

@@ -25,13 +25,13 @@
       <el-col :xs="12" :sm="12" :md="8" :lg="4" :xl="4">
         <el-card shadow="never">
           <div class="stat-label">可用</div>
-          <div class="stat-value" style="color: var(--mc-success)">{{ stats.available }} <span class="stat-unit">张</span></div>
+          <div class="stat-value" style="color: var(--mc-success-fg)">{{ stats.available }} <span class="stat-unit">张</span></div>
         </el-card>
       </el-col>
       <el-col :xs="12" :sm="12" :md="8" :lg="4" :xl="4">
         <el-card shadow="never">
           <div class="stat-label">已分配</div>
-          <div class="stat-value" style="color: var(--mc-warning)">{{ stats.allocated }} <span class="stat-unit">张</span></div>
+          <div class="stat-value" style="color: var(--mc-warning-fg)">{{ stats.allocated }} <span class="stat-unit">张</span></div>
         </el-card>
       </el-col>
       <el-col :xs="12" :sm="12" :md="8" :lg="4" :xl="4">
@@ -43,7 +43,7 @@
       <el-col :xs="12" :sm="12" :md="8" :lg="4" :xl="4">
         <el-card shadow="never">
           <div class="stat-label">故障</div>
-          <div class="stat-value" style="color: var(--mc-danger)">{{ stats.fault }} <span class="stat-unit">张</span></div>
+          <div class="stat-value" style="color: var(--mc-danger-fg)">{{ stats.fault }} <span class="stat-unit">张</span></div>
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="24" :md="24" :lg="4" :xl="4">
@@ -62,7 +62,7 @@
     <!-- 容器虚拟化隔离能力 + 隔离引擎 + 分配粒度（skill.md 4.2） -->
     <el-card shadow="never" class="mc-mb" header="容器虚拟化隔离与分配能力">
       <el-row :gutter="16">
-        <el-col :span="6" v-for="c in ISOLATION_CAPS" :key="c.name">
+        <el-col :xs="12" :sm="12" :md="6" v-for="c in ISOLATION_CAPS" :key="c.name">
           <div class="iso-cap">
             <div class="iso-cap-name">{{ c.name }}</div>
             <div class="iso-cap-desc">{{ c.desc }}</div>
@@ -70,13 +70,13 @@
         </el-col>
       </el-row>
       <el-row :gutter="16" class="mc-mt">
-        <el-col :span="12">
+        <el-col :xs="24" :sm="24" :md="12">
           <el-card shadow="never" class="iso-sub" header="隔离引擎">
             <el-tag type="primary" size="small" class="mc-mr">用户态虚拟化隔离引擎（轻量高性能）</el-tag>
             <el-tag type="warning" size="small">内核态虚拟化隔离引擎（安全底层隔离）</el-tag>
           </el-card>
         </el-col>
-        <el-col :span="12">
+        <el-col :xs="24" :sm="24" :md="12">
           <el-card shadow="never" class="iso-sub" header="GPU 分配粒度分布">
             <el-tag type="success" size="small" class="mc-mr">1 GPU × {{ fracFull }}</el-tag>
             <el-tag type="primary" size="small" class="mc-mr">1/2 GPU × {{ fracHalf }}</el-tag>
@@ -423,14 +423,9 @@ const VENDOR_LABEL: Record<GPUVendor, string> = {
 function vendorLabel(v?: GPUVendor): string {
   return (v && VENDOR_LABEL[v]) ?? v ?? '-'
 }
-function vendorTagType(v?: GPUVendor) {
-  switch (v) {
-    case 'nvidia': return 'success'
-    case 'enflame': return 'primary'
-    case 'moore_threads': return 'warning'
-    case 'domestic_x': return 'danger'
-    default: return 'info'
-  }
+function vendorTagType(_v?: GPUVendor) {
+  // 厂商是分类维度，统一用中性 info 软底，不复用 success/warning/danger 状态色
+  return 'info' as const
 }
 
 const STATUS_TYPE: Record<string, string> = {
@@ -696,9 +691,14 @@ const detailRows = computed(() => {
 .detail-label { width: 120px; color: var(--mc-text-3); flex-shrink: 0; }
 .detail-value { flex: 1; word-break: break-all; }
 .mc-empty-mini { color: var(--mc-text-3); }
-.iso-cap { border-left: 3px solid var(--mc-brand, #2f6bff); padding: 8px 12px; border-radius: 8px; background: var(--mc-bg, transparent); }
+.iso-cap { border-left: 3px solid var(--mc-brand); padding: 8px 12px; border-radius: var(--mc-radius-sm); background: var(--mc-surface-3); }
 .iso-cap-name { font-weight: 600; margin-bottom: 4px; }
 .iso-cap-desc { font-size: 12px; color: var(--mc-text-3); }
 .iso-sub .el-card__header { font-size: 13px; font-weight: 600; }
 .mc-mr { margin-right: 6px; }
+/* 窄屏弹窗 / 抽屉兜底 */
+:deep(.el-dialog) { max-width: 92vw; }
+:deep(.el-drawer) { max-width: 92vw; }
+/* 操作列 link 按钮触控目标扩容 */
+:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }
 </style>

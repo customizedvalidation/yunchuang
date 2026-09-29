@@ -63,7 +63,7 @@
           </el-table-column>
           <el-table-column label="调度器类型" width="120">
             <template #default="{ row }">
-              <el-tag v-if="schedulerOpt(row.scheduler_type)" type="primary" size="small">{{ schedulerOpt(row.scheduler_type) }}</el-tag>
+              <el-tag v-if="schedulerOpt(row.scheduler_type)" type="info" size="small">{{ schedulerOpt(row.scheduler_type) }}</el-tag>
               <span v-else>-</span>
             </template>
           </el-table-column>
@@ -336,7 +336,10 @@ function schedulerOpt(v?: string) {
   return SCHEDULER_OPTIONS.find((o) => o.value === v)?.label
 }
 function accessType(v: string) {
-  return v === 'admin' ? 'danger' : v === 'submit' ? 'primary' : 'info'
+  // 访问级别是分类维度：view/submit 用中性 info，admin 用 warning 琥珀提示权限提升，
+  // 不再用 danger 红表示"管理员"，也不用品牌蓝
+  if (v === 'admin') return 'warning'
+  return 'info'
 }
 
 // ---------- 筛选 ----------
@@ -538,6 +541,9 @@ async function removePermission(id: number) {
 </script>
 
 <style scoped>
-.toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.toolbar { display: flex; flex-wrap: wrap; gap: var(--mc-gap); align-items: center; }
 .mc-empty-mini { color: var(--mc-text-3); }
+:deep(.el-dialog) { max-width: 92vw; }
+:deep(.el-drawer) { max-width: 92vw; }
+:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }
 </style>

@@ -10,6 +10,9 @@
   --mc-brand-100: #dce8ff;
   --mc-brand-50: #eef4ff;
   --mc-brand-grad: linear-gradient(135deg, #2f6bff 0%, #5b3fd9 100%);
+  /* v2.1 增补：品牌 scale 深档（按压 / 深色 hover / 图表深色系列） */
+  --mc-brand-700: #1a44b8;
+  --mc-brand-800: #163694;
 
   /* 科技蓝（侧边栏专用） */
   --sidebar-primary-color: #1677ff;
@@ -25,6 +28,9 @@
   --mc-danger: #ff5c7a;
   --mc-danger-soft: rgba(255, 92, 122, 0.12);
   --mc-info-soft: #eef4ff;
+  /* v2.1 增补：info 语义成对（solid 色块 / fg 软底可读文字） */
+  --mc-info: #55647e;
+  --mc-info-fg: #3a4a63;
   --mc-teal: #00b8a9;
 
   --mc-success-fg: #0b7a54;
@@ -75,6 +81,102 @@
   --mc-fs-h2: clamp(15px, 14.2px + 0.16vw, 17px);
   --mc-fs-body: clamp(13.5px, 13.2px + 0.08vw, 14.5px);
   --mc-fs-sm: clamp(12.5px, 12.3px + 0.06vw, 13.5px);
+
+  /* v2.1 增补：焦点环颜色（:focus-visible 使用，配合 surface 留白形成高对比圆环） */
+  --mc-focus-ring: #2f6bff;
+
+  /* ============================================================
+     Element Plus 核心变量映射（MDS → --el-*）
+     EP 2.8 支持 CSS 变量主题，直接在 :root 覆盖即可全组件继承科技蓝。
+     主色 = --mc-brand 系；语义色文字一律用 -fg 可读版。
+     派生 light/dark 档由 MDS 基色按 EP 混色算法（混白/混黑）生成。
+     ============================================================ */
+  /* 主色：EP primary 同时承担填充与文字，取 -fg 深档保证双向 WCAG 可读；
+     CTA 主按钮仍由 .el-button--primary 叠加 --mc-brand-grad 亮蓝渐变。 */
+  --el-color-primary: var(--mc-brand-fg);
+  --el-color-primary-light-3: #6285e9;
+  --el-color-primary-light-5: #8fa8f0;
+  --el-color-primary-light-7: #bccbf6;
+  --el-color-primary-light-8: #d2dcf9;
+  --el-color-primary-light-9: #e9eefc;
+  --el-color-primary-dark-2: #1840b3;
+
+  /* 成功：EP 实心/按钮用 -fg 深档（白字可读），浅档由深档派生 */
+  --el-color-success: var(--mc-success-fg);
+  --el-color-success-light-3: #54a287;
+  --el-color-success-light-5: #85bdaa;
+  --el-color-success-light-7: #b6d7cc;
+  --el-color-success-light-8: #cee4dd;
+  --el-color-success-light-9: #e7f2ee;
+  --el-color-success-dark-2: #096243;
+
+  /* 警告：EP 实心/按钮用 -fg 深档（白字可读），浅档由深档派生 */
+  --el-color-warning: var(--mc-warning-fg);
+  --el-color-warning-light-3: #ad8c4d;
+  --el-color-warning-light-5: #c5ad80;
+  --el-color-warning-light-7: #dcceb3;
+  --el-color-warning-light-8: #e8decc;
+  --el-color-warning-light-9: #f3efe6;
+  --el-color-warning-dark-2: #6e4800;
+
+  /* 危险 / 错误（EP error 与 danger 同源，均用 -fg 深档） */
+  --el-color-danger: var(--mc-danger-fg);
+  --el-color-danger-light-3: #d45d8c;
+  --el-color-danger-light-5: #e18cad;
+  --el-color-danger-light-7: #edbace;
+  --el-color-danger-light-8: #f3d1de;
+  --el-color-danger-light-9: #f9e8ef;
+  --el-color-danger-dark-2: #9b1349;
+  --el-color-error: var(--mc-danger-fg);
+  --el-color-error-light-3: #d45d8c;
+  --el-color-error-light-5: #e18cad;
+  --el-color-error-light-7: #edbace;
+  --el-color-error-light-8: #f3d1de;
+  --el-color-error-light-9: #f9e8ef;
+  --el-color-error-dark-2: #9b1349;
+
+  /* 信息 */
+  --el-color-info: var(--mc-info);
+  --el-color-info-light-3: #8893a5;
+  --el-color-info-light-5: #aab2bf;
+  --el-color-info-light-7: #ccd1d8;
+  --el-color-info-light-8: #dde0e5;
+  --el-color-info-light-9: #eef0f2;
+  --el-color-info-dark-2: #445065;
+
+  /* 文字色阶 */
+  --el-text-color-primary: var(--mc-text-1);
+  --el-text-color-regular: var(--mc-text-2);
+  --el-text-color-secondary: var(--mc-text-3);
+  --el-text-color-placeholder: var(--mc-text-3);
+  --el-text-color-disabled: #b6c0d0;
+
+  /* 边框色阶 */
+  --el-border-color: var(--mc-line);
+  --el-border-color-light: var(--mc-line);
+  --el-border-color-lighter: #eef2f8;
+  --el-border-color-extra-light: #f4f7fc;
+  --el-border-color-dark: var(--mc-line-strong);
+  --el-border-color-darker: var(--mc-line-strong);
+
+  /* 填充色阶 */
+  --el-fill-color: var(--mc-surface-3);
+  --el-fill-color-light: var(--mc-surface-2);
+  --el-fill-color-lighter: #fafcfe;
+  --el-fill-color-extra-light: #f7f9fd;
+  --el-fill-color-dark: #e9eef6;
+  --el-fill-color-blank: var(--mc-surface);
+
+  /* 背景 */
+  --el-bg-color: var(--mc-surface);
+  --el-bg-color-page: var(--mc-bg);
+  --el-bg-color-overlay: #ffffff;
+
+  /* 圆角 / 字体 */
+  --el-border-radius-base: var(--mc-radius-sm);
+  --el-border-radius-small: var(--mc-radius-xs);
+  --el-border-radius-round: var(--mc-radius-pill);
+  --el-font-family: 'Inter', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei', -apple-system, sans-serif;
 
   color-scheme: light;
 }
@@ -136,7 +238,9 @@ body {
 
 /* App Shell */
 .mc-app-shell { display: grid; grid-template-columns: auto minmax(0, 1fr); min-height: 100vh; background: var(--mc-bg); transition: grid-template-columns var(--mc-t-slow) var(--mc-ease); }
-@media (max-width: 1023px) { .mc-app-shell { grid-template-columns: 0 minmax(0, 1fr); } }
+/* 窄屏：sidebar 与 overlay 均 fixed 脱流，shell 改为单列网格，
+   否则唯一在流内的 .mc-app-main 会落进 0px 的侧栏轨道导致内容塌缩。 */
+@media (max-width: 1023px) { .mc-app-shell { grid-template-columns: minmax(0, 1fr); } }
 .mc-app-main { min-width: 0; display: flex; flex-direction: column; }
 .mc-app-content { flex: 1; min-width: 0; }
 
@@ -163,3 +267,44 @@ body {
 .page-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; color: var(--mc-text-3); }
 .page-state-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
 .page-state-text { font-size: 14px; }
+
+/* ============================ v2.1 全局打磨 ============================ */
+/* 焦点环：surface 留白 + 品牌色外环，≥2px、对比可见；box-shadow 跟随元素圆角 */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--mc-surface), 0 0 0 4px var(--mc-focus-ring);
+}
+/* 选中文本：品牌浅底 + 主文字色 */
+::selection { background: var(--mc-brand-100); color: var(--mc-text-1); }
+/* 滚动条 hover 加深，与现有 10px 轨道一致 */
+::-webkit-scrollbar-thumb:hover { background: var(--mc-line-strong); }
+/* 尊重减弱动效偏好：动效令牌降级为瞬时 */
+@media (prefers-reduced-motion: reduce) {
+  :root { --mc-t-fast: 1ms; --mc-t-base: 1ms; --mc-t-slow: 1ms; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================ v2.1 响应式兜底 ============================ */
+/* 窄屏（≤767px）：固定 px 宽度的弹窗/抽屉/消息框全局收敛，避免横向溢出。
+   Element Plus 将 width 作为内联样式注入，故用 !important 覆盖；
+   桌面端不受影响（仅 media query 内生效）。 */
+@media (max-width: 767px) {
+  .el-dialog {
+    width: calc(100vw - 32px) !important;
+    max-width: calc(100vw - 32px) !important;
+    margin-top: 6vh !important;
+  }
+  .el-message-box {
+    width: calc(100vw - 32px) !important;
+    max-width: calc(100vw - 32px) !important;
+  }
+  .el-drawer {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+  }
+}

@@ -47,7 +47,7 @@
           <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
           <el-table-column label="源类型" width="110">
             <template #default="{ row }">
-              <el-tag type="primary">{{ sourceTypeLabel(row.source_type) }}</el-tag>
+              <el-tag class="mc-chip">{{ sourceTypeLabel(row.source_type) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="source_path" label="源路径" min-width="180" show-overflow-tooltip />
@@ -664,16 +664,21 @@ function statusTagType(status?: string) {
 <style scoped>
 .mc-toolbar {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--mc-gap);
+  margin-bottom: var(--mc-gap);
 }
 .drawer-toolbar {
-  margin-bottom: 16px;
+  margin-bottom: var(--mc-gap);
 }
-.mc-mono {
-  font-family: var(--mc-mono-font, monospace);
+.mc-chip {
+  background: var(--mc-surface-3) !important;
+  border-color: var(--mc-line) !important;
+  color: var(--mc-text-2) !important;
 }
 .mc-num {
   font-variant-numeric: tabular-nums;
+}
+:deep(.el-table .el-button.is-link) {
+  min-height: 44px;
 }
 </style>

@@ -57,7 +57,7 @@
           <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
           <el-table-column label="类型" width="110">
             <template #default="{ row }">
-              <el-tag type="primary">{{ typeLabel(row.type) }}</el-tag>
+              <el-tag class="mc-chip">{{ typeLabel(row.type) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="状态" width="100">
@@ -390,11 +390,11 @@ function statusTagType(status?: string) {
 
 <style scoped>
 .stat-row {
-  margin-bottom: 16px;
+  margin-bottom: var(--mc-gap);
 }
 .stat-card-label {
   font-size: 13px;
-  color: var(--mc-text-3, #909399);
+  color: var(--mc-text-3);
 }
 .stat-card-value {
   font-size: 26px;
@@ -403,22 +403,27 @@ function statusTagType(status?: string) {
 }
 .mc-toolbar {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--mc-gap);
+  margin-bottom: var(--mc-gap);
 }
 .detail-card {
-  margin-top: 16px;
+  margin-top: var(--mc-gap);
 }
 .rules-pre {
-  background: var(--mc-bg-2, #f5f7fa);
+  background: var(--mc-surface-3);
   padding: 12px;
-  border-radius: 4px;
+  border-radius: var(--mc-radius-xs);
   font-size: 12px;
   overflow: auto;
   max-height: 480px;
   margin: 0;
 }
-.mc-mono {
-  font-family: var(--mc-mono-font, monospace);
+.mc-chip {
+  background: var(--mc-surface-3) !important;
+  border-color: var(--mc-line) !important;
+  color: var(--mc-text-2) !important;
+}
+:deep(.el-table .el-button.is-link) {
+  min-height: 44px;
 }
 </style>

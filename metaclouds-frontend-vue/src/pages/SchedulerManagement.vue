@@ -6,7 +6,7 @@
         <p class="mc-page-desc">共 {{ schedulersData.length }} 个调度器集成 · 统一纳管 Slurm/LSF/SGE/K8s 调度器</p>
       </div>
       <div class="mc-page-head-extra">
-        <el-tag v-if="healthResult" :type="healthResult.type" size="large" style="margin-right: 8px">
+        <el-tag v-if="healthResult" :type="healthResult.type" size="large">
           {{ healthCheckName }} 健康检查：{{ healthResult.label }}
         </el-tag>
         <Can :roles="['admin', 'manager']">
@@ -40,7 +40,7 @@
           <el-table-column prop="name" label="名称" width="150" />
           <el-table-column label="类型" width="120">
             <template #default="{ row }">
-              <el-tag type="primary" size="small">{{ typeLabel(row.type) }}</el-tag>
+              <el-tag size="small" class="mc-chip">{{ typeLabel(row.type) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="endpoint" label="端点" min-width="180" show-overflow-tooltip />
@@ -416,5 +416,13 @@ async function healthCheck(row: SchedulerIntegration) {
 </script>
 
 <style scoped>
-.toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.toolbar { display: flex; flex-wrap: wrap; gap: var(--mc-gap); align-items: center; }
+.mc-chip {
+  background: var(--mc-surface-3) !important;
+  border-color: var(--mc-line) !important;
+  color: var(--mc-text-2) !important;
+}
+:deep(.el-table .el-button.is-link) {
+  min-height: 44px;
+}
 </style>

@@ -664,3 +664,10 @@ async function openDetail(row: Job) {
   if (k8s.status === 'fulfilled' && k8s.value) k8sStatus.value = k8s.value as Record<string, unknown>
 }
 </script>
+
+<style scoped>
+/* 窄屏弹窗兜底：EP width 属性保持，max-width 约束溢出 */
+:deep(.el-dialog) { max-width: 92vw; }
+/* 操作列 link 按钮触控目标扩容（视觉紧凑，命中区≥32px） */
+:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }
+</style>

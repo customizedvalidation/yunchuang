@@ -19,7 +19,12 @@
         <el-card
           shadow="hover"
           :class="['stat-card', { 'is-active': categoryFilter === c.key }]"
+          role="button"
+          tabindex="0"
+          :aria-pressed="categoryFilter === c.key"
           @click="toggleCategory(c.key)"
+          @keydown.enter.prevent="toggleCategory(c.key)"
+          @keydown.space.prevent="toggleCategory(c.key)"
         >
           <div class="stat-card-label">{{ c.label }}</div>
           <div class="stat-card-value">
@@ -71,7 +76,7 @@
           <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
           <el-table-column label="类型" width="100">
             <template #default="{ row }">
-              <el-tag>{{ row.type || '-' }}</el-tag>
+              <el-tag class="mc-chip">{{ row.type || '-' }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="version" label="版本" width="90" />
@@ -92,13 +97,13 @@
           </el-table-column>
           <el-table-column label="分类" width="120">
             <template #default="{ row }">
-              <el-tag v-if="categoryLabel(row.category)" type="primary">{{ categoryLabel(row.category) }}</el-tag>
+              <el-tag v-if="categoryLabel(row.category)" class="mc-chip">{{ categoryLabel(row.category) }}</el-tag>
               <span v-else>-</span>
             </template>
           </el-table-column>
           <el-table-column label="厂商" width="100">
             <template #default="{ row }">
-              <el-tag v-if="row.vendor" type="success">{{ row.vendor }}</el-tag>
+              <el-tag v-if="row.vendor" class="mc-chip">{{ row.vendor }}</el-tag>
               <span v-else>-</span>
             </template>
           </el-table-column>
@@ -487,18 +492,19 @@ function statusTagType(status?: string) {
 
 <style scoped>
 .stat-row {
-  margin-bottom: 16px;
+  margin-bottom: var(--mc-gap);
 }
 .stat-card {
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color var(--mc-t-base) var(--mc-ease), box-shadow var(--mc-t-base) var(--mc-ease);
 }
 .stat-card.is-active {
-  border-color: var(--el-color-primary);
+  border-color: var(--mc-brand);
+  box-shadow: var(--mc-shadow-2);
 }
 .stat-card-label {
   font-size: 13px;
-  color: var(--mc-text-3, #909399);
+  color: var(--mc-text-3);
 }
 .stat-card-value {
   font-size: 26px;
@@ -508,22 +514,27 @@ function statusTagType(status?: string) {
 .stat-card-suffix {
   font-size: 12px;
   font-weight: 400;
-  color: var(--mc-text-3, #909399);
+  color: var(--mc-text-3);
   margin-left: 8px;
 }
 .stat-card-hint {
   font-size: 12px;
-  color: var(--mc-text-3, #909399);
+  color: var(--mc-text-3);
 }
 .mc-toolbar {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--mc-gap);
+  margin-bottom: var(--mc-gap);
 }
 .detail-card {
-  margin-top: 16px;
+  margin-top: var(--mc-gap);
 }
-.mc-mono {
-  font-family: var(--mc-mono-font, monospace);
+.mc-chip {
+  background: var(--mc-surface-3) !important;
+  border-color: var(--mc-line) !important;
+  color: var(--mc-text-2) !important;
+}
+:deep(.el-table .el-button.is-link) {
+  min-height: 44px;
 }
 </style>

@@ -152,7 +152,7 @@
             </el-table-column>
             <el-table-column label="资源类型" width="100">
               <template #default="{ row }">
-                <el-tag type="primary" size="small">{{ resourceTypeLabel(row.resource_type) }}</el-tag>
+                <el-tag size="small" class="mc-chip">{{ resourceTypeLabel(row.resource_type) }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column label="限制" width="90">
@@ -206,7 +206,6 @@
         ref="formRef"
         :model="form"
         :rules="rules"
-        label-width="120px"
         label-position="top"
       >
         <el-form-item label="名称" prop="name">
@@ -656,8 +655,8 @@ function statusTagType(status?: string) {
 <style scoped>
 .mc-toolbar {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--mc-gap);
+  margin-bottom: var(--mc-gap);
 }
 .quota-usage {
   display: flex;
@@ -667,10 +666,15 @@ function statusTagType(status?: string) {
 .quota-usage :deep(.el-progress) {
   flex: 1;
 }
-.mc-mono {
-  font-family: var(--mc-mono-font, monospace);
+.mc-chip {
+  background: var(--mc-surface-3) !important;
+  border-color: var(--mc-line) !important;
+  color: var(--mc-text-2) !important;
 }
 .mc-num {
   font-variant-numeric: tabular-nums;
+}
+:deep(.el-table .el-button.is-link) {
+  min-height: 44px;
 }
 </style>

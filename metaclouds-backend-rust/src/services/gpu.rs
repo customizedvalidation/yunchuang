@@ -238,6 +238,9 @@ pub async fn allocate_gpu(
     })?;
 
     let now = Utc::now();
+    // P1: 写操作事务化——INSERT allocation 与 UPDATE device 必须原子提交，
+    // 消除"写一半失败留下孤儿 allocation"的窗口（SQLite/Postgres 通用事务写法）。
+    let mut tx = pool.begin().await?;
     let res = sqlx::query(
         "INSERT INTO gpu_allocations (created_at, updated_at, device_id, job_id, tenant_id, \
          user_id, fraction, memory_gb, status, started_at) \
@@ -252,7 +255,7 @@ pub async fn allocate_gpu(
     .bind(input.fraction)
     .bind(input.memory_gb)
     .bind(now)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
     let alloc_id = res.last_insert_rowid();
@@ -271,8 +274,10 @@ pub async fn allocate_gpu(
     .bind(new_status)
     .bind(now)
     .bind(device.id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     let alloc = gpu_allocation::get_by_id(pool, alloc_id)
         .await?
