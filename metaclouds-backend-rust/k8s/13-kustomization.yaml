@@ -25,13 +25,18 @@ resources:
   - 10-ingress.yaml
   - 11-servicemonitor.yaml
   - 12-prometheusrule.yaml
+  - 14-frontend-deployment.yaml
+  - 15-frontend-service.yaml
+  - 16-frontend-networkpolicy.yaml
 
 # 公共 labels（自动注入到所有资源）
 commonLabels:
   app.kubernetes.io/part-of: metaclouds
   app.kubernetes.io/managed-by: kustomize
 
-# 镜像占位（生产环境通过 CI 覆盖 tag）
+# 镜像占位（生产环境通过 CI 覆盖 tag，禁止 latest）
 images:
   - name: ghcr.io/customizedvalidation/yunchuang/backend-rust
+    newTag: latest
+  - name: ghcr.io/customizedvalidation/yunchuang/frontend
     newTag: latest

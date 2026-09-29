@@ -1,0 +1,49 @@
+# ==============================================================================
+# 16-frontend-networkpolicy.yaml — 前端 NetworkPolicy
+# ==============================================================================
+# 默认拒绝策略（09 号）同样约束前端 Pod，此处显式放行：
+#   入站：仅允许 ingress-nginx controller 访问 80 端口
+#   出站：允许 DNS（nginx 启动与静态资源无外部依赖，SPA 的 /api 由浏览器经 Ingress 直连后端）
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metaclouds-frontend-policy
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: metaclouds
+      component: frontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 来自 ingress-nginx controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
+  egress:
+    # → DNS（kube-dns / CoreDNS，53 UDP + TCP）
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

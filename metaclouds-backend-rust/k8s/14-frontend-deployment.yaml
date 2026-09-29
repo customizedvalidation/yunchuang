@@ -1,0 +1,122 @@
+# ==============================================================================
+# 14-frontend-deployment.yaml — 前端 Deployment（Vue 3 + nginx 静态托管）
+# ==============================================================================
+# nginx 托管 Vue 构建产物，2 副本，滚动更新零宕机。
+#
+# 关键安全/稳定性配置（对齐后端验收标准）：
+#   - 非 root：runAsNonRoot=true, runAsUser=101（nginx 默认用户）
+#   - readOnlyRootFilesystem=true（nginx 缓存/tmp 用 emptyDir）
+#   - allowPrivilegeEscalation=false, drop ALL capabilities
+#   - livenessProbe / readinessProbe 探测 /healthz（nginx 静态健康页）
+#   - 资源 limits/requests：CPU 100m/50m, Memory 128Mi/64Mi
+#   - 滚动更新：maxSurge=1, maxUnavailable=0
+#
+# 镜像 tag 通过 CI/CD 注入：
+#   kubectl set image deployment/metaclouds-frontend \
+#     metaclouds-frontend=ghcr.io/customizedvalidation/yunchuang/frontend:${GIT_SHA}
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metaclouds-frontend
+  namespace: metaclouds
+  labels:
+    app: metaclouds
+    component: frontend
+    app.kubernetes.io/name: metaclouds-frontend
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    metaclouds.io/description: "Metaclouds 算力调度平台前端（Vue 3 + nginx）"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: metaclouds
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: metaclouds
+        component: frontend
+        app.kubernetes.io/name: metaclouds-frontend
+        app.kubernetes.io/part-of: metaclouds
+        app.kubernetes.io/component: frontend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: metaclouds-frontend
+          # 镜像占位：CI 构建时注入真实 tag（如 git commit SHA），禁止 latest
+          image: ghcr.io/customizedvalidation/yunchuang/frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          # nginx 静态站点健康检查（Dockerfile 内 nginx.conf 提供 /healthz）
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 101
+            capabilities:
+              drop:
+                - ALL
+          # nginx 运行时需要可写目录：/var/cache/nginx、/var/run、/tmp
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: nginx-cache
+          emptyDir:
+            sizeLimit: "64Mi"
+        - name: nginx-run
+          emptyDir:
+            sizeLimit: "8Mi"
+        - name: tmp
+          emptyDir:
+            sizeLimit: "16Mi"

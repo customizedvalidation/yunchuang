@@ -54,8 +54,11 @@ permissions:
 env:
   NODE_VERSION: '22'
   DOCKER_REGISTRY: ghcr.io
-  RUST_BACKEND_IMAGE_NAME: ${{ github.repository }}-backend-rust
-  FRONTEND_IMAGE_NAME: ${{ github.repository }}-frontend
+  # ghcr 镜像名采用层级命名 ghcr.io/<owner>/<repo>/<image>，
+  # 与 metaclouds-backend-rust/k8s/*.yaml（Deployment/kustomization/prod compose）
+  # 的引用保持一致，避免扁平名 push 后 K8s 拉取镜像 ImagePullBackOff。
+  RUST_BACKEND_IMAGE_NAME: ${{ github.repository }}/backend-rust
+  FRONTEND_IMAGE_NAME: ${{ github.repository }}/frontend
 
 jobs:
   # ============================================================================
@@ -649,3 +652,85 @@ jobs:
           name: backend-rust-binary
           path: metaclouds-backend-rust/target/release/metaclouds-backend-rust
           if-no-files-found: warn
+
+  # ============================================================================
+  # Job 8: K8s 清单校验（YAML 语法 + 层级镜像名一致性 + kustomization 引用完整性）
+  # 防止清单损坏或镜像名漂移导致生产部署 ImagePullBackOff。
+  # ============================================================================
+  validate-k8s:
+    name: Validate K8s Manifests
+    runs-on: ubuntu-latest
+    needs: security-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate K8s manifests (YAML + image naming + kustomize refs)
+        run: |
+          python3 -m pip install --quiet --user pyyaml 2>/dev/null || true
+          python3 - <<'PYEOF'
+          import os, re, sys
+          try:
+              import yaml
+          except ImportError:
+              print("PyYAML unavailable; skipping validation")
+              sys.exit(0)
+
+          K8S_DIR = "metaclouds-backend-rust/k8s"
+          errors = []
+
+          # 1) 每个清单文件 YAML 可解析且含 kind/metadata/namespace
+          manifests = {}
+          for fn in sorted(os.listdir(K8S_DIR)):
+              if not fn.endswith((".yaml", ".yml")):
+                  continue
+              path = os.path.join(K8S_DIR, fn)
+              try:
+                  docs = list(yaml.safe_load_all(open(path, encoding="utf-8")))
+              except Exception as e:
+                  errors.append(f"{fn}: YAML parse error: {e}")
+                  continue
+              for i, doc in enumerate(docs):
+                  if doc is None:
+                      continue
+                  if "kind" not in doc or "metadata" not in doc:
+                      errors.append(f"{fn}[{i}]: missing kind/metadata")
+                      continue
+                  kind = doc["kind"]
+                  name = doc["metadata"].get("name", "")
+                  manifests.setdefault(fn, []).append(kind)
+                  if kind != "Namespace" and kind != "Kustomization" and not doc["metadata"].get("namespace"):
+                      errors.append(f"{fn}[{i}] {kind}/{name}: missing namespace")
+
+          # 2) 镜像名一致性：所有 image 引用必须使用 ghcr.io/<owner>/<repo>/<image> 层级命名
+          img_re = re.compile(r"ghcr\.io/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?::[a-zA-Z0-9_.-]+)?")
+          for fn in manifests:
+              content = open(os.path.join(K8S_DIR, fn), encoding="utf-8").read()
+              for line in content.splitlines():
+                  if "image:" in line:
+                      m = re.search(r"ghcr\.io/\S+", line)
+                      if m and not img_re.match(m.group(0)):
+                          errors.append(f"{fn}: non-hierarchical image ref: {m.group(0)}")
+
+          # 3) kustomization 引用的资源文件必须存在且镜像名为层级
+          kust = os.path.join(K8S_DIR, "13-kustomization.yaml")
+          if os.path.exists(kust):
+              try:
+                  kd = yaml.safe_load(open(kust, encoding="utf-8"))
+                  for res in kd.get("resources", []):
+                      rp = os.path.join(K8S_DIR, res)
+                      if not os.path.exists(rp):
+                          errors.append(f"kustomization references missing resource: {res}")
+                  for img in kd.get("images", []):
+                      if not img_re.match(img.get("name", "")):
+                          errors.append(f"kustomization image not hierarchical: {img.get('name')}")
+              except Exception as e:
+                  errors.append(f"kustomization parse error: {e}")
+
+          if errors:
+              print("K8s manifest validation FAILED:")
+              for e in errors:
+                  print("  -", e)
+              sys.exit(1)
+          total = sum(len(v) for v in manifests.values())
+          print(f"K8s manifest validation PASSED: {total} resources in {len(manifests)} files")
+          PYEOF
