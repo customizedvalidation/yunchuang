@@ -127,8 +127,10 @@ services:
   # 关键配置说明：
   #   - MEMORY_STORE_ENABLED=false  Rust 默认内存 sqlite，必须显式关闭才走 postgres。
   #   - REDIS_ENABLED=true          Rust 默认关闭 Redis，联调栈需显式开启。
-  #   - 种子 admin 口令由 Rust 固定为 Admin@123456（seed_admin_if_empty 硬编码），
-  #     故不再读 DEFAULT_ADMIN_PASSWORD；生产请 seed 后改密或接 IdP。
+  #   - 种子 admin 口令：seed_admin_if_empty 现读 DEFAULT_ADMIN_PASSWORD
+  #     （bootstrap_password：env 已设且 ≥12 字符用 env；生产未设则 fail-secure
+  #     拒播种并退出；非生产未设回退 Admin@123456，本地联调开箱可用）。
+  #     生产请经 Secret / .env 注入强口令，seed 后改密或接 IdP。
   # 待目标环境 docker build 实测验证。
   # ============================================================================
   backend:
@@ -163,6 +165,7 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required, see .env.example}
       - REDIS_DB=0
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required, see .env.example}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-Admin@123456}
       - JWT_EXPIRATION_HOURS=24
       - PROMETHEUS_ENABLED=true
       - PROMETHEUS_PORT=9090

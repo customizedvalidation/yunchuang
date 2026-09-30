@@ -120,6 +120,11 @@ spec:
                 secretKeyRef:
                   name: metaclouds-secrets
                   key: redis-password
+            - name: DEFAULT_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: default-admin-password
           # 资源请求与限制（对齐验收标准：CPU 500m/250m, Memory 512Mi/256Mi）
           resources:
             requests:

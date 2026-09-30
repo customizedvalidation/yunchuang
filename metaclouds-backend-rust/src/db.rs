@@ -276,7 +276,12 @@ pub async fn seed_admin_if_empty(pool: &SqlitePool) -> AppResult<()> {
         return Ok(());
     }
 
-    let hash = crate::auth::password::hash_password("Admin@123456")?;
+    // 播种口令走 bootstrap_password：env 已设且 ≥12 字符用 env；生产未设则 Err
+    // （fail-secure 拒绝启动）；非生产未设回退 DEFAULT_DEV_ADMIN_PASSWORD。
+    let admin_password =
+        crate::models::bootstrap_credentials::bootstrap_password("DEFAULT_ADMIN_PASSWORD", "admin")
+            .map_err(AppError::bad_request)?;
+    let hash = crate::auth::password::hash_password(&admin_password)?;
     let now = chrono::Utc::now();
     sqlx::query(
         "INSERT INTO users (created_at, updated_at, username, email, password_hash, role, tenant_id) \
@@ -323,7 +328,12 @@ pub async fn seed_admin_if_empty_postgres(pool: &PgPool) -> AppResult<()> {
         return Ok(());
     }
 
-    let hash = crate::auth::password::hash_password("Admin@123456")?;
+    // 播种口令走 bootstrap_password：env 已设且 ≥12 字符用 env；生产未设则 Err
+    // （fail-secure 拒绝启动）；非生产未设回退 DEFAULT_DEV_ADMIN_PASSWORD。
+    let admin_password =
+        crate::models::bootstrap_credentials::bootstrap_password("DEFAULT_ADMIN_PASSWORD", "admin")
+            .map_err(AppError::bad_request)?;
+    let hash = crate::auth::password::hash_password(&admin_password)?;
     let now = chrono::Utc::now();
     sqlx::query(
         "INSERT INTO users (created_at, updated_at, username, email, password_hash, role, tenant_id) \

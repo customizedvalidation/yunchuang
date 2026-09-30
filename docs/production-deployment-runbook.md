@@ -36,7 +36,7 @@
     - [12.3 网络拓扑与 RDMA](#123-网络拓扑与-rdma-配置)
     - [12.4 Fluid 数据加速](#124-fluid-数据加速集成)
     - [12.5 Slurm/LSF/SGE 集成](#125-slurm--lsf--sge-集成配置)
-    - [12.6 数据库迁移 000004](#126-数据库迁移-000004-执行说明)
+    - [12.6 数据库迁移](#126-数据库迁移执行说明)
 
 ---
 
@@ -109,29 +109,30 @@ kubectl get namespace metaclouds
 # 生成所有密钥并创建 Secret（推荐方式）
 kubectl -n metaclouds create secret generic metaclouds-secrets \
   --from-literal=jwt-secret="$(openssl rand -base64 48)" \
-  --from-literal=database-password="$(openssl rand -base64 24)" \
+  --from-literal=database-url="postgresql://metaclouds_user:$(openssl rand -base64 24 | tr -d '/+=')@postgresql.metaclouds.svc.cluster.local:5432/metaclouds?sslmode=require" \
   --from-literal=redis-password="$(openssl rand -base64 24)" \
-  --from-literal=default-admin-password="$(openssl rand -base64 18)" \
-  --from-literal=csrf-secret="$(openssl rand -base64 32)"
+  --from-literal=default-admin-password="$(openssl rand -base64 18 | tr -d '/+=')"
 ```
 
 > **Windows PowerShell 替代命令**（无 openssl 时）：
 > ```powershell
 > $jwt = -join ((1..64) | ForEach-Object { [char[]](65..90 + 97..122 + 48..57) | Get-Random })
+> $dbpass = -join ((1..32) | ForEach-Object { [char[]](65..90+97..122+48..57) | Get-Random })
 > kubectl -n metaclouds create secret generic metaclouds-secrets `
 >   --from-literal=jwt-secret="$jwt" `
->   --from-literal=database-password="$(-join ((1..32) | ForEach-Object { [char[]](65..90+97..122+48..57) | Get-Random }))" `
+>   --from-literal=database-url="postgresql://metaclouds_user:$dbpass@postgresql.metaclouds.svc.cluster.local:5432/metaclouds?sslmode=require" `
 >   --from-literal=redis-password="$(-join ((1..32) | ForEach-Object { [char[]](65..90+97..122+48..57) | Get-Random }))" `
->   --from-literal=default-admin-password="$(-join ((1..24) | ForEach-Object { [char[]](65..90+97..122+48..57) | Get-Random }))" `
->   --from-literal=csrf-secret="$(-join ((1..44) | ForEach-Object { [char[]](65..90+97..122+48..57) | Get-Random }))"
+>   --from-literal=default-admin-password="$(-join ((1..24) | ForEach-Object { [char[]](65..90+97..122+48..57) | Get-Random }))"
 > ```
+>
+> **生产播种说明**：`default-admin-password` 会被注入为环境变量 `DEFAULT_ADMIN_PASSWORD`（要求 ≥ 12 字符）。生产（`SERVER_ENV=production`）下若未注入该 env，初始化播种将 **fail-secure 拒绝启动**（服务无法起）；非生产环境未设置时才回退到内置开发口令。请勿在生产依赖硬编码默认管理员口令。
 
 ### 2.3 验证 Secret
 
 ```bash
 # 确认 Secret 存在且包含所有键
 kubectl -n metaclouds get secret metaclouds-secrets -o jsonpath='{.data}' | jq keys
-# 预期输出：["csrf-secret", "database-password", "default-admin-password", "jwt-secret", "redis-password"]
+# 预期输出：["database-url", "default-admin-password", "jwt-secret", "redis-password"]
 
 # 确认 jwt-secret 长度 ≥ 32 字节（config.Validate 强制）
 kubectl -n metaclouds get secret metaclouds-secrets -o jsonpath='{.data.jwt-secret}' | base64 -d | wc -c
@@ -293,23 +294,23 @@ kubectl -n metaclouds get endpoints metaclouds-frontend
 ### 5.3 健康检查端点
 
 ```bash
-# 方式 1：端口转发后 curl
-kubectl -n metaclouds port-forward svc/metaclouds-backend 8080:8080 &
-curl -f http://localhost:8080/health
-# 预期 200：{"status":"healthy","dependencies":1}
+# 方式 1：端口转发后 curl（后端容器监听 8000）
+kubectl -n metaclouds port-forward svc/metaclouds-backend 8000:8000 &
+curl -f http://localhost:8000/health
+# 预期 200：{"success":true,"data":{"status":"ok","version":"<cargo version>","uptime":<secs>}}
 
-curl -f http://localhost:8080/metrics | head -20
+curl -f http://localhost:8000/metrics | head -20
 # 预期：Prometheus 格式指标
 
 # 方式 2：通过临时 Pod 在集群内测试
 kubectl -n metaclouds run curl-test --image=curlimages/curl --rm -it -- \
-  curl -f http://metaclouds-backend.metaclouds.svc.cluster.local:8080/health
+  curl -f http://metaclouds-backend.metaclouds.svc.cluster.local:8000/health
 
-# 前端健康检查
-kubectl -n metaclouds port-forward svc/metaclouds-frontend 8080:80 &
-curl -f http://localhost:8080/health
+# 前端健康检查（前端容器 nginx 监听 80，本机端口映射到 8000）
+kubectl -n metaclouds port-forward svc/metaclouds-frontend 8000:80 &
+curl -f http://localhost:8000/health
 # 预期 200：ok
-curl -f -I http://localhost:8080/
+curl -f -I http://localhost:8000/
 # 预期 200，Content-Type: text/html
 ```
 
@@ -326,7 +327,6 @@ kubectl -n metaclouds describe certificate metaclouds-tls
 
 # 通过域名测试（需 DNS 已解析到 ingress-nginx LoadBalancer）
 curl -fI https://app.metaclouds.example.com/health
-curl -fI https://app.metaclouds.example.com/api/v1/health
 ```
 
 ### 5.5 HPA 状态
@@ -447,7 +447,7 @@ kubectl -n metaclouds describe pod <pod-name>
 
 # 4. 常见原因：
 #    - JWT_SECRET 缺失或 < 32 字节 → config.Validate 拒绝启动
-#    - DATABASE_PASSWORD 错误 → DB 连接失败 → /health 失败 → startupProbe 超时
+#    - DATABASE_URL 错误 → DB 连接失败 → /health 失败 → startupProbe 超时
 #    - ALLOWED_ORIGINS 缺失或含 '*' → 生产校验失败
 #    - DATABASE_SSL_MODE=disable → 生产校验失败
 #    - USE_SQLITE=true → 生产校验失败
@@ -469,7 +469,7 @@ kubectl -n metaclouds describe pod <pod-name> | grep -A5 Events
 #    - 网络策略阻止出站到镜像仓库
 
 # 3. 验证镜像可拉取
-kubectl -n metaclouds run image-test --image=ghcr.io/customizedvalidation/yunchuang/backend:latest --rm -it -- echo "pull ok"
+kubectl -n metaclouds run image-test --image=ghcr.io/customizedvalidation/yunchuang/backend-rust:latest --rm -it -- echo "pull ok"
 ```
 
 ### 8.3 OOMKilled
@@ -508,8 +508,8 @@ kubectl -n metaclouds get endpoints metaclouds-backend
 # 若 ENDPOINTS 为空，说明 Pod 未通过 readinessProbe
 
 # 3. 直接访问 Pod（绕过 Service）
-kubectl -n metaclouds port-forward <pod-name> 8080:8080
-curl -f http://localhost:8080/health
+kubectl -n metaclouds port-forward <pod-name> 8000:8000
+curl -f http://localhost:8000/health
 
 # 4. 查看 ingress-nginx 日志
 kubectl -n ingress-nginx logs <ingress-nginx-controller-pod> --tail=50 | grep metaclouds
@@ -535,13 +535,13 @@ kubectl -n metaclouds get svc postgresql
 kubectl -n metaclouds exec -it <backend-pod> -- sh -c \
   "nc -zv postgresql.metaclouds.svc.cluster.local 5432"
 
-# 3. 验证凭据（使用 Secret 中的密码）
-PGPASSWORD=$(kubectl -n metaclouds get secret metaclouds-secrets -o jsonpath='{.data.database-password}' | base64 -d) \
+# 3. 验证凭据（使用 Secret 中的 database-url 连接串）
+DBURL=$(kubectl -n metaclouds get secret metaclouds-secrets -o jsonpath='{.data.database-url}' | base64 -d) \
   kubectl -n metaclouds exec -it <postgresql-pod> -- \
-  psql -h localhost -U metaclouds_user -d metaclouds -c "SELECT 1"
+  psql "$DBURL" -c "SELECT 1"
 
 # 4. 常见原因：
-#    - database-password 与 PostgreSQL 中设置的密码不一致
+#    - database-url 连接串中的密码与 PostgreSQL 中实际密码不一致
 #    - NetworkPolicy 阻止 backend → postgresql:5432
 #    - PostgreSQL 未就绪 / 正在恢复
 #    - DATABASE_SSL_MODE=require 但 PostgreSQL 未配置 SSL
@@ -739,7 +739,7 @@ kubectl -n metaclouds scale deployment metaclouds-backend --replicas=3
 kubectl -n metaclouds rollout status deployment/metaclouds-backend
 
 # 7. 验证服务
-curl -f https://app.metaclouds.example.com/api/v1/health
+curl -f https://app.metaclouds.example.com/health
 ```
 
 ### 11.4 异地备份（推荐）
@@ -1042,9 +1042,9 @@ curl -X POST https://api.metaclouds.com/api/v1/schedulers/1/sync \
 4. 定期同步作业状态（squeue/sacct）
 5. 作业完成后同步结果和日志
 
-### 12.6 数据库迁移 000004 执行说明
+### 12.6 数据库迁移执行说明
 
-本次新增数据模型需要执行数据库迁移 `000004_gpu_fine_grained.up.sql`。
+GPU 细粒度、分区、调度器集成等数据模型由内嵌迁移 `006_b3_jobs.sql`（`jobs` 扩展、`gpu_devices`、`gpu_allocations`）与 `007_b4_scheduler.sql`（`partitions`、`partition_permissions`、`resource_quotas`、`scheduler_integrations`）落地，属于 `001_initial.sql` ~ `009_legacy_fixes.sql` 自动迁移集，随后端启动由 sqlx 自动执行（无独立 `000004_*.up.sql` 文件）。
 
 #### 迁移内容
 
