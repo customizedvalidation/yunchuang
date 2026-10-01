@@ -42,7 +42,7 @@ use crate::handlers::gpu::{
     allocate_gpu, create_gpu_device, delete_gpu_device, get_gpu_device, get_gpu_utilization,
     list_allocations, list_gpu_devices, release_gpu, update_gpu_device,
 };
-use crate::handlers::health::health;
+use crate::handlers::health::{health, liveness, readiness};
 use crate::handlers::job::{
     cancel_job, create_job, delete_job, get_job, get_job_stats, get_job_status, list_jobs,
     submit_job_to_k8s, update_job,
@@ -478,8 +478,13 @@ pub fn build_router(state: AppState) -> Router {
     let metrics_route = Router::new().route("/metrics", get(metrics_handler));
 
     // ── /health：存活/就绪探针（根级，无 /api/v1 前缀，无 JWT，对齐 Go）──
-    // K8s livenessProbe/readinessProbe 直接抓取。
-    let health_route = Router::new().route("/health", get(health));
+    // K8s livenessProbe → /health/live（不查库，DB 抖动不会误杀 Pod）
+    // K8s readinessProbe → /health/ready（查库，DB 不可用时摘流量）
+    // /health 保留旧语义（等价 ready），兼容 Dockerfile HEALTHCHECK 与 CI 冒烟。
+    let health_route = Router::new()
+        .route("/health", get(health))
+        .route("/health/live", get(liveness))
+        .route("/health/ready", get(readiness));
 
     // ── Swagger UI + OpenAPI spec（横切，无 JWT，对齐 Go /api/docs）─────
     // /swagger-ui 提供交互式文档；/api-docs/openapi.json 返回原始 OpenAPI 3.0 JSON。

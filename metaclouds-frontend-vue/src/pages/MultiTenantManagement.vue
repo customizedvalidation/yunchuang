@@ -6,7 +6,7 @@
         <p class="mc-page-desc">共 {{ tenants.length }} 个租户 · 按租户划分命名空间与配额边界</p>
       </div>
       <div class="mc-page-head-extra">
-        <Can :roles="['admin', 'manager']">
+        <Can :roles="['admin']">
           <el-button type="primary" @click="openCreate">创建租户</el-button>
         </Can>
       </div>
@@ -97,7 +97,7 @@
           </el-table-column>
           <el-table-column label="操作" width="220" fixed="right">
             <template #default="{ row }">
-              <Can :roles="['admin', 'manager']">
+              <Can :roles="['admin']">
                 <el-button link type="primary" size="small" @click="goQuota(row)">配额管理</el-button>
                 <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
                 <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
@@ -125,7 +125,7 @@
             <el-option label="节点" value="node" />
           </el-select>
           <el-input v-model="quotaScopeId" placeholder="维度ID（如租户ID）" style="width: 200px" @change="loadQuotas" />
-          <Can :roles="['admin', 'manager']">
+          <Can :roles="['admin']">
             <el-button type="primary" @click="openQuotaCreate">新增配额</el-button>
           </Can>
         </div>
@@ -180,7 +180,7 @@
             </el-table-column>
             <el-table-column label="操作" width="140" fixed="right">
               <template #default="{ row }">
-                <Can :roles="['admin', 'manager']">
+                <Can :roles="['admin']">
                   <el-button link type="primary" size="small" @click="openQuotaEdit(row)">编辑</el-button>
                   <el-popconfirm title="删除该配额？" confirm-button-text="确认" cancel-button-text="取消" @confirm="handleDeleteQuota(row.id)">
                     <template #reference>
@@ -245,7 +245,7 @@
         </el-row>
       </el-form>
       <template #footer>
-        <Can :roles="['admin', 'manager']">
+        <Can :roles="['admin']">
           <el-button type="primary" :loading="saving" @click="handleSubmit">
             {{ editing ? '保存' : '创建' }}
           </el-button>
@@ -319,7 +319,7 @@
       </el-form>
       <template #footer>
         <el-button @click="quotaDialogVisible = false">取消</el-button>
-        <Can :roles="['admin', 'manager']">
+        <Can :roles="['admin']">
           <el-button type="primary" @click="handleSubmitQuota">{{ editingQuota ? '保存' : '创建' }}</el-button>
         </Can>
       </template>

@@ -172,6 +172,7 @@ import { LineChart, BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { monitoringApi } from '@/api'
+import { toUserMessage } from '@/utils/error'
 import type { Alert, AlertLevel, AlertStatus, MetricsOverview } from '@/types'
 import { useFetch } from '@/utils/useFetch'
 import { colorTokens } from '@/theme/tokens'
@@ -240,9 +241,30 @@ const statusOverrides = ref<Record<number, AlertStatus>>({})
 function effectiveStatus(a: Alert): AlertStatus {
   return statusOverrides.value[a.id] ?? a.status ?? 'active'
 }
-function setStatusOverride(id: number, next: AlertStatus, label: string) {
-  statusOverrides.value = { ...statusOverrides.value, [id]: next }
-  ElMessage.success(`告警已${label}`)
+/**
+ * 变更告警状态。**此前只改本地覆盖层、不调用后端** —— 页面提示"已解决"但
+ * 刷新即回滚，运维会误判告警已处理。现改为真实调用后端写接口，成功后重新
+ * 拉取列表；本地覆盖仅用于后端返回前的即时反馈。
+ */
+async function setStatusOverride(id: number, next: AlertStatus, label: string) {
+  try {
+    if (next === 'resolved') {
+      await monitoringApi.resolveAlert(id)
+    } else if (next === 'ignored') {
+      // 后端无 ignore 语义，最接近的是 acknowledge（已确认/已读）
+      await monitoringApi.acknowledgeAlert(id)
+    } else {
+      // 后端 routes.rs 目前只提供 resolve / acknowledge，没有 reopen 接口
+      ElMessage.warning('后端暂未提供「重新打开」接口，状态未变更')
+      return
+    }
+    // 后端是权威结果：清空本地覆盖，避免乐观状态掩盖真实结果
+    statusOverrides.value = {}
+    ElMessage.success(`告警已${label}`)
+    await alertsRefetch()
+  } catch (e) {
+    ElMessage.error(`操作失败：${toUserMessage(e)}`)
+  }
 }
 
 const filteredAlerts = computed(() =>

@@ -49,9 +49,11 @@ router.beforeEach((to) => {
   if (to.meta.requiresAuth && !auth.isLoggedIn) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
-  // 角色守卫
+  // 角色守卫（fail-closed）：role 为 null/未知时一律拒绝。
+  // 旧写法 `roles && auth.role && !roles.includes(...)` 在 role 缺失时放行，
+  // 清空 localStorage 里的 user 即可绕过角色路由。
   const roles = to.meta.roles as readonly string[] | undefined
-  if (roles && auth.role && !roles.includes(auth.role)) {
+  if (roles && !roles.includes(auth.role ?? '')) {
     return { path: '/dashboard' }
   }
   return true

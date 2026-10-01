@@ -55,6 +55,14 @@ tracing-opentelemetry = "0.28"
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 
+# 传递依赖修复（非业务依赖，勿删）：
+#   opentelemetry-otlp(grpc-tonic) → tonic 0.12 → tower 0.4.13 → indexmap 1.9.3
+# tower 0.4.13 将 indexmap 声明为 optional 且未开启 std，而 indexmap 1.9.3 在
+# 无 std 时 `IndexMap` 的第三泛型参数（S）没有默认值，导致 tower::ready_cache
+# 编译失败（E0107）。cargo 的 feature 统一会让同一版本的 indexmap 共享特性，
+# 故提升为直接依赖并显式开启 std 即可修复。
+indexmap = { version = "1.9", features = ["std"] }
+
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 

@@ -33,4 +33,7 @@ regexes = [
   # K8s 清单示例 Secret（base64 编码的 CHANGEME-* 占位值，仅用于演示）
   '''Q0hBTkdFTUUtand0LXNlY3JldA==''',
   '''Q0hBTkdFTUUtcmVkaXMtcGFzc3dvcmQ=''',
+  # 其余 K8s Secret 键的 base64 占位（与 02-secret.yaml 中的 data 值逐字对应）
+  '''cG9zdGdyZXNxbDovL21ldGFjbG91ZHNfdXNlcjpDSEFOR0VNRUBwb3N0Z3Jlc3FsLm1ldGFjbG91ZHMuc3ZjLmNsdXN0ZXIubG9jYWw6NTQzMi9tZXRhY2xvdWRzP3NzbG1vZGU9cmVxdWlyZQ==''',
+  '''Q0hBTkdFTUUtZGVmYXVsdC1hZG1pbi1wYXNzd29yZA==''',
 ]

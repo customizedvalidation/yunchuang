@@ -3,10 +3,11 @@ import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig(({ mode }) => {
-  // 后端代理目标可由 env 覆盖（VITE_API_PROXY_TARGET），默认指向 Rust 后端 :8001。
-  // 原 Go 后端为 :8000，Rust 版迁移后默认切换到 :8001。
+  // 后端代理目标可由 env 覆盖（VITE_API_PROXY_TARGET）。
+  // 默认 8000：与 docker-compose.yml 的 backend 端口映射（8000）保持一致；
+  // 此前默认 8001，本地 npm run dev 时所有 /api 请求都会 502。
   const env = loadEnv(mode, process.cwd(), '')
-  const proxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:8001'
+  const proxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:8000'
 
   return {
     plugins: [vue()],

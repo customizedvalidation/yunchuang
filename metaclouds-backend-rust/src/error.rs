@@ -188,11 +188,12 @@ impl From<sqlx::Error> for AppError {
 impl From<argon2::password_hash::Error> for AppError {
     fn from(e: argon2::password_hash::Error) -> Self {
         // `password_hash::Error` 在部分 feature 组合下未实现 `std::error::Error`，
-        // 因此以字符串形式保留来源。
-        AppError::new(
-            ErrorCode::InternalServerError,
-            format!("password hashing error: {e}"),
-        )
+        // 因此以字符串形式保留来源（仅进日志，不入响应）。
+        //
+        // 安全：message 会直接进入响应体，不得回显 argon2 内部细节
+        // （参数、盐、内部状态），统一返回固定文案。
+        tracing::error!(error = %e, "password hashing failed");
+        AppError::new(ErrorCode::InternalServerError, "password hashing failed")
     }
 }
 

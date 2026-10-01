@@ -1,0 +1,41 @@
+# ==============================================================================
+# Alertmanager 最小可用配置
+# - prometheus.yml 的 alerting.alertmanagers 指向 alertmanager:9093
+# - 默认接收器只落日志/UI，生产请替换为邮件 / 企业微信 / Slack / PagerDuty
+# ==============================================================================
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: ['alertname', 'severity']
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 12h
+  # 子路由示例：P0 告警可单独路由到值班渠道
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: default
+      group_wait: 5s
+      repeat_interval: 1h
+
+receivers:
+  - name: default
+    # 生产替换示例（按需开启其一）：
+    # webhook_configs:
+    #   - url: http://alert-gateway:8080/alert
+    # email_configs:
+    #   - to: 'sre@example.com'
+    #     from: 'alertmanager@example.com'
+    #     smarthost: 'smtp.example.com:587'
+    #     auth_username: 'alertmanager@example.com'
+    #     auth_password: '<由 Secret 注入>'
+
+inhibit_rules:
+  # 同一实例上的 critical 告警抑制 warning，减少告警风暴
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ['alertname', 'instance']

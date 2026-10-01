@@ -7,17 +7,16 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
+  # 目标用 compose 服务名：prometheus 与 backend 同在 metaclouds-network，
+  # 此前写 host.docker.internal 在 Linux 上缺少 extra_hosts 映射，解析必失败。
   - job_name: 'metaclouds-backend'
     static_configs:
-      - targets: ['host.docker.internal:8000']
+      - targets: ['backend:8000']
     metrics_path: '/metrics'
     scrape_interval: 5s
 
-  - job_name: 'metaclouds-jobs'
-    static_configs:
-      - targets: ['host.docker.internal:8000']
-    metrics_path: '/monitoring/metrics'
-    scrape_interval: 10s
+  # 原 'metaclouds-jobs' 抓取 /monitoring/metrics：该路径挂在 /api/v1 下需要 JWT，
+  # Prometheus 无凭据必 401（同一份指标已在上面的 /metrics 全量暴露），故删除。
 
 alerting:
   alertmanagers:

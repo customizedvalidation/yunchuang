@@ -59,6 +59,17 @@ http.interceptors.response.use(
     // 统一解包后端响应信封 { success, data, message, code, timestamp }
     if (data && typeof data === 'object' && 'success' in data) {
       const envelope = data as ApiEnvelope<unknown>
+      // 后端可能以 HTTP 200 + success:false 表达业务失败；若无条件解包，
+      // 失败会被静默吞成"成功但无数据"，页面无从感知。
+      if (envelope.success === false) {
+        const err = new Error(envelope.message || '请求失败') as Error & {
+          code?: string
+          status?: number
+        }
+        err.code = envelope.code
+        err.status = response.status
+        return Promise.reject(err)
+      }
       response.data = envelope.data
     }
     return response

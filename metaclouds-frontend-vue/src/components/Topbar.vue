@@ -90,17 +90,9 @@ const currentTitle = computed(() => titleMap[route.path] || 'Metaclouds')
 
 function handleCommand(command: string) {
   if (command === 'logout') {
-    fetch('/api/v1/auth/logout', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
-    })
-      .catch(() => undefined)
-      .finally(() => {
-        localStorage.removeItem('user')
-        localStorage.removeItem('auth_expiry')
-        router.push('/login')
-      })
+    // 统一走 store：清 httpOnly Cookie + 清空内存中的 user，
+    // 旧实现只删 localStorage，user 残留导致登出后 isLoggedIn 仍为 true。
+    void auth.logout().finally(() => router.push('/login'))
   }
 }
 </script>

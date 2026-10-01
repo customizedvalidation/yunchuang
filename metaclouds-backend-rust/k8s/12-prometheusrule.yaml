@@ -28,7 +28,7 @@ spec:
         # 1. GPU 高利用率（>90% 持续 5 分钟）
         # ------------------------------------------------------------------
         - alert: GPUHighUtilization
-          expr: metaclouds_gpu_utilization_percent > 90
+          expr: (metaclouds_allocated_gpus / metaclouds_total_gpus) * 100 > 90
           for: 5m
           labels:
             severity: warning
@@ -80,7 +80,7 @@ spec:
         # 5. Job 队列堆积（pending jobs > 50）
         # ------------------------------------------------------------------
         - alert: JobQueueLength
-          expr: metaclouds_jobs_pending > 50
+          expr: metaclouds_running_jobs > 50
           for: 5m
           labels:
             severity: warning
@@ -93,7 +93,7 @@ spec:
         # 6. GPU 不可用（可用 GPU 数 = 0）
         # ------------------------------------------------------------------
         - alert: GPUUnavailable
-          expr: metaclouds_gpu_available_count == 0
+          expr: (metaclouds_total_gpus - metaclouds_allocated_gpus) <= 0
           for: 2m
           labels:
             severity: critical
@@ -120,9 +120,9 @@ spec:
         # ------------------------------------------------------------------
         - alert: HighErrorRate
           expr: |
-            sum(rate(metaclouds_http_requests_total{status=~"5.."}[5m])) by (job)
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (job)
               /
-            sum(rate(metaclouds_http_requests_total[5m])) by (job) * 100 > 5
+            sum(rate(http_requests_total[5m])) by (job) * 100 > 5
           for: 5m
           labels:
             severity: critical
@@ -135,7 +135,7 @@ spec:
         # 9. API 高延迟（P99 > 2s）
         # ------------------------------------------------------------------
         - alert: HighLatency
-          expr: histogram_quantile(0.99, sum(rate(metaclouds_http_request_duration_seconds_bucket[5m])) by (le)) > 2
+          expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 2
           for: 5m
           labels:
             severity: warning
@@ -149,8 +149,8 @@ spec:
         # ------------------------------------------------------------------
         - alert: RequestRateDrop
           expr: |
-            sum(rate(metaclouds_http_requests_total[5m])) by (job) <
-              sum(rate(metaclouds_http_requests_total[1h])) by (job) * 0.3
+            sum(rate(http_requests_total[5m])) by (job) <
+              sum(rate(http_requests_total[1h])) by (job) * 0.3
           for: 10m
           labels:
             severity: warning
@@ -160,18 +160,11 @@ spec:
             description: "当前请求率仅为 1 小时均值的 30%，可能存在流量异常或服务中断。"
 
         # ------------------------------------------------------------------
-        # 11. 数据库连接池耗尽
         # ------------------------------------------------------------------
-        - alert: DatabaseConnectionPoolExhausted
-          expr: metaclouds_db_connections_in_use / metaclouds_db_connections_max > 0.9
-          for: 5m
-          labels:
-            severity: critical
-            category: database
-          annotations:
-            summary: "数据库连接池耗尽"
-            description: "数据库连接使用率 {{ $value | humanizePercentage }} 超过 90%，新请求可能被拒绝。"
-
+        # 11.（已移除）数据库连接池耗尽
+        #    后端未暴露连接池指标（sqlx 未接入 metrics），原表达式
+        #    metaclouds_db_connections_in_use/max 恒为空向量，永不触发。
+        #    待后端接入连接池指标后再恢复此规则。
         # ------------------------------------------------------------------
         # 12. Redis 连接失败
         # ------------------------------------------------------------------
@@ -202,7 +195,7 @@ spec:
         # 14. 登录失败次数激增（暴力破解嫌疑）
         # ------------------------------------------------------------------
         - alert: FailedLoginSpike
-          expr: sum(rate(metaclouds_auth_login_failures_total[5m])) by (job) > 10
+          expr: sum(rate(http_requests_total{status="401"}[5m])) by (job) > 2
           for: 5m
           labels:
             severity: warning

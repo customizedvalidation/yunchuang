@@ -110,6 +110,10 @@ spec:
               mountPath: /var/run
             - name: tmp
               mountPath: /tmp
+            # readOnlyRootFilesystem=true 下 nginx 无法写默认日志路径
+            # /var/log/nginx/{access,error}.log，master 进程启动即失败 → CrashLoop。
+            - name: nginx-log
+              mountPath: /var/log/nginx
       volumes:
         - name: nginx-cache
           emptyDir:
@@ -120,3 +124,6 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: "16Mi"
+        - name: nginx-log
+          emptyDir:
+            sizeLimit: "32Mi"

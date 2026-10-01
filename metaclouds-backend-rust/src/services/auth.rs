@@ -45,7 +45,9 @@ fn login_attempts() -> &'static Mutex<HashMap<String, LoginAttempt>> {
 /// 报告账户当前是否锁定，并清理已过期的记录。
 fn is_locked(username: &str) -> bool {
     let now = Utc::now().timestamp();
-    let mut map = login_attempts().lock().unwrap();
+    // 若持锁线程 panic，Mutex 会被 poison；此处恢复内部数据而不是 unwrap panic，
+    // 否则一次 panic 会让后续所有登录请求连锁失败（500）。
+    let mut map = login_attempts().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(att) = map.get_mut(username) {
         if let Some(until) = att.locked_until {
             if until > now {
@@ -60,7 +62,9 @@ fn is_locked(username: &str) -> bool {
 
 fn record_failure(username: &str) {
     let now = Utc::now().timestamp();
-    let mut map = login_attempts().lock().unwrap();
+    // 若持锁线程 panic，Mutex 会被 poison；此处恢复内部数据而不是 unwrap panic，
+    // 否则一次 panic 会让后续所有登录请求连锁失败（500）。
+    let mut map = login_attempts().lock().unwrap_or_else(|e| e.into_inner());
     let att = map.entry(username.to_string()).or_default();
     att.failures += 1;
     if att.failures >= MAX_FAILED_LOGINS {
@@ -70,7 +74,10 @@ fn record_failure(username: &str) {
 }
 
 fn record_success(username: &str) {
-    login_attempts().lock().unwrap().remove(username);
+    login_attempts()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(username);
 }
 
 /// 与任何账户都不对应的哑哈希。用户不存在时用它做一次等价耗时的校验，

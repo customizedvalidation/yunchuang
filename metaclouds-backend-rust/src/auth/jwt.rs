@@ -104,7 +104,11 @@ mod tests {
 pub fn verify_token(secret: &[u8], token: &str) -> AppResult<Claims> {
     // `Validation::default()` 固定 HS256 并校验 exp，等价于 Go 侧
     // `jwt.Parse` 中「仅接受 HMAC 签名方法 + 校验过期」的行为。
-    let validation = Validation::default();
+    //
+    // 安全：默认 leeway=60s 会让已过期 1 分钟内的令牌仍被接受，
+    // 与「登出/禁用后应立即失效」的预期相悖，显式收紧为 0。
+    let mut validation = Validation::default();
+    validation.leeway = 0;
     let data = decode::<Claims>(token, &DecodingKey::from_secret(secret), &validation)
         .map_err(|_| AppError::unauthorized("invalid or expired token"))?;
     Ok(data.claims)

@@ -768,7 +768,12 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
           chmod 600 /tmp/kubeconfig
           export KUBECONFIG=/tmp/kubeconfig
-          kubectl config view --minify -o yaml | head -20
+          # 安全：禁止打印 kubeconfig 内容。`kubectl config view --minify -o yaml`
+          # 会连同集群 CA 与 user token / client-certificate-data 一起输出到
+          # 公开可见的 CI 日志，等同于泄露集群凭据。只打印非敏感的定位信息。
+          echo "kubeconfig loaded (credentials intentionally not printed)"
+          kubectl config current-context || true
+          kubectl config get-contexts --no-headers || true
 
       - name: Apply manifests (kustomize)
         if: env.K8S_ENABLED == 'true'

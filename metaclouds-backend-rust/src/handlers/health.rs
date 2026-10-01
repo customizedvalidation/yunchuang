@@ -43,7 +43,19 @@ pub struct HealthStatus {
     pub uptime: u64,
 }
 
-/// `GET /health` — 存活/就绪探针，无需认证。
+/// `GET /health/live` — **存活**探针：只证明进程还在，不碰数据库。
+///
+/// K8s livenessProbe 必须指向这里。若 liveness 也查 DB，一次数据库抖动
+/// 会让全部 Pod 被判定死亡并重启，把「DB 故障」放大成「服务雪崩」。
+pub async fn liveness() -> Json<ApiResponse<HealthStatus>> {
+    Json(ApiResponse::success(HealthStatus {
+        status: "ok",
+        version: env!("CARGO_PKG_VERSION"),
+        uptime: uptime_secs(),
+    }))
+}
+
+/// `GET /health`（兼容旧探针）与 `GET /health/ready` — **就绪**探针。
 ///
 /// P1：轻量探活数据库（`SELECT 1`）。DB 不可用时返回 503，便于 K8s
 /// readiness 摘除故障实例；DB 正常时 200 信封结构与此前完全一致。
@@ -62,3 +74,6 @@ pub async fn health(State(state): State<AppState>) -> AppResult<Json<ApiResponse
         uptime: uptime_secs(),
     })))
 }
+
+/// `GET /health/ready` — 就绪探针，语义与 [`health`] 相同（带 DB 探测）。
+pub use health as readiness;

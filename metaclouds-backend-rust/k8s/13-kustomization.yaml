@@ -8,9 +8,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-metadata:
-  name: metaclouds-backend-rust
-
+# kustomize v5 起 Kustomization 的 metadata.name 已被弃用（保留会触发
+# "metadata.name in kustomization is deprecated" 甚至构建失败），故移除。
 resources:
   - 00-namespace.yaml
   - 01-configmap.yaml

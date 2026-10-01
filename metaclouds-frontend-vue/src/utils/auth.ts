@@ -24,11 +24,13 @@ export function readStoredUser(): User | null {
 }
 
 /**
- * 角色权限判定（fail-open：role 为 null 时返回 true）。
- * 与 React 版 utils/auth.ts 的 isRoleAllowed 语义一致。
+ * 角色权限判定（**fail-closed**：role 为 null 时返回 false）。
+ *
+ * 后端 `authz` 对未知/缺失角色一律拒绝，前端必须同口径；旧实现在 role 为
+ * null 时放行，篡改 localStorage 即可看到不该看到的入口。
  */
 export function isRoleAllowed(role: UserRole | null, allowed: UserRole[]): boolean {
-  if (role === null) return true
+  if (role === null) return false
   return allowed.includes(role)
 }
 

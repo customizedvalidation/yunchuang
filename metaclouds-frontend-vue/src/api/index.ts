@@ -75,6 +75,10 @@ export const monitoringApi = {
   // 聚合 13 个业务指标（含 total_gpus / allocated_gpus），供 Dashboard KPI 使用。
   dashboard: () => http.get<MetricsOverview>('/monitoring/dashboard').then((r) => r.data),
   alerts: () => http.get<Alert[]>('/monitoring/alerts').then((r) => r.data),
+  // 后端写接口注册在 /api/v1/alerts 下（routes.rs），与只读别名 /monitoring/alerts 不同。
+  resolveAlert: (id: number) => http.post<Alert>(`/alerts/${id}/resolve`).then((r) => r.data),
+  acknowledgeAlert: (id: number) =>
+    http.post<Alert>(`/alerts/${id}/acknowledge`).then((r) => r.data),
 }
 
 // ==================== 多租户 ====================

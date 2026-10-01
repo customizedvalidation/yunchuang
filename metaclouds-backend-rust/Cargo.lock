@@ -1478,6 +1478,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "http",
+ "indexmap 1.9.3",
  "jsonwebtoken",
  "opentelemetry",
  "opentelemetry-otlp",

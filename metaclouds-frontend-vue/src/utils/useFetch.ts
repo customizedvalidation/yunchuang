@@ -1,4 +1,5 @@
 import { ref, type Ref } from 'vue'
+import { toUserMessage } from './error'
 
 /**
  * 通用异步数据获取 composable（三态守卫：loading / error / data）
@@ -15,8 +16,9 @@ export function useFetch<T>(fn: () => Promise<T>, immediate = true) {
     try {
       data.value = await fn()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : '加载失败'
-      error.value = msg
+      // 统一映射为用户可读文案，避免把 axios 英文原文（如
+      // "Request failed with status code 500"）直接抛给用户。
+      error.value = toUserMessage(e)
       data.value = null
     } finally {
       loading.value = false
@@ -41,8 +43,7 @@ export function useMutation<T, A = void>(fn: (args: A) => Promise<T>) {
     try {
       return await fn(args)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : '操作失败'
-      error.value = msg
+      error.value = toUserMessage(e)
       throw e
     } finally {
       loading.value = false

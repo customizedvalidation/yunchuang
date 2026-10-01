@@ -114,9 +114,13 @@
                   提交到K8S
                 </el-button>
               </Can>
-              <el-button v-if="row.status === 'running' || row.status === 'pending'" type="danger" link size="small" @click="handleCancel(row)">
-                取消
-              </el-button>
+              <!-- 「取消」是破坏性写操作（POST /jobs/{id}/cancel，需 job:write），
+                   此前落在 <Can> 之外，user 角色可见并可点击后收到裸 403。 -->
+              <Can :roles="['admin', 'manager']">
+                <el-button v-if="row.status === 'running' || row.status === 'pending'" type="danger" link size="small" @click="handleCancel(row)">
+                  取消
+                </el-button>
+              </Can>
               <el-button type="primary" link size="small" @click="openDetail(row)">查看详情</el-button>
             </template>
           </el-table-column>

@@ -69,6 +69,17 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    # 放行 Prometheus（monitoring 命名空间）抓取 /metrics。
+    # 原策略只放行 ingress-nginx 与同 ns，而 ServiceMonitor（11）由
+    # monitoring 命名空间的 Prometheus 发起抓取 → 被默认拒绝，指标全丢、
+    # PrometheusRule（12）的告警也永远拿不到数据。
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8000
   egress:
     # → PostgreSQL（5432）
     - to:

@@ -9,8 +9,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required, see .env.example}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required, see .env.example}
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required, see .env.example}
+    # 仅绑定回环：数据库/缓存/中间件一律不暴露到宿主机网卡，避免未授权直连。
+    # 需要本地调试时改用 ssh -L 或 docker exec，勿改成 0.0.0.0。
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -30,7 +32,7 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required, see .env.example}
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -48,7 +50,7 @@ services:
     image: prom/prometheus:v2.48.0
     container_name: metaclouds-prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - ./alerts.yml:/etc/prometheus/alerts.yml
@@ -62,11 +64,28 @@ services:
       - metaclouds-network
     restart: unless-stopped
 
+  # prometheus.yml 的 alerting.alertmanagers 指向 alertmanager:9093；
+  # 此前 compose 里没有这个服务，告警产生后无处投递（静默丢失）。
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: metaclouds-alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - metaclouds-network
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:10.2.3
     container_name: metaclouds-grafana
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required, see .env.example}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required, see .env.example}
@@ -88,9 +107,10 @@ services:
       - ETCD_INITIAL_CLUSTER=metaclouds-etcd=http://etcd:2380
       - ETCD_INITIAL_CLUSTER_STATE=new
       - ETCD_INITIAL_CLUSTER_TOKEN=metaclouds-cluster
+    # etcd 无任何认证，务必只监听回环
     ports:
-      - "2379:2379"
-      - "2380:2380"
+      - "127.0.0.1:2379:2379"
+      - "127.0.0.1:2380:2380"
     volumes:
       - etcd_data:/etcd-data
     healthcheck:
@@ -108,16 +128,16 @@ services:
     environment:
       - COLLECTOR_ZIPKIN_HOST_PORT=:9411
     ports:
-      - "6831:6831/udp"
-      - "6832:6832/udp"
-      - "5778:5778"
-      - "16686:16686"
-      - "4317:4317"
-      - "4318:4318"
-      - "14250:14250"
-      - "14268:14268"
-      - "14269:14269"
-      - "9411:9411"
+      - "127.0.0.1:6831:6831/udp"
+      - "127.0.0.1:6832:6832/udp"
+      - "127.0.0.1:5778:5778"
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:14250:14250"
+      - "127.0.0.1:14268:14268"
+      - "127.0.0.1:14269:14269"
+      - "127.0.0.1:9411:9411"
     networks:
       - metaclouds-network
     restart: unless-stopped
@@ -132,6 +152,12 @@ services:
   #     拒播种并退出；非生产未设回退 Admin@123456，本地联调开箱可用）。
   #     生产请经 Secret / .env 注入强口令，seed 后改密或接 IdP。
   # 待目标环境 docker build 实测验证。
+  #
+  # ⚠️ 存储驱动（重要）：请求层 SQL 仍是 SQLite 方言（?N 占位符 /
+  # last_insert_rowid），未移植到 Postgres。main.rs 对此是 fail-closed 的：
+  # USE_SQLITE=false 会连上 PG、跑完迁移后立刻报错退出。因此本联调栈
+  # 显式使用 SQLite 文件库，否则 backend 容器根本起不来。
+  # 生产要切 PG，须先完成「请求层方言移植」里程碑（见 docs 复盘报告 P0）。
   # ============================================================================
   backend:
     build:
@@ -139,7 +165,10 @@ services:
       dockerfile: Dockerfile
     container_name: metaclouds-backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # SQLite 文件库持久化；改用 PG 后此卷可一并删除。
+      - backend_data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -151,8 +180,11 @@ services:
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8000
       - SERVER_ENV=${SERVER_ENV:-development}
+      # 请求层方言未移植 → 走 SQLite 文件库（改 true 前先完成 PG 移植里程碑）
       - MEMORY_STORE_ENABLED=false
-      - USE_SQLITE=false
+      - USE_SQLITE=true
+      - DATABASE_URL=sqlite:///app/data/metaclouds.db
+      # 以下 PG 变量在切到 Postgres 后生效，此处保留以便一键切换
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
       - DATABASE_USER=${POSTGRES_USER:?POSTGRES_USER is required, see .env.example}
@@ -199,11 +231,13 @@ services:
     restart: unless-stopped
 
 volumes:
+  backend_data:
   postgres_data:
   redis_data:
   prometheus_data:
   grafana_data:
   etcd_data:
+  alertmanager_data:
 
 networks:
   metaclouds-network:

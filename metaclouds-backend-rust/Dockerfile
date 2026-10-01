@@ -67,8 +67,10 @@ ENV SERVER_HOST=0.0.0.0 \
     LOG_LEVEL=info \
     LOG_FORMAT=json
 
+# /health 是后端始终提供的存活端点（src/routes.rs 根级注册，无鉴权）；
+# 此前打 /metrics，在 PROMETHEUS_ENABLED=false 时恒 404，容器被误判 unhealthy。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8000/metrics || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1
 
 USER appuser
 

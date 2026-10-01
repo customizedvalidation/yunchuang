@@ -134,19 +134,23 @@ spec:
               cpu: "500m"
               memory: "512Mi"
           # ---- 三探针（路径 /health，见文件头说明）----
-          # startupProbe：给慢启动留足时间，最多 30*5=150 秒
+          # startupProbe：给慢启动留足时间，最多 30*5=150 秒。
+          # 同样用 /health/live：启动阶段只等进程就绪，不应被 DB 可用性卡住，
+          # 否则 DB 未就绪会让 Pod 一直卡在启动失败并反复重启。
           startupProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: http
               scheme: HTTP
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 30
-          # livenessProbe：进程存活检测，失败则重启
+          # livenessProbe：进程存活检测，失败则重启。
+          # 必须指向 /health/live（不查库）：若指向带 DB 探测的 /health，
+          # 一次数据库抖动会让全部 Pod 被判定死亡并重启，把 DB 故障放大成雪崩。
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: http
               scheme: HTTP
             initialDelaySeconds: 30
@@ -154,10 +158,11 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 3
             successThreshold: 1
-          # readinessProbe：是否可接收流量，失败则从 Service 摘除
+          # readinessProbe：是否可接收流量，失败则从 Service 摘除。
+          # 指向 /health/ready（查库）：DB 不可用时摘流量但不重启。
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: http
               scheme: HTTP
             initialDelaySeconds: 5

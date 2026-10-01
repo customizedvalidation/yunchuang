@@ -59,15 +59,17 @@ groups:
   - name: application
     interval: 30s
     rules:
+      # 用 Prometheus 自动生成的 up 指标：后端从未注册 metaclouds_backend_up，
+      # 旧表达式恒为空向量，该告警永远不会触发。
       - alert: MetacloudsBackendDown
-        expr: metaclouds_backend_up == 0
+        expr: up{job="metaclouds-backend"} == 0
         for: 1m
         labels:
           severity: critical
           team: platform
         annotations:
           summary: "Metaclouds 后端服务不可用"
-          description: "Metaclouds 后端实例（{{ $labels.instance }}）已持续 1 分钟标记为不可用，API 服务可能中断。"
+          description: "Metaclouds 后端实例（{{ $labels.instance }}）已持续 1 分钟无法抓取 /metrics，API 服务可能中断。"
           runbook_url: "https://wiki.metaclouds.com/runbooks/backend-down"
 
       - alert: HighHTTPErrorRate
@@ -128,52 +130,51 @@ groups:
   - name: business
     interval: 30s
     rules:
-      - alert: HighJobQueueDepth
-        expr: metaclouds_jobs_total{status="pending"} - metaclouds_jobs_total{status="running"} - metaclouds_jobs_total{status="completed"} - metaclouds_jobs_total{status="failed"} - metaclouds_jobs_total{status="cancelled"} > 100
+      # 后端只有 metaclouds_running_jobs（Gauge），没有按 status 拆分的
+      # metaclouds_jobs_total；改用运行中的作业数作为调度压力信号。
+      - alert: HighRunningJobs
+        expr: metaclouds_running_jobs > 100
         for: 10m
         labels:
           severity: warning
           team: platform
         annotations:
-          summary: "作业排队数过高"
-          description: "当前排队中的作业数已超过 100（当前约 {{ $value }} 个），持续 10 分钟，调度资源可能不足。"
+          summary: "运行中作业数过高"
+          description: "当前运行中的作业数已超过 100（当前约 {{ $value }} 个），持续 10 分钟，调度资源可能不足。"
           runbook_url: "https://wiki.metaclouds.com/runbooks/high-job-queue"
 
-      - alert: HighJobFailureRate
-        expr: |
-          sum(rate(metaclouds_jobs_total{status="failed"}[15m])) by (tenant_id)
-          /
-          sum(rate(metaclouds_jobs_total[15m])) by (tenant_id)
-          > 0.10
+      # 原 HighJobFailureRate 依赖不存在的 metaclouds_jobs_total{status}，
+      # 已替换为真实指标：活跃告警堆积（metaclouds_active_alerts）。
+      - alert: HighActiveAlerts
+        expr: metaclouds_active_alerts > 50
         for: 15m
         labels:
           severity: warning
           team: platform
         annotations:
-          summary: "租户 {{ $labels.tenant_id }} 作业失败率过高"
-          description: "租户 {{ $labels.tenant_id }} 作业失败率已超过 10%（当前 {{ $value | printf \"%.2f\" }}%），持续 15 分钟。"
+          summary: "未处理告警数过多"
+          description: "当前活跃（未处理）告警数已超过 50（当前 {{ $value }} 条），持续 15 分钟，告警可能未被及时响应。"
           runbook_url: "https://wiki.metaclouds.com/runbooks/high-job-failure"
 
       - alert: HighGPUAllocation
         expr: |
-          sum(metaclouds_resources_gpu_allocated) by (cluster_id)
-          /
-          sum(metaclouds_resources_gpu_total) by (cluster_id)
-          > 0.90
+          metaclouds_allocated_gpus / metaclouds_total_gpus > 0.90
         for: 30m
         labels:
           severity: warning
           team: platform
         annotations:
-          summary: "集群 {{ $labels.cluster_id }} GPU 分配率过高"
-          description: "集群 {{ $labels.cluster_id }} GPU 分配率已超过 90%（当前 {{ $value | printf \"%.2f\" }}%），持续 30 分钟，剩余算力不足。"
+          summary: "GPU 分配率过高"
+          description: "GPU 分配率已超过 90%（当前 {{ $value | printf \"%.2f\" }}%），持续 30 分钟，剩余算力不足。"
           runbook_url: "https://wiki.metaclouds.com/runbooks/high-gpu-allocation"
 
+      # 后端未注册 metaclouds_auth_login_total；改用 http_requests_total 的
+      # status 标签统计 401 占比（该 Counter 带 method/path/status 标签）。
       - alert: HighLoginFailureRate
         expr: |
-          sum(rate(metaclouds_auth_login_total{result="failure"}[5m]))
+          sum(rate(http_requests_total{status="401"}[5m]))
           /
-          sum(rate(metaclouds_auth_login_total[5m]))
+          sum(rate(http_requests_total[5m]))
           > 0.20
         for: 5m
         labels:
