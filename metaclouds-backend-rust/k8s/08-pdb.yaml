@@ -2,7 +2,11 @@
 # 08-pdb.yaml — PodDisruptionBudget
 # ==============================================================================
 # 确保节点维护 / 集群升级期间，自愿中断（eviction）不会导致服务不可用。
-# 3 副本中至少 2 个可用，允许同时驱逐 1 个。
+#
+# ⚠️ 当前是单副本（SQLite 单写者约束，见 19-backend-data-pvc.yaml）：
+#    用 maxUnavailable 而不是 minAvailable —— minAvailable: 2 在 1 副本下
+#    会把自愿驱逐全部挡死，节点 drain 直接卡住。
+#    迁移到 PostgreSQL + 3 副本后改回 minAvailable: 2。
 # ==============================================================================
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -14,7 +18,7 @@ metadata:
     component: backend
     app.kubernetes.io/part-of: metaclouds
 spec:
-  minAvailable: 2
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: metaclouds

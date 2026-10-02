@@ -57,6 +57,50 @@ async fn main() -> anyhow::Result<()> {
         pool
     };
 
+    // ── Redis 缓存/会话：按配置建立，失败自动降级为 NoopCache ──────────
+    // 启用后 JWT 登出即刻生效（jti 写入撤销名单，见 cache::session）。
+    // 未启用或连不上时不阻塞启动，功能退化为"令牌自然过期"。
+    let cache = metaclouds_backend_rust::cache::build_cache(&config).await;
+    if cache.is_noop() {
+        tracing::warn!(
+            redis_enabled = config.redis_enabled,
+            "running without redis: token revocation on logout is degraded to token expiry"
+        );
+    }
+    metaclouds_backend_rust::cache::install_cache(cache);
+
+    // ── cron 调度器：按配置注册并启动 ──────────────────────────────────
+    // 此前 `scheduler::Scheduler` 只在单测里被构造，生产进程从不启动它，
+    // 定时任务（采样训练/推理）实际从未跑过。这里接线到进程生命周期：
+    // 注册默认任务 → start() → 优雅关闭时 shutdown()。
+    let scheduler = if config.scheduler_enabled {
+        match metaclouds_backend_rust::scheduler::Scheduler::new(
+            pool.clone(),
+            Arc::new(config.clone()),
+        )
+        .await
+        {
+            Ok(s) => {
+                if let Err(e) = s.register_all_jobs().await {
+                    tracing::error!(error = %e, "failed to register cron jobs");
+                }
+                if let Err(e) = s.start().await {
+                    tracing::error!(error = %e, "failed to start cron scheduler");
+                } else {
+                    tracing::info!("cron scheduler started");
+                }
+                Some(s)
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "failed to create cron scheduler");
+                None
+            }
+        }
+    } else {
+        tracing::info!("scheduler disabled via config");
+        None
+    };
+
     let state = AppState {
         pool,
         config: Arc::new(config.clone()),
@@ -67,12 +111,27 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(addr = %config.bind_addr(), "listening");
 
     // 优雅关闭：收到 Ctrl-C / SIGTERM 后停止接新连接，再 flush trace。
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-            tracing::info!("shutdown signal received, stopping server");
-        })
-        .await?;
+    //
+    // `into_make_service_with_connect_info::<SocketAddr>()` 把 TCP 对端地址注入
+    // 请求扩展，限流与访问日志据此判断 `X-Forwarded-For` 是否可采信
+    // （否则任何人伪造该头即可绕过限流、污染审计日志）。
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        tracing::info!("shutdown signal received, stopping server");
+        // 先停调度器（不再触发新任务），再停 HTTP。
+        if let Some(s) = &scheduler {
+            if let Err(e) = s.shutdown().await {
+                tracing::warn!(error = %e, "cron scheduler shutdown failed");
+            } else {
+                tracing::info!("cron scheduler stopped");
+            }
+        }
+    })
+    .await?;
 
     shutdown_tracing();
     tracing::info!("server exited gracefully");

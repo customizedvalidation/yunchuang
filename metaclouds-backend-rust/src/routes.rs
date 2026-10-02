@@ -9,9 +9,14 @@
 //! K8s(mock) / Job / GPU / Partition / Quota / Scheduler / Dataset /
 //! Checkpoint / Acceleration / Alert / Security / Monitoring。
 
+use std::sync::Arc;
+
+use axum::http::{header, HeaderValue, Method};
 use axum::routing::{delete, get, post, put};
 use axum::Router;
 use tower_cookies::CookieManagerLayer;
+use tower_http::cors::CorsLayer;
+use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::auth::csrf::csrf_protect;
 use crate::auth::handler::{change_password, get_csrf_token, get_profile, login, logout, refresh};
@@ -82,12 +87,73 @@ use crate::handlers::topology::{
 use crate::handlers::user::{create_user, delete_user, get_user, list_users, update_user};
 use crate::metrics::metrics_handler;
 use crate::middleware::apply_core_stack;
+use crate::middleware::protected::{protect_endpoints, EndpointGuard};
 use crate::openapi::ApiDoc;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+/// 按 `ALLOWED_ORIGINS` 组装 CORS 层。
+///
+/// - 显式配置白名单 → 仅放行列表内来源（不带凭证，避免 `Access-Control-Allow-Origin: *`
+///   与 Cookie 通道叠加）。
+/// - 未配置 → 开发环境允许任意来源（本地 Vite dev server 在 :5173），
+///   生产环境**不回**任何 CORS 头（等价于拒绝跨源，前后端同源部署）。
+fn cors_layer(allowed_origins: &[String]) -> CorsLayer {
+    let methods = [
+        Method::GET,
+        Method::POST,
+        Method::PUT,
+        Method::PATCH,
+        Method::DELETE,
+        Method::OPTIONS,
+    ];
+    let headers = [
+        header::AUTHORIZATION,
+        header::CONTENT_TYPE,
+        header::ACCEPT,
+        header::HeaderName::from_static("x-csrf-token"),
+        header::HeaderName::from_static("x-request-id"),
+    ];
+
+    let origins: Vec<HeaderValue> = allowed_origins
+        .iter()
+        .filter_map(|o| HeaderValue::from_str(o.trim()).ok())
+        .collect();
+
+    if origins.is_empty() {
+        // 空列表 = 明确不存在被允许的来源（tower-http 对空列表不匹配任何 Origin）。
+        // 与 `CorsLayer::permissive()` 区分开：permissive 会回 `*`，生产不可用。
+        return CorsLayer::new()
+            .allow_origin(Vec::<HeaderValue>::new())
+            .allow_methods(methods)
+            .allow_headers(headers);
+    }
+
+    CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods(methods)
+        .allow_headers(headers)
+}
+
+/// 请求体上限：`MAX_REQUEST_BODY_SIZE` 非正/溢出时回落 10 MiB 默认，
+/// 绝不退化成“不限”。
+fn body_limit(configured: i64) -> usize {
+    const DEFAULT_LIMIT: usize = 10 * 1024 * 1024;
+    if configured <= 0 {
+        tracing::warn!(
+            configured,
+            default = DEFAULT_LIMIT,
+            "MAX_REQUEST_BODY_SIZE is not positive, falling back to default"
+        );
+        return DEFAULT_LIMIT;
+    }
+    usize::try_from(configured).unwrap_or(DEFAULT_LIMIT)
+}
+
 /// Build the full application router. `state` is shared with all handlers.
 pub fn build_router(state: AppState) -> Router {
+    // 运维端点守卫：生产环境开启（/metrics、/swagger-ui、/api-docs 需 token 或可信网段）。
+    let guard = Arc::new(EndpointGuard::from_environment(&state.config.environment));
     // ── Public routes (no JWT required) ──────────────────────────────────
     let public = Router::new().route("/auth/login", post(login));
 
@@ -474,8 +540,14 @@ pub fn build_router(state: AppState) -> Router {
         ));
 
     // ── /metrics：Prometheus 文本格式端点（横切，无 JWT，对齐 Go）─────
-    // Prometheus scraper 直接抓取，不挂 JWT / CSRF 中间件。
-    let metrics_route = Router::new().route("/metrics", get(metrics_handler));
+    // Prometheus scraper 直接抓取，不挂 JWT / CSRF 中间件；生产环境由
+    // `protect_endpoints` 兜底（可信网段或 PROTECTED_ENDPOINTS_TOKEN）。
+    let metrics_route = Router::new()
+        .route("/metrics", get(metrics_handler))
+        .route_layer(axum::middleware::from_fn_with_state(
+            guard.clone(),
+            protect_endpoints,
+        ));
 
     // ── /health：存活/就绪探针（根级，无 /api/v1 前缀，无 JWT，对齐 Go）──
     // K8s livenessProbe → /health/live（不查库，DB 抖动不会误杀 Pod）
@@ -488,14 +560,27 @@ pub fn build_router(state: AppState) -> Router {
 
     // ── Swagger UI + OpenAPI spec（横切，无 JWT，对齐 Go /api/docs）─────
     // /swagger-ui 提供交互式文档；/api-docs/openapi.json 返回原始 OpenAPI 3.0 JSON。
-    let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
+    // 生产环境同样受 `protect_endpoints` 保护（接口清单属内部信息）。
+    let swagger = Router::new()
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .route_layer(axum::middleware::from_fn_with_state(
+            guard.clone(),
+            protect_endpoints,
+        ));
 
     let app = Router::new()
         .merge(health_route)
         .merge(metrics_route)
         .merge(swagger)
         .nest("/api/v1", public.merge(protected))
-        .layer(CookieManagerLayer::new());
+        .layer(CookieManagerLayer::new())
+        // 请求体大小上限（MAX_REQUEST_BODY_SIZE，默认 10 MiB）：防止超大 body 打爆内存。
+        // 配成 <=0 视为配置错误，回落默认值而不是“不限”。
+        .layer(RequestBodyLimitLayer::new(body_limit(
+            state.config.max_request_body_size,
+        )))
+        // CORS：按 ALLOWED_ORIGINS 白名单，生产未配置即不回 CORS 头。
+        .layer(cors_layer(&state.config.allowed_origins));
 
     // 应用核心中间件栈（request_id/request_logger/timing/metrics/security_headers/error_handler/panic_recover）
     apply_core_stack(app).with_state(state)

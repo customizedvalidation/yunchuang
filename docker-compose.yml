@@ -15,7 +15,9 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      # 不再挂载 init.sql：它与 sqlx 迁移是两套冲突 schema（password vs
+      # password_hash），建表统一由后端启动时跑 migrations/ 完成。
+      # 当前联调栈后端走 SQLite 文件库，postgres 服务保留用于切换 PG 后验证。
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 30s
@@ -213,6 +215,17 @@ services:
       - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
       - LOG_LEVEL=info
       - LOG_FORMAT=json
+      # 可信反向代理网段：只有直连对端落在其中，才采信 X-Forwarded-For。
+      # 不配的话，经 frontend(nginx) 反代进来的请求会被统一归到 nginx 的容器 IP
+      # ——限流会把所有用户算成一个桶，审计日志也记不到真实来源。
+      # 网段与下方 networks.metaclouds-network.ipam 保持一致。
+      - TRUSTED_PROXIES=172.28.0.0/16
+      # /metrics 与 /swagger-ui 的白名单（未命中则需 PROTECTED_ENDPOINTS_TOKEN）；
+      # 缺省回退 TRUSTED_PROXIES，prometheus 在同网段内可直接抓取。
+      - METRICS_TRUSTED_CIDRS=172.28.0.0/16
+      # CORS 白名单：与 frontend 对外端口一致（SERVER_ENV=production 时生效）
+      - ALLOWED_ORIGINS=http://localhost:8080
+      - MAX_REQUEST_BODY_SIZE=10485760
     networks:
       - metaclouds-network
     restart: unless-stopped
@@ -242,4 +255,10 @@ volumes:
 networks:
   metaclouds-network:
     driver: bridge
+    # 固定网段：后端 TRUSTED_PROXIES / METRICS_TRUSTED_CIDRS 依赖它来判断
+    # X-Forwarded-For 是否可采信。默认的随机子网每次 docker compose up 都可能变，
+    # 会导致限流与审计日志时而正确时而不正确。
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 

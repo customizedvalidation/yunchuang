@@ -12,6 +12,7 @@ use validator::Validate;
 
 use crate::auth::middleware::AppState;
 use crate::auth::Claims;
+use crate::authz::{tenant_filter, tenant_for_write};
 use crate::error::AppResult;
 use crate::models::acceleration_suite::AccelerationSuiteResponse;
 use crate::orm::PaginationParams;
@@ -74,15 +75,21 @@ pub struct UpdateSuiteRequest {
 #[utoipa::path(get,path="/api/v1/acceleration",tag="acceleration",responses((status=200,description="suites",body=Vec<crate::models::acceleration_suite::AccelerationSuiteResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_suites(
     State(state): State<AppState>,
+    claims: Claims,
     Query(q): Query<SuiteListQuery>,
 ) -> AppResult<Json<ApiResponse<Vec<AccelerationSuiteResponse>>>> {
     let page = q.page.unwrap_or(1) as i64;
     let page_size = q.page_size.unwrap_or(10) as i64;
     let params = PaginationParams::new(page, page_size);
 
-    let res =
-        acceleration_service::list_suites(&state.pool, params, q.tenant_id, q.status.as_deref())
-            .await?;
+    // 多租户隔离：非管理员强制只看本租户（忽略 ?tenant_id=）
+    let res = acceleration_service::list_suites(
+        &state.pool,
+        params,
+        tenant_filter(&claims, q.tenant_id),
+        q.status.as_deref(),
+    )
+    .await?;
     Ok(Json(ApiResponse::success(res.data)))
 }
 
@@ -113,7 +120,8 @@ pub async fn create_suite(
         inference_config_id: body.inference_config_id,
         fluid_cache_id: body.fluid_cache_id,
         acceleration_config: body.acceleration_config.unwrap_or(serde_json::json!({})),
-        tenant_id: body.tenant_id.unwrap_or(claims.tenant_id as i64),
+        // 多租户隔离：非管理员不能把资源挂到别的租户名下
+        tenant_id: tenant_for_write(&claims, body.tenant_id),
         created_by: claims.user_id as i64,
         status: body.status,
     };

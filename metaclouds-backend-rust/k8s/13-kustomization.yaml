@@ -24,6 +24,11 @@ resources:
   - 10-ingress.yaml
   - 11-servicemonitor.yaml
   - 12-prometheusrule.yaml
+  # 数据面：PostgreSQL（17，当前阶段预置待切）+ Redis（18，会话撤销名单在用）
+  # 后端 SQLite 数据盘（19，切到 PostgreSQL 后连同 05/07/08 的改动一起删除）
+  - 17-postgresql.yaml
+  - 18-redis.yaml
+  - 19-backend-data-pvc.yaml
   - 14-frontend-deployment.yaml
   - 15-frontend-service.yaml
   - 16-frontend-networkpolicy.yaml

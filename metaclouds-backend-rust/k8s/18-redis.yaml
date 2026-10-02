@@ -1,0 +1,130 @@
+# ==============================================================================
+# 18-redis.yaml — Redis StatefulSet + Service（会话撤销名单 / 缓存）
+# ==============================================================================
+# 用途：后端 `cache::build_cache()` 在 REDIS_ENABLED=true 时连接本实例，用于
+# JWT `jti` 撤销名单（登出即失效，见 src/cache/session.rs）。Redis 不可用时
+# 后端自动降级为 NoopCache（等令牌自然过期），不会因缓存故障而不可用。
+#
+# 09-networkpolicy.yaml 已放行 backend → redis:6379。
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: metaclouds
+  labels:
+    app: redis
+    component: cache
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/component: cache
+spec:
+  clusterIP: None
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+      protocol: TCP
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: metaclouds
+  labels:
+    app: redis
+    component: cache
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: metaclouds
+    app.kubernetes.io/component: cache
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        component: cache
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/part-of: metaclouds
+        app.kubernetes.io/component: cache
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: redis-password
+          # redis-server 不读 REDIS_PASSWORD 环境变量，须用 --requirepass 显式传入。
+          # 口令来自 Secret，只出现在进程命令行（Pod 内可见），不落 ConfigMap。
+          # `$(REDIS_PASSWORD)` 由 kubelet 在 command/args 中展开。
+          # --appendonly yes：重启后撤销名单不丢（本来是 TTL 数据，丢了也不致命）。
+          command:
+            - /bin/sh
+            - -c
+            - exec redis-server --appendonly yes --requirepass "$(REDIS_PASSWORD)"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            exec:
+              command: ["redis-cli", "-a", "$(REDIS_PASSWORD)", "ping"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "-a", "$(REDIS_PASSWORD)", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "-a", "$(REDIS_PASSWORD)", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

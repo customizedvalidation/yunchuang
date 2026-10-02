@@ -148,10 +148,30 @@ pub async fn login(
     })
 }
 
-/// `POST /api/v1/auth/logout` — 清除认证 Cookie。
+/// `POST /api/v1/auth/logout` — 清除认证 Cookie，并把令牌 `jti` 拉黑。
+///
+/// 此前登出只清 Cookie：JWT 是无状态的，旧令牌在过期前依然可用（登出形同虚设）。
+/// 现在 Redis 可用时把 `jti` 写入撤销名单（`revoked:<jti>`，TTL = 令牌剩余寿命），
+/// 由 `jwt_auth` 在每次请求时拒绝。Redis 不可用时**不报错**，日志 warn 后按
+/// "令牌自然过期"降级——不会因为缓存故障让登出接口 500。
 #[utoipa::path(post,path="/api/v1/auth/logout",tag="auth",responses((status=200,description="logged out")))]
-pub async fn logout(cookies: Cookies) -> AppResult<Json<ApiResponse<()>>> {
+pub async fn logout(cookies: Cookies, claims: Claims) -> AppResult<Json<ApiResponse<()>>> {
     clear_auth_cookies(&cookies);
+
+    if crate::cache::redis_active() {
+        let now = Utc::now().timestamp();
+        let ttl_secs = (claims.exp - now).max(1) as u64;
+        match crate::cache::global_session()
+            .blacklist_jti(&claims.jti, std::time::Duration::from_secs(ttl_secs))
+            .await
+        {
+            Ok(()) => tracing::info!(jti = %claims.jti, ttl_secs, "token revoked on logout"),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to revoke token; it stays valid until expiry")
+            }
+        }
+    }
+
     Ok(Json(ApiResponse {
         success: true,
         data: None,

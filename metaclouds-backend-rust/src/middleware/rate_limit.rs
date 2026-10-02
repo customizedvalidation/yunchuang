@@ -8,8 +8,9 @@
 //!   维护内存态计数；与 Go 版一样不持久化。
 //! - 滑动窗口：为每个 IP 记录窗口内的请求时间戳，判定前先剔除早于窗口起点
 //!   的旧时间戳，再把当前请求压入。
-//! - 客户端 IP 优先取 `X-Forwarded-For` 首段（反代后真实来源）；缺失时回退
-//!   到 `unknown` 桶（测试环境无 TCP 连接信息时）。
+//! - 客户端 IP 仅在直连对端位于 `TRUSTED_PROXIES` 内时采信 `X-Forwarded-For`
+//!   首段（否则取直连 IP；拿不到则为 `unknown` 桶）。无条件信任该头会让
+//!   攻击者靠轮换伪造头绕过限流，详见 [`crate::middleware::client_ip`]。
 //! - 白名单：`/health`、`/metrics`、`/swagger-ui`、`/api-docs` 不限流
 //!   （探针与监控/文档端点不能被自身限流拒绝）。
 //!
@@ -30,7 +31,6 @@ use axum::response::{IntoResponse, Response};
 use crate::error::AppError;
 
 static RETRY_AFTER: HeaderName = HeaderName::from_static("retry-after");
-static X_FORWARDED_FOR: HeaderName = HeaderName::from_static("x-forwarded-for");
 
 /// 判定结果：放行（含窗口内当前计数）或限流。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,16 +132,13 @@ fn is_whitelisted(path: &str) -> bool {
         || path.starts_with("/api-docs")
 }
 
-/// 从请求提取客户端 IP：优先 `X-Forwarded-For` 首段。
+/// 从请求提取客户端 IP。
+///
+/// 安全：不再无条件取 `X-Forwarded-For` 首段（可伪造 → 直接绕过限流）。
+/// 只有当直连对端落在 `TRUSTED_PROXIES` 内才采信该头，详见
+/// [`crate::middleware::client_ip`]。
 fn client_ip(request: &Request) -> String {
-    request
-        .headers()
-        .get(&X_FORWARDED_FOR)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown".to_string())
+    crate::middleware::client_ip::resolve(request, crate::middleware::client_ip::trusted_from_env())
 }
 
 /// 限流中间件：开启后按 IP 做滑动窗口限流，超限返回 429。

@@ -11,6 +11,7 @@ use validator::Validate;
 
 use crate::auth::middleware::AppState;
 use crate::auth::Claims;
+use crate::authz::{tenant_filter, tenant_for_write};
 use crate::error::AppResult;
 use crate::models::alert::AlertResponse;
 use crate::orm::PaginationParams;
@@ -76,6 +77,7 @@ pub struct UpdateAlertRequest {
 #[utoipa::path(get,path="/api/v1/alerts",tag="alerts",responses((status=200,description="alerts",body=Vec<crate::models::alert::AlertResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_alerts(
     State(state): State<AppState>,
+    claims: Claims,
     Query(q): Query<AlertListQuery>,
 ) -> AppResult<Json<ApiResponse<Vec<AlertResponse>>>> {
     let page = q.page.unwrap_or(1) as i64;
@@ -94,7 +96,8 @@ pub async fn list_alerts(
         kind,
         status,
         q.cluster_id,
-        q.tenant_id,
+        // 多租户隔离：非管理员强制只看本租户（忽略 ?tenant_id=）
+        tenant_filter(&claims, q.tenant_id),
         search,
     )
     .await?;
@@ -129,7 +132,8 @@ pub async fn create_alert(
         cluster_id: body.cluster_id,
         job_id: body.job_id,
         resource_id: body.resource_id,
-        tenant_id: body.tenant_id.unwrap_or(claims.tenant_id as i64),
+        // 多租户隔离：非管理员不能把资源挂到别的租户名下
+        tenant_id: tenant_for_write(&claims, body.tenant_id),
         metadata: body.metadata,
     };
     let a = alert::create_alert(&state.pool, input).await?;

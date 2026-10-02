@@ -146,6 +146,55 @@ pub fn has_permission(role: &str, permission: &str) -> bool {
     list.contains(&permission)
 }
 
+// ---------------------------------------------------------------------------
+// 多租户隔离（横切）
+// ---------------------------------------------------------------------------
+// 之前只有 job 域做了租户隔离（services::job::Actor）。其余域的列表接口把
+// 查询串里的 `?tenant_id=` 原样透给服务层：非管理员传别人的 tenant_id 就能
+// 读到别人的配额/数据集/告警，不传则看全量——属于跨租户越权读。
+// 写接口同理：`body.tenant_id` 由客户端任意指定，可以把资源挂到别的租户名下。
+//
+// 这里提供三个收敛函数，handler 必须用它把"客户端想要的值"映射成
+// "该身份真正可以使用的值"。
+
+/// 是否为管理员（多租户隔离的唯一豁免角色）。
+pub fn is_admin(claims: &Claims) -> bool {
+    claims.role == Role::Admin.as_str()
+}
+
+/// 查询用的租户过滤值。
+///
+/// - 管理员：沿用请求里显式指定的值（不传 = 不限租户，看全量）；
+/// - 其余角色：**忽略请求参数**，强制收敛到自己的租户。
+pub fn tenant_filter(claims: &Claims, requested: Option<i64>) -> Option<i64> {
+    if is_admin(claims) {
+        requested
+    } else {
+        Some(claims.tenant_id as i64)
+    }
+}
+
+/// 写操作使用的租户归属值。
+///
+/// 非管理员忽略 body 传入的 tenant_id，一律写自己的租户；管理员可指定，
+/// 未指定时用自身租户。
+pub fn tenant_for_write(claims: &Claims, requested: Option<i64>) -> i64 {
+    if is_admin(claims) {
+        requested.unwrap_or(claims.tenant_id as i64)
+    } else {
+        claims.tenant_id as i64
+    }
+}
+
+/// 写操作使用的用户归属值（防止冒用他人 user_id 建资源）。
+pub fn user_for_write(claims: &Claims, requested: Option<i64>) -> i64 {
+    if is_admin(claims) {
+        requested.unwrap_or(claims.user_id as i64)
+    } else {
+        claims.user_id as i64
+    }
+}
+
 /// 从请求扩展中取出已认证角色；缺失上下文返回 401。
 fn role_from_request(request: &Request) -> AppResult<String> {
     let claims = request
@@ -197,6 +246,44 @@ pub async fn require_role(
 mod tests {
     use super::*;
     use permissions::*;
+
+    fn claims(role: &str, tenant_id: u64, user_id: u64) -> Claims {
+        Claims {
+            user_id,
+            username: "u".to_string(),
+            email: "u@example.com".to_string(),
+            role: role.to_string(),
+            tenant_id,
+            exp: 0,
+            iat: 0,
+            jti: "j".to_string(),
+        }
+    }
+
+    #[test]
+    fn tenant_filter_pins_non_admin_to_own_tenant() {
+        let u = claims("user", 7, 1);
+        // 请求里指定别人的租户 → 被忽略
+        assert_eq!(tenant_filter(&u, Some(999)), Some(7));
+        // 不指定 → 也不是"看全量"，而是自己的租户
+        assert_eq!(tenant_filter(&u, None), Some(7));
+
+        let a = claims("admin", 7, 1);
+        assert_eq!(tenant_filter(&a, Some(999)), Some(999));
+        assert_eq!(tenant_filter(&a, None), None, "管理员不指定时才看全量");
+    }
+
+    #[test]
+    fn write_owner_is_pinned_for_non_admin() {
+        let u = claims("user", 7, 1);
+        assert_eq!(tenant_for_write(&u, Some(999)), 7);
+        assert_eq!(user_for_write(&u, Some(555)), 1);
+
+        let a = claims("admin", 7, 1);
+        assert_eq!(tenant_for_write(&a, Some(999)), 999);
+        assert_eq!(tenant_for_write(&a, None), 7);
+        assert_eq!(user_for_write(&a, Some(555)), 555);
+    }
 
     #[test]
     fn admin_short_circuits_everything() {

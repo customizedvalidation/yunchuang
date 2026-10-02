@@ -147,13 +147,45 @@
 
 ### 5.1 必须解决才能真正上生产（按优先级）
 
-1. **请求层 PG 方言移植**（A-2）：先 `AppState.pool` 枚举化为 `DatabasePool`，再批量 `?N`→`$N`、`last_insert_rowid()`→`RETURNING id`；CI `rust-test-postgres` 扩为常开。完成后 compose/K8s 才能切回 `USE_SQLITE=false`。
-2. **`init.sql` 与 sqlx 迁移二选一**（A-6）：建议以 `migrations/postgres/` 为唯一建表路径，compose 不再挂 `init.sql`；否则字段类型冲突（`password` vs `password_hash`）会持续咬人。
-3. **多租户隔离补全**（A-3）：把 job 域的 `Actor` 模式推广到 quota/resource/gpu/dataset/alert 域。
-4. **生产加固批次**（B-2/3/4/5）：`/metrics` 与 Swagger 鉴权、CorsLayer、RequestBodyLimitLayer、XFF 仅在 `trusted_proxies` 内采信、Redis 会话（JWT jti 撤销）与 cron 接线。
-5. **GHCR 推送链路**（A-4）：`push:true` + `permissions.packages: write`，否则 deploy-k8s 永远 ImagePullBackOff。
-6. **K8s 内 Postgres/Redis 清单**（A-5）：需先决策存储类与规格，再补 StatefulSet/Service；本轮仅统一了主机名。
-7. **Secret 占位值**：`02-secret.yaml` 仍是 `CHANGEME-*`，生产必须换 External/Sealed Secrets；建议 CI 加「占位值检测」门禁。
+> **2026-10-02 状态更新**：本轮已落地 2/3/4/5/6/7，仅第 1 项（请求层 PG 方言移植）
+> 仍是硬阻塞。下方按项标注当前状态。
+
+| # | 事项 | 状态 | 落地位置 |
+|---|---|---|---|
+| 1 | 请求层 PG 方言移植 | ❌ **仍未完成（唯一硬阻塞）** | 见 §5.1.1 |
+| 2 | `init.sql` 与 sqlx 迁移二选一 | ✅ 已完成 | `init.sql` 已 `git rm`；compose 去掉挂载；runbook §3.1 只保留建库建账号 |
+| 3 | 多租户隔离补全 | ✅ 已完成（quota/dataset/acceleration/alert/checkpoint/gpu 六个域） | `src/authz/mod.rs` 新增 `tenant_filter` / `tenant_for_write` / `user_for_write`；新增 `tests/tenant_isolation_test.rs` |
+| 4 | 生产加固批次 | ✅ 已完成 | 见 §5.1.2 |
+| 5 | GHCR 推送链路 | ✅ 已完成 | `.github/workflows/ci-cd.yml`：`permissions.packages: write` + 两处 `push: true` |
+| 6 | K8s 内 Postgres/Redis 清单 | ✅ 已完成 | `k8s/17-postgresql.yaml`、`k8s/18-redis.yaml`、`k8s/19-backend-data-pvc.yaml`，已入 `13-kustomization.yaml` |
+| 7 | Secret 占位值 | ✅ 已完成（门禁 + 生成命令） | CI 新增 "Guard - reject placeholder secrets"；Secret 新增 `postgres-password`、`protected-endpoints-token` |
+
+#### 5.1.1 仍未完成：请求层 PG 方言移植（阻塞 K8s 切回 Postgres）
+
+工作量实测（不是估算，是 `grep` 出来的数）：
+
+- `?N` 占位符：**253 处**，分布在 `src/services/*`（quota 24、acceleration 19、partition 17、
+  cluster 15、scheduler 14…）与 `src/models/*`；
+- `SqlitePool` 类型标注：**276 处**（`AppState.pool` 也是 `SqlitePool`，不是 `DatabasePool`）；
+- `last_insert_rowid()`：**23 处**（PG 需改为 `INSERT ... RETURNING id`）。
+
+`main.rs` 对此是 fail-closed 的（连上 PG、跑完迁移后立刻报错退出），因此**不完成这一步
+就不能把 compose/K8s 切回 `USE_SQLITE=false`**。本轮据此把 K8s 固定为
+SQLite + PVC + 单副本（`01-configmap.yaml` `USE_SQLITE=true`，`05-deployment.yaml`
+`replicas: 1` + `Recreate`，`07-hpa.yaml` 1/1，`08-pdb.yaml` `maxUnavailable: 1`），
+PostgreSQL StatefulSet 已就绪待切，切换步骤见 `production-deployment-runbook.md` §1.2.1。
+
+#### 5.1.2 生产加固批次（已完成的具体内容）
+
+| 加固项 | 实现 |
+|---|---|
+| `/metrics` + Swagger 生产鉴权 | 新增 `src/middleware/protected.rs`：`SERVER_ENV=production` 时对 `/metrics`、`/swagger-ui`、`/api-docs` 生效；放行条件为「直连对端在 `METRICS_TRUSTED_CIDRS`（缺省回退 `TRUSTED_PROXIES`）」或「Bearer / `X-Api-Token` 常数时间等于 `PROTECTED_ENDPOINTS_TOKEN`」；两者都没有 → 503 失败关闭 |
+| CORS | `routes.rs::cors_layer()` 按 `ALLOWED_ORIGINS` 组装 `CorsLayer`；生产未配置即不回任何 CORS 头（不用 `permissive()`） |
+| 请求体上限 | `RequestBodyLimitLayer::new(body_limit(config.max_request_body_size))`，≤0 回落 10 MiB 默认 |
+| XFF 仅可信代理采信 | 新增 `src/middleware/client_ip.rs`：`ConnectInfo` 对端在 `TRUSTED_PROXIES`（支持 CIDR）内才采信 XFF；限流与访问日志统一走它（此前审计日志无条件取 XFF 首段，可被伪造污染） |
+| 直连地址注入 | `main.rs` 改用 `into_make_service_with_connect_info::<SocketAddr>()`，否则上面拿不到 peer IP |
+| Redis 会话撤销 | `cache::install_cache(build_cache(&config))`；登出写 `revoked:<jti>`（TTL = 剩余寿命），`jwt_auth` 校验；Redis 不可用自动降级 |
+| cron 接线 | `main.rs` 启动 `scheduler::Scheduler`（注册默认任务 + `start()`），优雅关闭时 `shutdown()`；此前只在单测里被构造过 |
 
 ### 5.2 打磨项
 

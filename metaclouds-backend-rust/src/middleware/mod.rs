@@ -14,9 +14,11 @@ use axum::middleware::from_fn;
 use axum::Router;
 
 pub mod circuit_breaker;
+pub mod client_ip;
 pub mod error_handler;
 pub mod metrics;
 pub mod panic_recover;
+pub mod protected;
 pub mod rate_limit;
 pub mod request_id;
 pub mod request_logger;

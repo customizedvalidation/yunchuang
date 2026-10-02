@@ -17,24 +17,14 @@ use axum::response::Response;
 use crate::auth::jwt::Claims;
 use crate::middleware::request_id::RequestId;
 
-/// 从请求头中尽力解析客户端 IP（仅看 `X-Forwarded-For` 第一段）。
+/// 解析客户端 IP。
 ///
-/// 测试与直连场景下没有 `ConnectInfo`，此处退化为 "unknown"，与 Go 侧
-/// `c.ClientIP()` 在合成请求下返回空串的行为等价。
+/// 安全：审计日志曾无条件取 `X-Forwarded-For` 首段，任何人都能伪造源 IP
+/// 污染审计记录（追责时无法定位真实来源）。现在与限流共用同一套判定：
+/// 仅当直连对端落在 `TRUSTED_PROXIES`（可信反代/Ingress 网段）内才采信该头，
+/// 详见 [`crate::middleware::client_ip`]。
 fn client_ip(request: &Request) -> String {
-    if let Some(xff) = request
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-    {
-        if let Some(ip) = xff.split(',').next() {
-            let ip = ip.trim();
-            if !ip.is_empty() {
-                return ip.to_string();
-            }
-        }
-    }
-    "unknown".to_string()
+    crate::middleware::client_ip::resolve(request, crate::middleware::client_ip::trusted_from_env())
 }
 
 /// 中间件：计时并在响应后输出结构化访问日志。

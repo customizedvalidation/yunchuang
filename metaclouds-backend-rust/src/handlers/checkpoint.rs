@@ -10,6 +10,7 @@ use validator::Validate;
 
 use crate::auth::middleware::AppState;
 use crate::auth::Claims;
+use crate::authz::tenant_for_write;
 use crate::error::{AppError, AppResult};
 use crate::models::checkpoint::CheckpointResponse;
 use crate::orm::PaginationParams;
@@ -131,7 +132,8 @@ pub async fn create_checkpoint(
         step: body.step.unwrap_or(0),
         epoch: body.epoch.unwrap_or(0),
         metrics: body.metrics.unwrap_or(serde_json::json!({})),
-        tenant_id: body.tenant_id.unwrap_or(claims.tenant_id as i64),
+        // 多租户隔离：非管理员不能把资源挂到别的租户名下
+        tenant_id: tenant_for_write(&claims, body.tenant_id),
         created_by: claims.user_id as i64,
         status: body.status,
     };

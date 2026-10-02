@@ -11,6 +11,8 @@ use serde::Serialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
+use crate::auth::Claims;
+use crate::authz::{tenant_filter, tenant_for_write};
 use crate::error::AppResult;
 use crate::models::resource_quota::ResourceQuotaResponse;
 use crate::orm::PaginationParams;
@@ -223,6 +225,7 @@ pub struct CheckQuotaResponse {
 #[utoipa::path(get,path="/api/v1/quotas",tag="quotas",responses((status=200,description="quotas",body=Vec<crate::models::resource_quota::ResourceQuotaResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_quotas(
     State(state): State<AppState>,
+    claims: Claims,
     Query(q): Query<QuotaListQuery>,
 ) -> AppResult<Json<ApiResponse<Vec<ResourceQuotaResponse>>>> {
     let params =
@@ -230,7 +233,8 @@ pub async fn list_quotas(
     let res = quota_service::list_quotas(
         &state.pool,
         params,
-        q.tenant_id,
+        // 多租户隔离：非管理员强制只看本租户
+        tenant_filter(&claims, q.tenant_id),
         q.partition_id,
         q.status.as_deref(),
     )
@@ -252,13 +256,15 @@ pub async fn get_quota(
 #[utoipa::path(post,path="/api/v1/quotas",request_body=CreateQuotaRequest,tag="quotas",responses((status=201,description="created",body=crate::models::resource_quota::ResourceQuotaResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn create_quota(
     State(state): State<AppState>,
+    claims: Claims,
     Json(body): Json<CreateQuotaRequest>,
 ) -> AppResult<WithStatus<ResourceQuotaResponse>> {
     body.validate()?;
     let input = quota_service::CreateQuotaInput {
         name: body.name,
         description: body.description.unwrap_or_default(),
-        tenant_id: body.tenant_id,
+        // 多租户隔离：非管理员不能把配额建在别的租户名下
+        tenant_id: tenant_for_write(&claims, Some(body.tenant_id)),
         partition_id: body.partition_id,
         gpu_limit: body.gpu_limit.unwrap_or(0),
         cpu_limit: body.cpu_limit.unwrap_or(0.0),

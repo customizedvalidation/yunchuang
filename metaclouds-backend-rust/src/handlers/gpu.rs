@@ -15,6 +15,8 @@ use serde::Deserialize;
 use validator::Validate;
 
 use crate::auth::middleware::AppState;
+use crate::auth::Claims;
+use crate::authz::{tenant_for_write, user_for_write};
 use crate::error::AppResult;
 use crate::models::gpu_allocation::GpuAllocationResponse;
 use crate::models::gpu_device::GpuDeviceResponse;
@@ -242,13 +244,15 @@ pub async fn list_allocations(
 #[utoipa::path(post,path="/api/v1/gpus/allocations",request_body=AllocateGpuRequest,tag="gpus",responses((status=201,description="allocated",body=crate::models::gpu_allocation::GpuAllocationResponse),(status=400,description="bad request",body=crate::openapi::ErrorResponse),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse),(status=409,description="conflict",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn allocate_gpu(
     State(state): State<AppState>,
+    claims: Claims,
     Json(body): Json<AllocateGpuRequest>,
 ) -> AppResult<WithStatus<GpuAllocationResponse>> {
     body.validate()?;
     let input = AllocateGpuInput {
         job_id: body.job_id.unwrap_or(0),
-        tenant_id: body.tenant_id.unwrap_or(0),
-        user_id: body.user_id.unwrap_or(0),
+        // 多租户隔离：非管理员不能把 GPU 分配到别的租户/用户名下
+        tenant_id: tenant_for_write(&claims, body.tenant_id),
+        user_id: user_for_write(&claims, body.user_id),
         fraction: body.fraction.unwrap_or(1.0),
         memory_gb: body.memory_gb.unwrap_or(0),
         vendor: body.vendor.unwrap_or_default(),

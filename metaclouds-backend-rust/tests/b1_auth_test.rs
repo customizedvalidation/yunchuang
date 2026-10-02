@@ -45,10 +45,13 @@ async fn setup_app() -> Router {
         config: Arc::new(config.into()),
     };
 
+    // logout 必须在 jwt_auth 之内（与生产 routes.rs 一致）：登出要撤销具体
+    // 令牌的 jti，没有身份就无法撤销。此前挂在公开路由上，会掩盖这个前提。
     let protected = Router::new()
         .route("/auth/refresh", post(refresh))
         .route("/auth/profile", get(get_profile))
         .route("/auth/change-password", put(change_password))
+        .route("/auth/logout", post(logout))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             jwt_auth,
@@ -59,7 +62,6 @@ async fn setup_app() -> Router {
             "/api/v1",
             Router::new()
                 .route("/auth/login", post(login))
-                .route("/auth/logout", post(logout))
                 .merge(protected),
         )
         .layer(axum::middleware::from_fn(csrf_protect))
@@ -285,7 +287,11 @@ async fn b1_change_password_without_token_is_unauthorized() {
 #[tokio::test]
 async fn b1_logout_returns_ok_message() {
     let mut app = setup_app().await;
-    let (status, body) = do_request(&mut app, "POST", "/api/v1/auth/logout", None, None).await;
+    // 先登录拿令牌：登出必须持有会话（Bearer 通道同样被 jwt_auth 接受）。
+    let (_, login_body) = do_login(&mut app, "admin", "Admin@123456").await;
+    let token = token_of(&login_body);
+    let (status, body) =
+        do_request(&mut app, "POST", "/api/v1/auth/logout", Some(&token), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["message"], json!("logged out"));
 }

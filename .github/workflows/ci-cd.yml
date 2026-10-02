@@ -50,6 +50,9 @@ permissions:
   contents: read
   security-events: write
   actions: read
+  # 推送镜像到 GHCR 必需：docker/login-action 用 GITHUB_TOKEN 登录 ghcr.io 时，
+  # 缺少 packages: write 会被 401 拒绝，导致 build job 在 push 步骤失败。
+  packages: write
 
 env:
   NODE_VERSION: '22'
@@ -156,7 +159,8 @@ jobs:
 
   # ============================================================================
   # Job 3: Rust 后端 Docker 镜像构建与推送（唯一主后端）
-  # push:false —— 待配 GHCR 推送权限后改 push:true。
+  # push:true —— 已在 permissions 中授予 packages: write，镜像推送到 GHCR。
+  # deploy-k8s 依赖按 GIT_SHA 拉取镜像，关闭推送会导致 ImagePullBackOff。
   # ============================================================================
   docker-build-backend-rust:
     name: Build Rust Backend Docker Image
@@ -192,7 +196,7 @@ jobs:
         with:
           context: ./metaclouds-backend-rust
           file: metaclouds-backend-rust/Dockerfile
-          push: false
+          push: true
           tags: ${{ steps.meta-rust-backend.outputs.tags }}
           labels: ${{ steps.meta-rust-backend.outputs.labels }}
           cache-from: type=gha,scope=backend-rust
@@ -253,7 +257,7 @@ jobs:
         with:
           context: metaclouds-frontend-vue
           file: metaclouds-frontend-vue/Dockerfile
-          push: false
+          push: true
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
           cache-from: type=gha,scope=frontend
@@ -774,6 +778,43 @@ jobs:
           echo "kubeconfig loaded (credentials intentionally not printed)"
           kubectl config current-context || true
           kubectl config get-contexts --no-headers || true
+
+      # 占位密钥门禁：02-secret.yaml 的 data 是 base64 占位（CHANGEME-*），
+      # 若不替换就 apply，等于用公开可见的口令给生产签发 JWT。
+      - name: Guard - reject placeholder secrets
+        if: env.K8S_ENABLED == 'true'
+        run: |
+          python3 - <<'PY'
+          import base64, sys, yaml
+
+          path = "metaclouds-backend-rust/k8s/02-secret.yaml"
+          doc = yaml.safe_load(open(path))
+          data = (doc.get("data") or {})
+
+          bad = []
+          for key, val in data.items():
+              try:
+                  plain = base64.b64decode(val).decode("utf-8", "replace")
+              except Exception:
+                  bad.append((key, "<base64 decode failed>"))
+                  continue
+              if "CHANGEME" in plain:
+                  bad.append((key, plain))
+
+          if bad:
+              print("::error::Refusing to deploy: placeholder secrets still present in %s" % path)
+              for key, plain in bad:
+                  print("::error::  - %s = %s" % (key, plain))
+              print("::error::Create the real secret first, e.g.")
+              print("::error::  kubectl -n metaclouds create secret generic metaclouds-secrets \\")
+              print("::error::    --from-literal=jwt-secret="$(openssl rand -base64 48)" \\")
+              print("::error::    --from-literal=database-url="postgresql://..." \\")
+              print("::error::    --from-literal=redis-password="$(openssl rand -base64 24)" \\")
+              print("::error::    --from-literal=default-admin-password="$(openssl rand -base64 18 | tr -d '/+=')"")
+              sys.exit(1)
+
+          print("secret placeholder check passed: %d keys verified" % len(data))
+          PY
 
       - name: Apply manifests (kustomize)
         if: env.K8S_ENABLED == 'true'

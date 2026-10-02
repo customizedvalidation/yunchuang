@@ -112,6 +112,26 @@ pub async fn jwt_auth(
     let token = extract_token(&request, &cookies)?;
 
     let claims = verify_token(state.config.jwt_secret.as_bytes(), &token)?;
+
+    // 撤销名单：显式登出过的 jti 即使未过期也拒绝。
+    // 仅在 Redis 真正可用时启用；Redis 故障/未启用时**失败开放**
+    // （退化为"等令牌自然过期"）——可用性优先，避免一个缓存抖动打挂全站。
+    if crate::cache::redis_active() {
+        match crate::cache::global_session()
+            .is_jti_revoked(&claims.jti)
+            .await
+        {
+            Ok(true) => {
+                tracing::info!(jti = %claims.jti, "rejected revoked token");
+                return Err(AppError::unauthorized("token has been revoked"));
+            }
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "revocation check failed; failing open");
+            }
+        }
+    }
+
     tracing::debug!(user_id = claims.user_id, username = %claims.username, "authenticated");
     request.extensions_mut().insert(claims);
     Ok(next.run(request).await)

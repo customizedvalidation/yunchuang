@@ -3,7 +3,9 @@
 # ==============================================================================
 # 基于 CPU / 内存使用率自动扩缩容。
 #   - CPU 70% / Memory 80% 触发扩容
-#   - minReplicas: 2, maxReplicas: 10
+#
+# ⚠️ 当前固定 min=max=1：后端请求层是 SQLite 单写者，扩副本会并发写同一个
+#    db 文件（SQLITE_BUSY / 数据损坏）。迁移到 PostgreSQL 后改回 min: 2 / max: 10。
 #   - 扩容稳定窗口 60s，缩容稳定窗口 300s
 #
 # 前置条件：集群已安装 metrics-server。
@@ -22,8 +24,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: metaclouds-backend
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 1
+  maxReplicas: 1
   metrics:
     - type: Resource
       resource:

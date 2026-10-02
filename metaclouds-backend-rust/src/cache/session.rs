@@ -18,6 +18,8 @@ use crate::error::AppResult;
 ///
 /// 外层 `metaclouds:` 前缀由 [`super::redis::RedisCache`] 统一拼接。
 const SESSION_NS: &str = "session:";
+/// 撤销名单命名空间（登出拉黑的 jti）。
+const REVOKED_NS: &str = "revoked:";
 
 /// JWT jti 会话存储，封装在 [`Cache`] 之上。
 ///
@@ -50,6 +52,27 @@ impl SessionStore {
     /// 登出时撤销 jti（删除会话，等价于 Go `InvalidateSession`）。
     pub async fn revoke_jti(&self, jti: &str) -> AppResult<()> {
         self.cache.delete(&Self::key(jti)).await
+    }
+
+    /// 【撤销名单】登出时把 jti 拉黑，TTL = 令牌剩余有效期。
+    ///
+    /// 与 [`Self::revoke_jti`]（白名单删除）是**两种模型**，不能混用：
+    /// 白名单要求"jti 必须在 Redis 中存在"，Redis 重启/丢数据会导致全员掉线；
+    /// 撤销名单只记录"被显式登出的 jti"，Redis 不可用时降级为"等令牌自然过期"，
+    /// 不会误伤正常会话。生产默认走撤销名单。
+    pub async fn blacklist_jti(&self, jti: &str, ttl: Duration) -> AppResult<()> {
+        self.cache
+            .set(&Self::blacklist_key(jti), b"1".to_vec(), ttl)
+            .await
+    }
+
+    /// 查询 jti 是否已被显式登出。
+    pub async fn is_jti_revoked(&self, jti: &str) -> AppResult<bool> {
+        self.cache.exists(&Self::blacklist_key(jti)).await
+    }
+
+    fn blacklist_key(jti: &str) -> String {
+        format!("{REVOKED_NS}{jti}")
     }
 
     /// 请求时校验 jti 是否仍然有效（在 Redis 中存在）。

@@ -64,9 +64,13 @@ async fn setup_app() -> Router {
     };
 
     // 受保护路由挂在 jwt_auth 之后。
+    // logout 也必须在内：登出需要知道"撤销谁的 jti"，没有会话就无从撤销。
+    // 此前它和 login 一起挂在公开路由上，与线上 routes.rs 不符，
+    // 并掩盖了"不带令牌也能登出成功"的假阳性。
     let protected = Router::new()
         .route("/auth/refresh", post(refresh))
         .route("/auth/profile", get(get_profile))
+        .route("/auth/logout", post(logout))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             jwt_auth,
@@ -77,7 +81,6 @@ async fn setup_app() -> Router {
             "/api/v1",
             Router::new()
                 .route("/auth/login", post(login))
-                .route("/auth/logout", post(logout))
                 .route("/auth/csrf", get(get_csrf_token))
                 .merge(protected),
         )
@@ -293,14 +296,22 @@ async fn csrf_allows_bearer_client_and_matching_pair() {
 #[tokio::test]
 async fn logout_clears_cookies_and_message() {
     let mut app = setup_app().await;
-    let (_, _, _) = do_login(&mut app).await;
+    let (_, _, set_cookies) = do_login(&mut app).await;
+    let access = cookie_from_set_cookies(&set_cookies, "access_token").unwrap();
+    let csrf = cookie_from_set_cookies(&set_cookies, "csrf_token").unwrap();
 
+    // 真实链路：带会话 Cookie + CSRF 双提交头（与浏览器一致）。
     let resp = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/auth/logout")
+                .header(
+                    header::COOKIE,
+                    format!("access_token={access}; csrf_token={csrf}"),
+                )
+                .header("X-CSRF-Token", csrf)
                 .body(Body::empty())
                 .unwrap(),
         )

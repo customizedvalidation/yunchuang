@@ -57,16 +57,39 @@
 
 以下中间件需提前部署并可从 `metaclouds` 命名空间访问：
 
-| 中间件 | 版本 | 预期 Service DNS | 端口 |
-|---|---|---|---|
-| PostgreSQL | 16 | `postgresql.metaclouds.svc.cluster.local` | 5432 |
-| Redis | 7 | `redis.metaclouds.svc.cluster.local` | 6379 |
+| 中间件 | 版本 | 预期 Service DNS | 端口 | 本仓库是否已提供清单 |
+|---|---|---|---|---|
+| PostgreSQL | 16 | `postgresql.metaclouds.svc.cluster.local` | 5432 | ✅ `k8s/17-postgresql.yaml`（单副本，当前阶段预置待切） |
+| Redis | 7 | `redis.metaclouds.svc.cluster.local` | 6379 | ✅ `k8s/18-redis.yaml`（已投入使用：JWT 撤销名单） |
 | etcd | 3.5+ | `etcd.metaclouds.svc.cluster.local` | 2379 |
 | Prometheus | 2.45+ | `prometheus.monitoring.svc.cluster.local` | 9090 |
 | Grafana | 10+ | `grafana.monitoring.svc.cluster.local` | 3000 |
 | Jaeger | 1.45+ | `jaeger-collector.monitoring.svc.cluster.local` | 14268 |
 
 > 若中间件部署在不同命名空间或使用不同 Service 名称，需同步修改 `01-configmap.yaml` 中的对应地址。
+
+### 1.2.1 ⚠️ 数据库后端当前阶段：SQLite + PVC 单副本
+
+后端请求层目前仍是 **SQLite 方言**（`?N` 占位符 + `last_insert_rowid()`），`main.rs`
+在 Postgres 模式下会 fail-closed 退出，多副本又会并发写同一个 db 文件。因此：
+
+- `01-configmap.yaml`：`USE_SQLITE=true`、`DATABASE_URL=sqlite:///app/data/metaclouds.db`
+- `05-deployment.yaml`：`replicas: 1`、`strategy: Recreate`
+- `07-hpa.yaml`：`minReplicas: maxReplicas: 1`
+- `08-pdb.yaml`：`maxUnavailable: 1`
+- `19-backend-data-pvc.yaml`：后端数据盘（RWO，10Gi）
+
+**切到 PostgreSQL 的完整动作**（请求层方言移植完成后，清单已就绪，无需再补资源）：
+
+```bash
+# 1) ConfigMap：改开关 + 删掉 DATABASE_URL 行（改由 Secret 注入）
+#    USE_SQLITE: "true" → "false"
+# 2) Deployment：DATABASE_URL 改回 secretKeyRef（05-deployment.yaml 里有现成注释块）
+#    replicas 1 → 3，strategy Recreate → RollingUpdate
+# 3) HPA 1/1 → 2/10；PDB maxUnavailable: 1 → minAvailable: 2
+# 4) 删除 19-backend-data-pvc.yaml，并从 13-kustomization.yaml 移除
+# 5) Secret 的 database-url 指向 postgresql.metaclouds.svc.cluster.local（见 §2.2）
+```
 
 ### 1.3 镜像仓库
 
@@ -111,8 +134,19 @@ kubectl -n metaclouds create secret generic metaclouds-secrets \
   --from-literal=jwt-secret="$(openssl rand -base64 48)" \
   --from-literal=database-url="postgresql://metaclouds_user:$(openssl rand -base64 24 | tr -d '/+=')@postgresql.metaclouds.svc.cluster.local:5432/metaclouds?sslmode=require" \
   --from-literal=redis-password="$(openssl rand -base64 24)" \
-  --from-literal=default-admin-password="$(openssl rand -base64 18 | tr -d '/+=')"
+  --from-literal=default-admin-password="$(openssl rand -base64 18 | tr -d '/+=')" \
+  --from-literal=postgres-password="$(openssl rand -base64 24 | tr -d '/+=')" \
+  --from-literal=protected-endpoints-token="$(openssl rand -base64 32 | tr -d '/+=')"
 ```
+
+> **两个新增键的用途**：
+> - `postgres-password`：`k8s/17-postgresql.yaml` 的 `POSTGRES_PASSWORD`；切库后也是 `database-url` 里的口令。
+> - `protected-endpoints-token`：`SERVER_ENV=production` 时 `/metrics` 与 `/swagger-ui` 的 Bearer /
+>   `X-Api-Token`（见 §12.7）。集群内 Prometheus 若在 `METRICS_TRUSTED_CIDRS` 内可不带令牌；
+>   集群外抓取、`kubectl port-forward` 之外的访问必须带。
+>
+> **CI 门禁**：`.github/workflows/ci-cd.yml` 的 "Guard - reject placeholder secrets" 会在
+> `kubectl apply` 之前 base64 解码本 Secret 的所有键，任一值含 `CHANGEME` 即让部署失败。
 
 > **Windows PowerShell 替代命令**（无 openssl 时）：
 > ```powershell
@@ -132,7 +166,9 @@ kubectl -n metaclouds create secret generic metaclouds-secrets \
 ```bash
 # 确认 Secret 存在且包含所有键
 kubectl -n metaclouds get secret metaclouds-secrets -o jsonpath='{.data}' | jq keys
-# 预期输出：["database-url", "default-admin-password", "jwt-secret", "redis-password"]
+# 预期输出（6 个键）：
+# ["database-url", "default-admin-password", "jwt-secret",
+#  "postgres-password", "protected-endpoints-token", "redis-password"]
 
 # 确认 jwt-secret 长度 ≥ 32 字节（config.Validate 强制）
 kubectl -n metaclouds get secret metaclouds-secrets -o jsonpath='{.data.jwt-secret}' | base64 -d | wc -c
@@ -156,15 +192,21 @@ kubeseal --controller-name=sealed-secrets --controller-namespace=kube-system \
 
 ### 3.1 初始化数据库
 
-初始化 SQL 位于仓库根目录 `D:\YCYD\init.sql`，包含建库、建用户、初始 schema。
+> ⚠️ **建表路径已收敛（2026-10-02）**：仓库根目录的 `init.sql` 已删除。
+> 它与 sqlx 迁移是两套 schema 且字段冲突（`users.password` vs `users.password_hash`
+> / `id SERIAL` vs `BIGSERIAL`），若先由它建表，`CREATE TABLE IF NOT EXISTS` 会让
+> 迁移空转，后端运行期报 `column password_hash does not exist`。
+> **唯一建表路径是 sqlx 迁移**（见 3.2），运维只需确保库与账号存在。
 
 ```bash
-# 方式 1：通过 PostgreSQL Pod 执行
-kubectl -n metaclouds exec -it <postgresql-pod> -- psql -U postgres -f /tmp/init.sql
+# 仅创建库与账号，不要手动建表（表由后端启动时自动迁移创建）
+kubectl -n metaclouds exec -it <postgresql-pod> -- \
+  psql -U postgres -c "CREATE USER metaclouds_user WITH PASSWORD '<from-secret>';" \
+  -c "CREATE DATABASE metaclouds OWNER metaclouds_user;"
 
-# 方式 2：本地 psql 远程执行（需端口转发）
+# 或本地 psql 远程执行（需端口转发）
 kubectl -n metaclouds port-forward svc/postgresql 5432:5432 &
-psql -h localhost -U postgres -f init.sql
+psql -h localhost -U postgres -c "CREATE DATABASE metaclouds OWNER metaclouds_user;"
 ```
 
 ### 3.2 数据库迁移
@@ -1102,6 +1144,48 @@ kubectl -n metaclouds rollout undo deployment/metaclouds-backend
 
 > **注意**：迁移使用 `IF NOT EXISTS`，可安全重复执行。生产环境建议在低峰期执行，并先备份数据库。
 
+### 12.7 生产加固项（2026-10-02 新增）
+
+以下 6 项此前只在代码里存在开关/半成品，从未在生产路径上真正生效。现在已接线，
+部署时需按表配置：
+
+| # | 加固项 | 环境变量 | 行为 |
+|---|---|---|---|
+| 1 | 请求体上限 | `MAX_REQUEST_BODY_SIZE`（默认 10 MiB） | 超过即 `413`；配成 ≤0 回落默认，**不会退化成不限** |
+| 2 | CORS 白名单 | `ALLOWED_ORIGINS`（逗号分隔） | 显式列表生效；未配置时生产**不回**任何 CORS 头（等价拒绝跨源），开发环境放行 |
+| 3 | XFF 可信代理 | `TRUSTED_PROXIES`（IP 或 CIDR，逗号分隔） | 只有直连对端在列表内才采信 `X-Forwarded-For`；否则用直连 IP。限流与审计日志同时生效 |
+| 4 | 运维端点鉴权 | `PROTECTED_ENDPOINTS_TOKEN` + `METRICS_TRUSTED_CIDRS` | `SERVER_ENV=production` 时 `/metrics`、`/swagger-ui`、`/api-docs` 需 Bearer/`X-Api-Token`，或来源落在可信网段；两者都没有 → `503`（失败关闭，绝不静默放行） |
+| 5 | Redis 令牌撤销 | `REDIS_ENABLED=true` + `REDIS_HOST/PORT/PASSWORD` | 登出把 `jti` 写入 `metaclouds:revoked:<jti>`（TTL = 令牌剩余寿命），`jwt_auth` 每次请求校验；Redis 不可用自动降级为"等令牌自然过期" |
+| 6 | cron 调度器 | `SCHEDULER_ENABLED` | 进程启动时注册并启动 tokio-cron-scheduler，优雅关闭时 `shutdown()`；此前调度器只在单测里被构造，生产从没跑过 |
+
+Prometheus 抓取 `/metrics` 的两种写法（二选一）：
+
+```yaml
+# 方式 A：Prometheus 与后端同网段（METRICS_TRUSTED_CIDRS 内），无需令牌
+scrape_configs:
+  - job_name: metaclouds-backend
+    static_configs:
+      - targets: ["postgresql无关，填 backend service:8000"]
+
+# 方式 B：跨网段抓取，必须带令牌
+scrape_configs:
+  - job_name: metaclouds-backend
+    authorization:
+      type: Bearer
+      credentials: <PROTECTED_ENDPOINTS_TOKEN>
+```
+
+本地查看 Swagger：
+
+```bash
+# 生产环境不能直接裸奔 /swagger-ui，用 port-forward（来源 127.0.0.1）
+kubectl -n metaclouds port-forward svc/metaclouds-backend 8000:8000
+# 若 127.0.0.1 不在 METRICS_TRUSTED_CIDRS 内，加令牌：
+curl -H "Authorization: Bearer $(kubectl -n metaclouds get secret metaclouds-secrets \
+  -o jsonpath='{.data.protected-endpoints-token}' | base64 -d)" \
+  http://127.0.0.1:8000/api-docs/openapi.json
+```
+
 ---
 
 ## 附录 A：快速命令速查
@@ -1135,13 +1219,22 @@ kubectl -n metaclouds exec <backend-pod> -- env | grep -E "SERVER_|DATABASE_|RED
 |---|---|---|
 | `SERVER_ENV` | `production` | ConfigMap |
 | `JWT_SECRET` | ≥ 32 字符 | Secret |
-| `USE_SQLITE` | `false` | ConfigMap |
+| `USE_SQLITE` | 当前阶段 `true`（SQLite + PVC 单副本，见 §1.2.1）；切 PG 后改 `false` | ConfigMap |
 | `MEMORY_STORE_ENABLED` | `false` | ConfigMap |
-| `DATABASE_SSL_MODE` | 非 `disable`（如 `require`） | ConfigMap |
+| `DATABASE_SSL_MODE` | 切 PG 后必须非 `disable`（如 `require`）；SQLite 阶段不生效 | ConfigMap |
 | `ALLOWED_ORIGINS` | 非空且不含 `*` | ConfigMap |
 | `ALLOW_PUBLIC_REGISTRATION` | `false` | ConfigMap |
 | `COOKIE_SAME_SITE=none` | 需 `SERVER_ENV=production` | ConfigMap |
 
+补充（2026-10-02 新增，见 §12.7）：
+
+| 变量 | 要求 | 配置位置 |
+|---|---|---|
+| `TRUSTED_PROXIES` | 反向代理/Ingress 所在网段，CIDR 或 IP，逗号分隔 | ConfigMap |
+| `METRICS_TRUSTED_CIDRS` | 允许免令牌抓取 `/metrics` 的网段 | ConfigMap |
+| `PROTECTED_ENDPOINTS_TOKEN` | 强随机串；CI 会拒绝含 `CHANGEME` 的占位值 | Secret |
+| `MAX_REQUEST_BODY_SIZE` | 业务最大值（默认 10485760） | ConfigMap |
+
 ---
 
-*本文档由 Metaclouds 团队维护，最后更新：2026-09-09*
+*本文档由 Metaclouds 团队维护，最后更新：2026-10-02*

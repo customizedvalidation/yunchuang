@@ -10,6 +10,7 @@ use validator::Validate;
 
 use crate::auth::middleware::AppState;
 use crate::auth::Claims;
+use crate::authz::{tenant_filter, tenant_for_write};
 use crate::error::AppResult;
 use crate::models::dataset::DatasetResponse;
 use crate::orm::PaginationParams;
@@ -72,15 +73,21 @@ pub struct UpdateDatasetRequest {
 #[utoipa::path(get,path="/api/v1/datasets",tag="datasets",responses((status=200,description="datasets",body=Vec<crate::models::dataset::DatasetResponse>),(status=401,description="unauthorized",body=crate::openapi::ErrorResponse),(status=403,description="forbidden",body=crate::openapi::ErrorResponse)),security(("bearer_auth"=[])))]
 pub async fn list_datasets(
     State(state): State<AppState>,
+    claims: Claims,
     Query(q): Query<DatasetListQuery>,
 ) -> AppResult<Json<ApiResponse<Vec<DatasetResponse>>>> {
     let page = q.page.unwrap_or(1) as i64;
     let page_size = q.page_size.unwrap_or(10) as i64;
     let params = PaginationParams::new(page, page_size);
 
-    let res =
-        dataset_service::list_datasets(&state.pool, params, q.tenant_id, q.dataset_type.as_deref())
-            .await?;
+    // 多租户隔离：非管理员强制只看本租户（忽略 ?tenant_id=）
+    let res = dataset_service::list_datasets(
+        &state.pool,
+        params,
+        tenant_filter(&claims, q.tenant_id),
+        q.dataset_type.as_deref(),
+    )
+    .await?;
     Ok(Json(ApiResponse::success(res.data)))
 }
 
@@ -109,7 +116,8 @@ pub async fn create_dataset(
         source_path: body.source_path.unwrap_or_default(),
         format: body.format.unwrap_or_default(),
         size_bytes: body.size_bytes.unwrap_or(0),
-        tenant_id: body.tenant_id.unwrap_or(claims.tenant_id as i64),
+        // 多租户隔离：非管理员不能把资源挂到别的租户名下
+        tenant_id: tenant_for_write(&claims, body.tenant_id),
         created_by: claims.user_id as i64,
         status: body.status,
         labels: body.labels.unwrap_or(serde_json::json!({})),

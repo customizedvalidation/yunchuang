@@ -23,14 +23,30 @@ data:
   SERVER_ENV: "production"
 
   # ---- CORS ----
+  # 生产环境必须显式列出前端来源；留空 = 不回任何 CORS 头（等价拒绝跨源）。
   ALLOWED_ORIGINS: "https://app.metaclouds.example.com"
+  # 只有直连对端在这些网段内时，才采信 X-Forwarded-For（否则限流可被伪造头绕过）
   TRUSTED_PROXIES: "10.0.0.0/8"
+  # /metrics 与 /swagger-ui 的生产访问白名单（未命中则需 PROTECTED_ENDPOINTS_TOKEN）。
+  # 与 TRUSTED_PROXIES 一致即可让集群内 Prometheus 与 kubectl port-forward 直连抓取。
+  METRICS_TRUSTED_CIDRS: "10.0.0.0/8"
 
-  # ---- 数据库（PostgreSQL）----
-  # Rust 端使用 DATABASE_URL 连接串；密码从 Secret 注入（见下方 stringData 注释）
-  # 完整连接串在 02-secret.yaml 中以 DATABASE_URL 形式提供（含密码）
-  USE_SQLITE: "false"
+  # ---- 数据库 ----
+  # ⚠️ 当前阶段：SQLite + PVC 单副本（19-backend-data-pvc.yaml）。
+  #    原因：请求层仍是 SQLite 方言（`?N` 占位符 + last_insert_rowid），
+  #    main.rs 在 Postgres 模式下会 fail-closed 直接退出，多副本又会并发写
+  #    同一个 db 文件。PostgreSQL 工作负载已在 17-postgresql.yaml 就绪。
+  #
+  #    切到 PostgreSQL 的完整动作（方言迁移完成后）：
+  #      1. USE_SQLITE: "true"            → "false"
+  #      2. 删掉 DATABASE_URL 这一行（改由 02-secret.yaml 的 database-url 注入，见 05-deployment.yaml 注释）
+  #      3. 05-deployment.yaml replicas 1→3、strategy Recreate→RollingUpdate、
+  #         07-hpa.yaml 1/1→2/10、08-pdb.yaml maxUnavailable→minAvailable: 2，
+  #         并删除 19-backend-data-pvc.yaml
+  USE_SQLITE: "true"
   MEMORY_STORE_ENABLED: "false"
+  DATABASE_URL: "sqlite:///app/data/metaclouds.db"
+  # 以下 PostgreSQL 参数在 SQLite 阶段不生效，切库时直接启用（与 17-postgresql.yaml 对齐）
   DATABASE_HOST: "postgresql.metaclouds.svc.cluster.local"
   DATABASE_PORT: "5432"
   DATABASE_NAME: "metaclouds"
