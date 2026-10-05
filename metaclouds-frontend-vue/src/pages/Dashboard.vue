@@ -107,10 +107,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import * as echarts from 'echarts'
 import { Refresh, Coin, Cloudy, Timer, Bell, UserFilled, Grid, Operation } from '@element-plus/icons-vue'
 import PageState from '@/components/PageState.vue'
-import { registerMcLightTheme, palette } from '@/theme/echarts'
+// 经 @/theme/echarts 统一入口引入（已按需 use() 注册，勿直接引 'echarts' 全量包）
+import { registerMcLightTheme, palette, echarts } from '@/theme/echarts'
+import type { ECharts } from 'echarts/core'
 import { colorTokens } from '@/theme/tokens'
 
 // 注册 MDS 图表主题（幂等）；所有 ECharts 实例统一使用 'mc-light'。
@@ -368,9 +369,9 @@ const vendorOption = computed(() => pieOption(gpuVendorData.value, '{b}: {c} 张
 const resourceChartRef = ref<HTMLElement>()
 const jobChartRef = ref<HTMLElement>()
 const vendorChartRef = ref<HTMLElement>()
-let resourceChart: echarts.ECharts | null = null
-let jobChart: echarts.ECharts | null = null
-let vendorChart: echarts.ECharts | null = null
+let resourceChart: ECharts | null = null
+let jobChart: ECharts | null = null
+let vendorChart: ECharts | null = null
 
 let resizeObserver: ResizeObserver | null = null
 

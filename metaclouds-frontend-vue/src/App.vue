@@ -1,9 +1,13 @@
 <template>
-  <router-view />
+  <!-- 按需注册后语言包经 ConfigProvider 注入（原全量 install 的 locale 选项） -->
+  <el-config-provider :locale="zhCn">
+    <router-view />
+  </el-config-provider>
 </template>
 
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()

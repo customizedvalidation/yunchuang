@@ -392,7 +392,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { ElMessageBox } from 'element-plus/es/components/message-box/index'
+import type { FormInstance, FormRules } from 'element-plus'
 import { jobApi, partitionApi, checkpointApi } from '@/api'
 import type { Job, JobStatus, JobType, JobPriority, GPUVendor, Checkpoint, Partition } from '@/types'
 import { useFetch, useMutation } from '@/utils/useFetch'

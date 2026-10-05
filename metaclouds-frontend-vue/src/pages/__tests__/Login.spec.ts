@@ -12,10 +12,12 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ElMessage } from 'element-plus'
 
-// mock 路由
+// mock 路由：Login.vue 同时用到 useRouter（跳转）与 useRoute（读 redirect 回跳参数），
+// 两个都必须 mock，缺 useRoute 会在组件 setup 阶段直接抛错。
 const push = vi.fn()
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push }),
+  useRoute: () => ({ query: {} }),
 }))
 
 // mock API

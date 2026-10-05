@@ -163,14 +163,13 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
 import {
   OfficeBuilding, Monitor, Cpu, Bell, Refresh,
 } from '@element-plus/icons-vue'
-import * as echarts from 'echarts/core'
-import { LineChart, BarChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+// 经 @/theme/echarts 统一入口引入（已按需 use() 注册，勿直接引 'echarts' 全量包）
+import { echarts } from '@/theme/echarts'
+import type { ECharts } from 'echarts/core'
 import { monitoringApi } from '@/api'
 import { toUserMessage } from '@/utils/error'
 import type { Alert, AlertLevel, AlertStatus, MetricsOverview } from '@/types'
@@ -178,8 +177,6 @@ import { useFetch } from '@/utils/useFetch'
 import { colorTokens } from '@/theme/tokens'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
-
-echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const TIME_POINTS = ['00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00']
 
@@ -316,8 +313,8 @@ function statusText(s?: string) {
 // ---------- ECharts ----------
 const trendChartRef = ref<HTMLDivElement>()
 const throughputChartRef = ref<HTMLDivElement>()
-let trendChart: echarts.ECharts | null = null
-let throughputChart: echarts.ECharts | null = null
+let trendChart: ECharts | null = null
+let throughputChart: ECharts | null = null
 
 /** 确定性生成趋势，避免每次渲染跳变 */
 function buildTrend(base: number, amp: number, seed: number): number[] {

@@ -131,7 +131,8 @@
 <script setup lang="ts">
 import { onUnmounted, reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import type { FormInstance, FormRules } from 'element-plus'
 import { User, Lock, Promotion, Connection, Lightning } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 

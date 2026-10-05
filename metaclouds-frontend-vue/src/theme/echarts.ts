@@ -17,10 +17,32 @@
  *
  * 【FORCE-SYNC】颜色取值须与 tokens.ts / index.css `:root` 保持同步。
  * 不新增 npm 依赖（echarts 已在 dependencies）。
+ *
+ * 【按需引入】本模块是全项目唯一的 echarts 入口：
+ *   - 从 `echarts/core` 引入并集中 `use()` 注册本项目用到的图表与组件；
+ *   - 全量 `import 'echarts'` 约 1 MB（gzip 343 KB），按需后仅打包
+ *     饼图/折线/柱状 + 基础组件，业务页请 `import { echarts } from '@/theme/echarts'`，
+ *     不要直接从 'echarts' 或 'echarts/core' 引入（会绕过注册或重复打包）。
  * ============================================================
  */
-import * as echarts from 'echarts';
+import * as echarts from 'echarts/core'
+import { PieChart, LineChart, BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { chartPalette, colorTokens, layoutTokens } from './tokens';
+
+// 按需注册当前全部页面用到的图表类型 / 组件 / 渲染器（幂等，可安全多次调用）。
+echarts.use([
+  PieChart,
+  LineChart,
+  BarChart,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  CanvasRenderer,
+])
+
+export { echarts }
 
 /** ECharts 系列取色板（导出供业务 option 直接引用，保证与主题一致） */
 export const palette = chartPalette;
