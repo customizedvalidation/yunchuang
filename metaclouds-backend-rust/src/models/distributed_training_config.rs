@@ -5,10 +5,10 @@
 //! memory_per_worker_gb(i32) / entrypoint / env_vars(JSON TEXT) /
 //! tenant_id(FK) / created_by(FK) / status / created_at / updated_at / deleted_at。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -114,7 +114,7 @@ pub struct NewDistributedTrainingConfig<'a> {
 
 /// INSERT。
 pub async fn create(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: NewDistributedTrainingConfig<'_>,
 ) -> AppResult<DistributedTrainingConfig> {
     let mut cfg = DistributedTrainingConfig {
@@ -137,30 +137,30 @@ pub async fn create(
     };
     cfg.before_insert();
 
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO distributed_training_configs (created_at, updated_at, name, description, \
          framework, worker_replicas, gpu_per_worker, cpu_per_worker, memory_per_worker_gb, \
          entrypoint, env_vars, tenant_id, created_by, status) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-    )
-    .bind(cfg.created_at)
-    .bind(cfg.updated_at)
-    .bind(&cfg.name)
-    .bind(&cfg.description)
-    .bind(&cfg.framework)
-    .bind(cfg.worker_replicas)
-    .bind(cfg.gpu_per_worker)
-    .bind(cfg.cpu_per_worker)
-    .bind(cfg.memory_per_worker_gb)
-    .bind(&cfg.entrypoint)
-    .bind(&cfg.env_vars)
-    .bind(cfg.tenant_id)
-    .bind(cfg.created_by)
-    .bind(&cfg.status)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(cfg.created_at)
+            .bind(cfg.updated_at)
+            .bind(&cfg.name)
+            .bind(&cfg.description)
+            .bind(&cfg.framework)
+            .bind(cfg.worker_replicas)
+            .bind(cfg.gpu_per_worker)
+            .bind(cfg.cpu_per_worker)
+            .bind(cfg.memory_per_worker_gb)
+            .bind(&cfg.entrypoint)
+            .bind(&cfg.env_vars)
+            .bind(cfg.tenant_id)
+            .bind(cfg.created_by)
+            .bind(&cfg.status)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted training config not found"))
@@ -168,7 +168,7 @@ pub async fn create(
 
 /// 按 id 查询。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<DistributedTrainingConfig>> {
@@ -177,12 +177,17 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM distributed_training_configs WHERE id = ?1 AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 分页列表（可按 tenant_id 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     tenant_id: Option<i64>,
 ) -> AppResult<PaginatedResult<DistributedTrainingConfig>> {
@@ -197,29 +202,42 @@ pub async fn list(
         "SELECT * FROM distributed_training_configs WHERE {sql_where} ORDER BY id ASC LIMIT ? OFFSET ?"
     );
 
-    let mut query_count = sqlx::query_scalar::<_, i64>(&count_sql);
-    let mut query_list = sqlx::query_as::<_, DistributedTrainingConfig>(&list_sql);
-
-    if let Some(tid) = tenant_id {
-        query_count = query_count.bind(tid);
-        query_list = query_list.bind(tid);
-    }
-    query_list = query_list.bind(params.limit()).bind(params.offset());
-
-    let total: i64 = query_count.fetch_one(pool).await?;
-    let rows: Vec<DistributedTrainingConfig> = query_list.fetch_all(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut sc = crate::db::query_scalar_db(db_e, db_s);
+        if let Some(tid) = tenant_id {
+            sc = sc.bind(tid);
+        }
+        sc.fetch_one(db_e).await?
+    });
+    let rows: Vec<DistributedTrainingConfig> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut sc = crate::db::query_as_db(db_e, db_s);
+        if let Some(tid) = tenant_id {
+            sc = sc.bind(tid);
+        }
+        sc.bind(params.limit())
+            .bind(params.offset())
+            .fetch_all(db_e)
+            .await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("distributed_training_configs"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(
+        pool,
+        &soft_delete_update_sql("distributed_training_configs"),
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(now)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    Ok(res > 0)
 }

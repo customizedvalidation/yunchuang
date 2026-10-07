@@ -6,10 +6,10 @@
 //!
 //! `deleted_at` 在对外视图中剔除（对齐 GORM `gorm.DeletedAt` + `json:"-"`）。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -135,13 +135,11 @@ pub struct NewPartition {
 }
 
 /// INSERT 分区（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewPartition) -> AppResult<Partition> {
+pub async fn create(pool: &DatabasePool, input: NewPartition) -> AppResult<Partition> {
     let now = Utc::now();
-    let res = sqlx::query(
-        "INSERT INTO partitions (created_at, updated_at, cluster_id, name, description, \
+    let res = crate::insert_id!(pool, "INSERT INTO partitions (created_at, updated_at, cluster_id, name, description, \
          partition_type, gpu_count, cpu_cores, memory_gb, status, node_selector, labels, tenant_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-    )
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)", |q| q
     .bind(now)
     .bind(now)
     .bind(input.cluster_id)
@@ -155,10 +153,9 @@ pub async fn create(pool: &SqlitePool, input: NewPartition) -> AppResult<Partiti
     .bind(Json(input.node_selector))
     .bind(Json(input.labels))
     .bind(input.tenant_id)
-    .execute(pool)
-    .await?;
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted partition not found"))
@@ -166,7 +163,7 @@ pub async fn create(pool: &SqlitePool, input: NewPartition) -> AppResult<Partiti
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Partition>> {
@@ -175,25 +172,33 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM partitions WHERE id = ?1 AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("partitions"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(pool, &soft_delete_update_sql("partitions"), |db_s, db_e| {
+        sqlx::query(db_s)
+            .bind(now)
+            .bind(now)
+            .bind(id)
+            .execute(db_e)
+            .await?
+            .rows_affected()
+    });
+    Ok(res > 0)
 }
 
 /// 分页列表（动态 WHERE：软删除 + 可选 cluster_id / status / partition_type / name LIKE）。
 #[allow(clippy::too_many_arguments)]
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     cluster_id: Option<i64>,
     status: Option<&str>,
@@ -232,20 +237,24 @@ pub async fn list(
     }
 
     let count_sql = format!("SELECT COUNT(*) FROM partitions WHERE {where_clause}");
-    let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
-    for b in &filter_binds {
-        count_q = count_q.bind(b);
-    }
-    let total: i64 = count_q.fetch_one(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut count_q = crate::db::query_scalar_db(db_e, db_s);
+        for b in &filter_binds {
+            count_q = count_q.bind(b);
+        }
+        count_q.fetch_one(db_e).await?
+    });
 
     let list_sql =
         format!("SELECT * FROM partitions WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?");
-    let mut list_q = sqlx::query_as::<_, Partition>(&list_sql);
-    for b in &filter_binds {
-        list_q = list_q.bind(b);
-    }
-    list_q = list_q.bind(params.limit()).bind(params.offset());
-    let rows: Vec<Partition> = list_q.fetch_all(pool).await?;
+    let rows: Vec<Partition> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut list_q = crate::db::query_as_db(db_e, db_s);
+        for b in &filter_binds {
+            list_q = list_q.bind(b);
+        }
+        list_q = list_q.bind(params.limit()).bind(params.offset());
+        list_q.fetch_all(db_e).await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }

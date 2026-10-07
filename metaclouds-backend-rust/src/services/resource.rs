@@ -3,7 +3,7 @@
 //! CRUD + 分页 + 按 type/cluster_id 过滤 + name 搜索 + 软删除。
 //! handler 只做参数提取与响应封装，所有 DB 操作在本层。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::resource::{self, NewResource, Resource, ResourceResponse};
@@ -42,7 +42,7 @@ pub struct UpdateResourceInput {
 
 /// 创建资源。
 pub async fn create_resource(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreateResourceInput,
 ) -> AppResult<ResourceResponse> {
     let resource = resource::create(
@@ -70,7 +70,7 @@ pub async fn create_resource(
 }
 
 /// 资源详情（404 若不存在或已软删除）。
-pub async fn get_resource(pool: &SqlitePool, id: i64) -> AppResult<ResourceResponse> {
+pub async fn get_resource(pool: &DatabasePool, id: i64) -> AppResult<ResourceResponse> {
     let resource = resource::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("resource not found"))?;
@@ -79,7 +79,7 @@ pub async fn get_resource(pool: &SqlitePool, id: i64) -> AppResult<ResourceRespo
 
 /// 分页资源列表（可按 type / cluster_id 过滤，按 name 搜索）。
 pub async fn list_resources(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     kind: Option<&str>,
     cluster_id: Option<i64>,
@@ -98,7 +98,7 @@ pub async fn list_resources(
 
 /// 更新资源：仅覆盖传入字段，自动刷 updated_at。
 pub async fn update_resource(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateResourceInput,
 ) -> AppResult<ResourceResponse> {
@@ -107,7 +107,8 @@ pub async fn update_resource(
         .ok_or_else(|| AppError::not_found("resource not found"))?;
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE resources SET \
             status = COALESCE(?1, status), \
             total = COALESCE(?2, total), \
@@ -117,17 +118,21 @@ pub async fn update_resource(
             details = COALESCE(?6, details), \
             updated_at = ?7 \
          WHERE id = ?8 AND deleted_at IS NULL",
-    )
-    .bind(&input.status)
-    .bind(input.total)
-    .bind(input.used)
-    .bind(input.available)
-    .bind(input.utilization)
-    .bind(&input.details)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(&input.status)
+                .bind(input.total)
+                .bind(input.used)
+                .bind(input.available)
+                .bind(input.utilization)
+                .bind(&input.details)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let resource = resource::get_by_id(pool, id, false)
         .await?
@@ -136,7 +141,7 @@ pub async fn update_resource(
 }
 
 /// 软删除资源（404 若不存在或已软删除）。
-pub async fn delete_resource(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_resource(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = resource::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("resource not found"));

@@ -7,7 +7,7 @@
 //! 提供 [`MockSchedulerAdapter`] 返回确定性模拟结果（对齐 Go `services/scheduler_adapter.go`
 //! 的 Slurm/K8sNative/Generic mock 模式，本工作包不引入真实调度器依赖）。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::scheduler_integration::{
@@ -122,20 +122,17 @@ pub struct UpdateSchedulerInput {
 }
 
 /// 按名称检查是否已存在未删除的调度器集成。
-async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<bool> {
-    let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM scheduler_integrations WHERE name = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1",
-    )
+async fn name_taken(pool: &DatabasePool, name: &str, except_id: i64) -> AppResult<bool> {
+    let exists: Option<i64> = crate::with_db!(pool, "SELECT id FROM scheduler_integrations WHERE name = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1", |db_s, db_e| { crate::db::query_scalar_db(db_e, db_s)
     .bind(name)
     .bind(except_id)
-    .fetch_optional(pool)
-    .await?;
+    .fetch_optional(db_e).await? });
     Ok(exists.is_some())
 }
 
 /// 创建调度器集成（status 默认 disconnected，auth_type 默认 none）。
 pub async fn create_scheduler(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreateSchedulerInput,
 ) -> AppResult<SchedulerIntegrationResponse> {
     if name_taken(pool, &input.name, 0).await? {
@@ -171,7 +168,10 @@ pub async fn create_scheduler(
 }
 
 /// 调度器集成详情（404 若不存在或已软删除）。
-pub async fn get_scheduler(pool: &SqlitePool, id: i64) -> AppResult<SchedulerIntegrationResponse> {
+pub async fn get_scheduler(
+    pool: &DatabasePool,
+    id: i64,
+) -> AppResult<SchedulerIntegrationResponse> {
     let s = scheduler_integration::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("scheduler integration not found"))?;
@@ -180,7 +180,7 @@ pub async fn get_scheduler(pool: &SqlitePool, id: i64) -> AppResult<SchedulerInt
 
 /// 分页调度器列表（按 cluster_id/status/scheduler_type 过滤；排除软删除）。
 pub async fn list_schedulers(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     cluster_id: Option<i64>,
     status: Option<&str>,
@@ -202,7 +202,7 @@ pub async fn list_schedulers(
 
 /// 更新调度器集成：仅覆盖传入字段；重名校验；自动刷 updated_at。
 pub async fn update_scheduler(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateSchedulerInput,
 ) -> AppResult<SchedulerIntegrationResponse> {
@@ -219,7 +219,8 @@ pub async fn update_scheduler(
     }
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE scheduler_integrations SET \
             name = COALESCE(?1, name), \
             description = COALESCE(?2, description), \
@@ -232,20 +233,24 @@ pub async fn update_scheduler(
             config = COALESCE(?9, config), \
             updated_at = ?10 \
          WHERE id = ?11 AND deleted_at IS NULL",
-    )
-    .bind(&input.name)
-    .bind(&input.description)
-    .bind(&input.scheduler_type)
-    .bind(&input.endpoint)
-    .bind(&input.auth_type)
-    .bind(input.credentials.map(crate::orm::Json))
-    .bind(&input.status)
-    .bind(&input.version)
-    .bind(input.config.map(crate::orm::Json))
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(&input.name)
+                .bind(&input.description)
+                .bind(&input.scheduler_type)
+                .bind(&input.endpoint)
+                .bind(&input.auth_type)
+                .bind(input.credentials.map(crate::orm::Json))
+                .bind(&input.status)
+                .bind(&input.version)
+                .bind(input.config.map(crate::orm::Json))
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
     let _ = existing;
 
     let s = scheduler_integration::get_by_id(pool, id, false)
@@ -255,7 +260,7 @@ pub async fn update_scheduler(
 }
 
 /// 软删除调度器集成（404 若不存在或已软删除）。
-pub async fn delete_scheduler(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_scheduler(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = scheduler_integration::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("scheduler integration not found"));
@@ -265,7 +270,7 @@ pub async fn delete_scheduler(pool: &SqlitePool, id: i64) -> AppResult<()> {
 
 /// 测试连接（mock）：用 [`MockSchedulerAdapter`] 探测，返回 status + latency_ms，
 /// 并把调度器 status 刷新为探测结果。
-pub async fn test_connection(pool: &SqlitePool, id: i64) -> AppResult<ConnectionTest> {
+pub async fn test_connection(pool: &DatabasePool, id: i64) -> AppResult<ConnectionTest> {
     let s = scheduler_integration::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("scheduler integration not found"))?;
@@ -275,22 +280,27 @@ pub async fn test_connection(pool: &SqlitePool, id: i64) -> AppResult<Connection
 
     // 把探测到的连接状态回写调度器行。
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE scheduler_integrations SET status = ?1, last_heartbeat = ?2, updated_at = ?3 \
          WHERE id = ?4",
-    )
-    .bind(&result.status)
-    .bind(now)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(&result.status)
+                .bind(now)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     Ok(result)
 }
 
 /// 同步资源（mock）：用 [`MockSchedulerAdapter`] 拉取资源快照，刷新 last_heartbeat。
-pub async fn sync_resources(pool: &SqlitePool, id: i64) -> AppResult<ResourceSync> {
+pub async fn sync_resources(pool: &DatabasePool, id: i64) -> AppResult<ResourceSync> {
     let s = scheduler_integration::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("scheduler integration not found"))?;

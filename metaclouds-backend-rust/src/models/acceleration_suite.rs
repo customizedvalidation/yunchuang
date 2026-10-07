@@ -7,10 +7,10 @@
 //! acceleration_config(JSON TEXT) / tenant_id(FK) / created_by(FK) /
 //! status / created_at / updated_at / deleted_at。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -128,7 +128,7 @@ pub struct NewAccelerationSuite<'a> {
 
 /// INSERT。
 pub async fn create(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: NewAccelerationSuite<'_>,
 ) -> AppResult<AccelerationSuite> {
     let mut suite = AccelerationSuite {
@@ -150,29 +150,29 @@ pub async fn create(
     };
     suite.before_insert();
 
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO acceleration_suites (created_at, updated_at, name, description, suite_type, \
          dataset_id, training_config_id, inference_config_id, fluid_cache_id, acceleration_config, \
          tenant_id, created_by, status) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-    )
-    .bind(suite.created_at)
-    .bind(suite.updated_at)
-    .bind(&suite.name)
-    .bind(&suite.description)
-    .bind(&suite.suite_type)
-    .bind(suite.dataset_id)
-    .bind(suite.training_config_id)
-    .bind(suite.inference_config_id)
-    .bind(suite.fluid_cache_id)
-    .bind(&suite.acceleration_config)
-    .bind(suite.tenant_id)
-    .bind(suite.created_by)
-    .bind(&suite.status)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(suite.created_at)
+            .bind(suite.updated_at)
+            .bind(&suite.name)
+            .bind(&suite.description)
+            .bind(&suite.suite_type)
+            .bind(suite.dataset_id)
+            .bind(suite.training_config_id)
+            .bind(suite.inference_config_id)
+            .bind(suite.fluid_cache_id)
+            .bind(&suite.acceleration_config)
+            .bind(suite.tenant_id)
+            .bind(suite.created_by)
+            .bind(&suite.status)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted acceleration suite not found"))
@@ -180,7 +180,7 @@ pub async fn create(
 
 /// 按 id 查询。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<AccelerationSuite>> {
@@ -189,24 +189,26 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM acceleration_suites WHERE id = ?1 AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 按名称检查是否已存在未删除的 suite。
-pub async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<bool> {
-    let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM acceleration_suites WHERE name = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1",
-    )
+pub async fn name_taken(pool: &DatabasePool, name: &str, except_id: i64) -> AppResult<bool> {
+    let exists: Option<i64> = crate::with_db!(pool, "SELECT id FROM acceleration_suites WHERE name = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1", |db_s, db_e| { crate::db::query_scalar_db(db_e, db_s)
     .bind(name)
     .bind(except_id)
-    .fetch_optional(pool)
-    .await?;
+    .fetch_optional(db_e).await? });
     Ok(exists.is_some())
 }
 
 /// 分页列表（可按 tenant_id / status 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     tenant_id: Option<i64>,
     status: Option<&str>,
@@ -225,33 +227,48 @@ pub async fn list(
         "SELECT * FROM acceleration_suites WHERE {sql_where} ORDER BY id ASC LIMIT ? OFFSET ?"
     );
 
-    let mut query_count = sqlx::query_scalar::<_, i64>(&count_sql);
-    let mut query_list = sqlx::query_as::<_, AccelerationSuite>(&list_sql);
-
-    if let Some(tid) = tenant_id {
-        query_count = query_count.bind(tid);
-        query_list = query_list.bind(tid);
-    }
-    if let Some(st) = status {
-        query_count = query_count.bind(st);
-        query_list = query_list.bind(st);
-    }
-    query_list = query_list.bind(params.limit()).bind(params.offset());
-
-    let total: i64 = query_count.fetch_one(pool).await?;
-    let rows: Vec<AccelerationSuite> = query_list.fetch_all(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut sc = crate::db::query_scalar_db(db_e, db_s);
+        if let Some(tid) = tenant_id {
+            sc = sc.bind(tid);
+        }
+        if let Some(st) = status {
+            sc = sc.bind(st);
+        }
+        sc.fetch_one(db_e).await?
+    });
+    let rows: Vec<AccelerationSuite> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut sc = crate::db::query_as_db(db_e, db_s);
+        if let Some(tid) = tenant_id {
+            sc = sc.bind(tid);
+        }
+        if let Some(st) = status {
+            sc = sc.bind(st);
+        }
+        sc.bind(params.limit())
+            .bind(params.offset())
+            .fetch_all(db_e)
+            .await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("acceleration_suites"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(
+        pool,
+        &soft_delete_update_sql("acceleration_suites"),
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(now)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    Ok(res > 0)
 }

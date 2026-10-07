@@ -92,7 +92,7 @@ async fn connect_pool_resolves_sqlite_from_url_scheme() {
 
 #[tokio::test]
 async fn model_layer_basic_crud_roundtrip() {
-    let pool = memory_pool().await;
+    let pool = DatabasePool::Sqlite(memory_pool().await);
 
     // INSERT（走 user::create，自动时间戳）。
     let created = user::create(

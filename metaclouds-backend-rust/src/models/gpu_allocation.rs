@@ -6,10 +6,10 @@
 //!
 //! 分配记录不对外暴露 `deleted_at`（软删除列保留以对齐 GORM，但业务上直接标记 released）。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::AppResult;
 use crate::orm::{PaginatedResult, PaginationParams};
@@ -79,11 +79,17 @@ impl From<GpuAllocation> for GpuAllocationResponse {
 }
 
 /// 按 id 查询（分配记录不做软删除过滤，按 id 精确取）。
-pub async fn get_by_id(pool: &SqlitePool, id: i64) -> AppResult<Option<GpuAllocation>> {
-    Ok(sqlx::query_as("SELECT * FROM gpu_allocations WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?)
+pub async fn get_by_id(pool: &DatabasePool, id: i64) -> AppResult<Option<GpuAllocation>> {
+    Ok(crate::with_db!(
+        pool,
+        "SELECT * FROM gpu_allocations WHERE id = ?",
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(id)
+                .fetch_optional(db_e)
+                .await?
+        }
+    ))
 }
 
 /// 过滤条件。
@@ -96,7 +102,7 @@ pub struct GpuAllocationFilter<'a> {
 
 /// 分页列表（可按 job_id/user_id/status 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     filter: GpuAllocationFilter<'_>,
 ) -> AppResult<PaginatedResult<GpuAllocation>> {
@@ -126,21 +132,25 @@ pub async fn list(
     }
 
     let count_sql = format!("SELECT COUNT(*) FROM gpu_allocations WHERE {where_clause}");
-    let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
-    for b in &binds {
-        count_q = count_q.bind(b);
-    }
-    let total: i64 = count_q.fetch_one(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut count_q = crate::db::query_scalar_db(db_e, db_s);
+        for b in &binds {
+            count_q = count_q.bind(b);
+        }
+        count_q.fetch_one(db_e).await?
+    });
 
     let list_sql = format!(
         "SELECT * FROM gpu_allocations WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?"
     );
-    let mut list_q = sqlx::query_as::<_, GpuAllocation>(&list_sql);
-    for b in &binds {
-        list_q = list_q.bind(b);
-    }
-    list_q = list_q.bind(params.limit()).bind(params.offset());
-    let rows: Vec<GpuAllocation> = list_q.fetch_all(pool).await?;
+    let rows: Vec<GpuAllocation> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut list_q = crate::db::query_as_db(db_e, db_s);
+        for b in &binds {
+            list_q = list_q.bind(b);
+        }
+        list_q = list_q.bind(params.limit()).bind(params.offset());
+        list_q.fetch_all(db_e).await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }

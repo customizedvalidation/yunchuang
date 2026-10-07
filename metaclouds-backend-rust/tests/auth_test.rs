@@ -15,6 +15,7 @@ use tower_cookies::CookieManagerLayer;
 use metaclouds_backend_rust::auth::csrf::csrf_protect;
 use metaclouds_backend_rust::auth::handler::{get_csrf_token, get_profile, login, logout, refresh};
 use metaclouds_backend_rust::auth::middleware::{jwt_auth, AppState};
+use metaclouds_backend_rust::db::DatabasePool;
 
 /// 从一组 Set-Cookie 响应头中取出指定 Cookie 的值。
 fn cookie_from_set_cookies(set_cookies: &[String], name: &str) -> Option<String> {
@@ -59,7 +60,7 @@ async fn setup_app() -> Router {
         .expect("seed admin");
 
     let state = AppState {
-        pool,
+        pool: DatabasePool::Sqlite(pool),
         config: Arc::new(config.into()),
     };
 

@@ -2,7 +2,7 @@
 //!
 //! grant / revoke / list / check。授权表无软删除，revoke 为物理删除。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::partition::partition_status;
@@ -40,7 +40,7 @@ fn rank(level: &str) -> i32 {
 
 /// 授予（或更新）某 principal 对某分区的授权。
 pub async fn grant_permission(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: GrantPermissionInput,
 ) -> AppResult<PartitionPermissionResponse> {
     // 分区必须存在（对齐 Go SetPartitionPermission 先校验分区）。
@@ -49,28 +49,37 @@ pub async fn grant_permission(
         .ok_or_else(|| AppError::not_found("partition not found"))?;
 
     // 已存在同 (partition_id, user_id) 授权则更新级别，否则新建。
-    let existing: Option<(i64,)> = sqlx::query_as(
+    let existing: Option<(i64,)> = crate::with_db!(
+        pool,
         "SELECT id FROM partition_permissions WHERE partition_id = ?1 AND user_id = ?2 LIMIT 1",
-    )
-    .bind(input.partition_id)
-    .bind(input.user_id)
-    .fetch_optional(pool)
-    .await?;
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(input.partition_id)
+                .bind(input.user_id)
+                .fetch_optional(db_e)
+                .await?
+        }
+    );
 
     let perm = if let Some((id,)) = existing {
         let now = Utc::now();
-        sqlx::query(
+        crate::with_db!(
+            pool,
             "UPDATE partition_permissions SET permission_type = ?1, granted_by = ?2, \
              granted_at = ?3, expires_at = ?4, updated_at = ?5 WHERE id = ?6",
-        )
-        .bind(&input.permission_type)
-        .bind(input.granted_by)
-        .bind(now)
-        .bind(input.expires_at)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
+            |db_s, db_e| {
+                sqlx::query(db_s)
+                    .bind(&input.permission_type)
+                    .bind(input.granted_by)
+                    .bind(now)
+                    .bind(input.expires_at)
+                    .bind(now)
+                    .bind(id)
+                    .execute(db_e)
+                    .await?
+                    .rows_affected()
+            }
+        );
         partition_permission::get_by_id(pool, id)
             .await?
             .ok_or_else(|| AppError::internal("partition permission disappeared after update"))?
@@ -92,7 +101,7 @@ pub async fn grant_permission(
 }
 
 /// 撤销授权（物理删除，404 若不存在）。
-pub async fn revoke_permission(pool: &SqlitePool, perm_id: i64) -> AppResult<()> {
+pub async fn revoke_permission(pool: &DatabasePool, perm_id: i64) -> AppResult<()> {
     let hit = partition_permission::delete(pool, perm_id).await?;
     if !hit {
         return Err(AppError::not_found("partition permission not found"));
@@ -102,7 +111,7 @@ pub async fn revoke_permission(pool: &SqlitePool, perm_id: i64) -> AppResult<()>
 
 /// 列出某分区的全部授权。
 pub async fn list_permissions_by_partition(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     partition_id: i64,
 ) -> AppResult<Vec<PartitionPermissionResponse>> {
     let rows = partition_permission::list_by_partition(pool, partition_id).await?;
@@ -114,7 +123,7 @@ pub async fn list_permissions_by_partition(
 
 /// 列出某用户的全部授权。
 pub async fn list_permissions_by_user(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     user_id: i64,
 ) -> AppResult<Vec<PartitionPermissionResponse>> {
     let rows = partition_permission::list_by_user(pool, user_id).await?;
@@ -129,20 +138,24 @@ pub async fn list_permissions_by_user(
 /// 未找到授权记录默认无访问（对齐 Go CheckPartitionAccess fail-closed）；
 /// 已过期（expires_at < now）的授权视为无效。
 pub async fn check_permission(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     user_id: i64,
     partition_id: i64,
     required: &str,
 ) -> AppResult<PermissionCheck> {
     let now = Utc::now();
-    let rows: Vec<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
+    let rows: Vec<(String, Option<DateTime<Utc>>)> = crate::with_db!(
+        pool,
         "SELECT permission_type, expires_at FROM partition_permissions \
          WHERE partition_id = ?1 AND user_id = ?2",
-    )
-    .bind(partition_id)
-    .bind(user_id)
-    .fetch_all(pool)
-    .await?;
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(partition_id)
+                .bind(user_id)
+                .fetch_all(db_e)
+                .await?
+        }
+    );
 
     let required_rank = rank(required);
     for (ptype, expires_at) in rows {

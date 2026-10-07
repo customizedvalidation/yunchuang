@@ -7,6 +7,7 @@ use validator::Validate;
 
 use crate::auth::middleware::AppState;
 use crate::auth::password::hash_password;
+use crate::db::DatabasePool;
 use crate::error::{AppError, AppResult};
 use crate::models::user::{CreateUserRequest, UpdateUserRequest, User, UserResponse};
 use crate::response::{ApiResponse, WithStatus};
@@ -31,23 +32,27 @@ pub async fn list_users(
 
     let rows: Vec<User> = match &like {
         Some(like) => {
-            sqlx::query_as(
-                "SELECT * FROM users \
-                 WHERE username LIKE ?1 OR email LIKE ?1 \
-                 ORDER BY id ASC LIMIT ?2 OFFSET ?3",
-            )
-            .bind(like)
-            .bind(page_size)
-            .bind(offset)
-            .fetch_all(&state.pool)
-            .await?
+            let sql = "SELECT * FROM users \
+                       WHERE username LIKE ?1 OR email LIKE ?1 \
+                       ORDER BY id ASC LIMIT ?2 OFFSET ?3";
+            crate::with_db!(&state.pool, sql, |db_s, db_e| {
+                crate::db::query_as_db(db_e, db_s)
+                    .bind(like)
+                    .bind(page_size as i64)
+                    .bind(offset as i64)
+                    .fetch_all(db_e)
+                    .await?
+            })
         }
         None => {
-            sqlx::query_as("SELECT * FROM users ORDER BY id ASC LIMIT ?1 OFFSET ?2")
-                .bind(page_size)
-                .bind(offset)
-                .fetch_all(&state.pool)
-                .await?
+            let sql = "SELECT * FROM users ORDER BY id ASC LIMIT ?1 OFFSET ?2";
+            crate::with_db!(&state.pool, sql, |db_s, db_e| {
+                crate::db::query_as_db(db_e, db_s)
+                    .bind(page_size as i64)
+                    .bind(offset as i64)
+                    .fetch_all(db_e)
+                    .await?
+            })
         }
     };
 
@@ -69,31 +74,60 @@ pub async fn create_user(
     let role = body.role.unwrap_or_else(|| "user".to_string());
     let tenant_id = body.tenant_id.unwrap_or(1);
 
-    let result = sqlx::query(
-        "INSERT INTO users (created_at, updated_at, username, email, password_hash, role, tenant_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-    )
-    .bind(now)
-    .bind(now)
-    .bind(&body.username)
-    .bind(&body.email)
-    .bind(&hash)
-    .bind(&role)
-    .bind(tenant_id)
-    .execute(&state.pool)
-    .await;
-
-    if let Err(sqlx::Error::Database(ref db_err)) = result {
-        if db_err.is_unique_violation() {
-            return Err(AppError::conflict("username or email already exists"));
+    let new_id: i64 = match &state.pool {
+        DatabasePool::Sqlite(p) => {
+            let res = sqlx::query(
+                "INSERT INTO users (created_at, updated_at, username, email, password_hash, role, tenant_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )
+            .bind(now)
+            .bind(now)
+            .bind(&body.username)
+            .bind(&body.email)
+            .bind(&hash)
+            .bind(&role)
+            .bind(tenant_id)
+            .execute(p)
+            .await;
+            if let Err(sqlx::Error::Database(ref db_err)) = res {
+                if db_err.is_unique_violation() {
+                    return Err(AppError::conflict("username or email already exists"));
+                }
+            }
+            res?.last_insert_rowid()
         }
-    }
-    let result = result?;
+        DatabasePool::Postgres(p) => {
+            let res = crate::db::query_as_db::<_, (i64,), _>(p, "INSERT INTO users (created_at, updated_at, username, email, password_hash, role, tenant_id) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+            )
+            .bind(now)
+            .bind(now)
+            .bind(&body.username)
+            .bind(&body.email)
+            .bind(&hash)
+            .bind(&role)
+            .bind(tenant_id)
+            .fetch_one(p)
+            .await;
+            if let Err(sqlx::Error::Database(ref db_err)) = res {
+                if db_err.is_unique_violation() {
+                    return Err(AppError::conflict("username or email already exists"));
+                }
+            }
+            res?.0
+        }
+    };
 
-    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?1")
-        .bind(result.last_insert_rowid())
-        .fetch_one(&state.pool)
-        .await?;
+    let user: User = crate::with_db!(
+        &state.pool,
+        "SELECT * FROM users WHERE id = ?1",
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(new_id)
+                .fetch_one(db_e)
+                .await?
+        }
+    );
 
     Ok(WithStatus {
         status: axum::http::StatusCode::CREATED,
@@ -107,11 +141,17 @@ pub async fn get_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<UserResponse>>> {
-    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?1")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::not_found("user not found"))?;
+    let user: User = crate::with_db!(
+        &state.pool,
+        "SELECT * FROM users WHERE id = ?1",
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(id)
+                .fetch_optional(db_e)
+                .await?
+        }
+    )
+    .ok_or_else(|| AppError::not_found("user not found"))?;
     Ok(Json(ApiResponse::success(user.into())))
 }
 
@@ -125,11 +165,17 @@ pub async fn update_user(
     body.validate()?;
 
     // Load existing row; fail 404 early.
-    let existing: User = sqlx::query_as("SELECT * FROM users WHERE id = ?1")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::not_found("user not found"))?;
+    let existing: User = crate::with_db!(
+        &state.pool,
+        "SELECT * FROM users WHERE id = ?1",
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(id)
+                .fetch_optional(db_e)
+                .await?
+        }
+    )
+    .ok_or_else(|| AppError::not_found("user not found"))?;
 
     let username = body.username.unwrap_or(existing.username);
     let email = body.email.unwrap_or(existing.email);
@@ -141,29 +187,51 @@ pub async fn update_user(
     };
     let now = chrono::Utc::now();
 
-    let result = sqlx::query(
-        "UPDATE users SET username = ?1, email = ?2, password_hash = ?3, role = ?4, tenant_id = ?5, updated_at = ?6 WHERE id = ?7",
-    )
-    .bind(&username)
-    .bind(&email)
-    .bind(&password_hash)
-    .bind(&role)
-    .bind(tenant_id)
-    .bind(now)
-    .bind(id)
-    .execute(&state.pool)
-    .await;
-    if let Err(sqlx::Error::Database(ref db_err)) = result {
+    let upd = match &state.pool {
+        DatabasePool::Sqlite(p) => sqlx::query(
+            "UPDATE users SET username = ?1, email = ?2, password_hash = ?3, role = ?4, tenant_id = ?5, updated_at = ?6 WHERE id = ?7",
+        )
+        .bind(&username)
+        .bind(&email)
+        .bind(&password_hash)
+        .bind(&role)
+        .bind(tenant_id)
+        .bind(now)
+        .bind(id)
+        .execute(p)
+        .await
+        .map(|r| r.rows_affected()),
+        DatabasePool::Postgres(p) => sqlx::query(
+            "UPDATE users SET username = $1, email = $2, password_hash = $3, role = $4, tenant_id = $5, updated_at = $6 WHERE id = $7",
+        )
+        .bind(&username)
+        .bind(&email)
+        .bind(&password_hash)
+        .bind(&role)
+        .bind(tenant_id)
+        .bind(now)
+        .bind(id)
+        .execute(p)
+        .await
+        .map(|r| r.rows_affected()),
+    };
+    if let Err(sqlx::Error::Database(ref db_err)) = upd {
         if db_err.is_unique_violation() {
             return Err(AppError::conflict("username or email already exists"));
         }
     }
-    result?;
+    upd?;
 
-    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?1")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await?;
+    let user: User = crate::with_db!(
+        &state.pool,
+        "SELECT * FROM users WHERE id = ?1",
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(id)
+                .fetch_one(db_e)
+                .await?
+        }
+    );
     Ok(Json(ApiResponse::success(user.into())))
 }
 
@@ -173,11 +241,18 @@ pub async fn delete_user(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<ApiResponse<()>>> {
-    let result = sqlx::query("DELETE FROM users WHERE id = ?1")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
-    if result.rows_affected() == 0 {
+    let deleted = crate::with_db!(
+        &state.pool,
+        "DELETE FROM users WHERE id = ?1",
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    if deleted == 0 {
         return Err(AppError::not_found("user not found"));
     }
     Ok(Json(ApiResponse::success(())))

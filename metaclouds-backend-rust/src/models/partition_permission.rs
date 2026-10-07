@@ -4,10 +4,10 @@
 //! partition_id/user_id/tenant_id 外键 / permission_type(read|write|admin) /
 //! granted_by→users / granted_at / expires_at 可空。**无软删除列**（授权直接物理删除）。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 
@@ -76,69 +76,91 @@ pub struct NewPermission {
 }
 
 /// INSERT 授权（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewPermission) -> AppResult<PartitionPermission> {
+pub async fn create(pool: &DatabasePool, input: NewPermission) -> AppResult<PartitionPermission> {
     let now = Utc::now();
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO partition_permissions (created_at, updated_at, partition_id, user_id, \
          tenant_id, permission_type, granted_by, granted_at, expires_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-    )
-    .bind(now)
-    .bind(now)
-    .bind(input.partition_id)
-    .bind(input.user_id)
-    .bind(input.tenant_id)
-    .bind(&input.permission_type)
-    .bind(input.granted_by)
-    .bind(now)
-    .bind(input.expires_at)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(now)
+            .bind(now)
+            .bind(input.partition_id)
+            .bind(input.user_id)
+            .bind(input.tenant_id)
+            .bind(&input.permission_type)
+            .bind(input.granted_by)
+            .bind(now)
+            .bind(input.expires_at)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id)
         .await?
         .ok_or_else(|| AppError::internal("inserted partition permission not found"))
 }
 
 /// 按 id 查询授权。
-pub async fn get_by_id(pool: &SqlitePool, id: i64) -> AppResult<Option<PartitionPermission>> {
-    Ok(
-        sqlx::query_as("SELECT * FROM partition_permissions WHERE id = ?1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?,
-    )
+pub async fn get_by_id(pool: &DatabasePool, id: i64) -> AppResult<Option<PartitionPermission>> {
+    Ok(crate::with_db!(
+        pool,
+        "SELECT * FROM partition_permissions WHERE id = ?1",
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(id)
+                .fetch_optional(db_e)
+                .await?
+        }
+    ))
 }
 
 /// 按 partition_id 列出授权。
 pub async fn list_by_partition(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     partition_id: i64,
 ) -> AppResult<Vec<PartitionPermission>> {
-    Ok(sqlx::query_as(
+    Ok(crate::with_db!(
+        pool,
         "SELECT * FROM partition_permissions WHERE partition_id = ?1 ORDER BY id ASC",
-    )
-    .bind(partition_id)
-    .fetch_all(pool)
-    .await?)
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(partition_id)
+                .fetch_all(db_e)
+                .await?
+        }
+    ))
 }
 
 /// 按 user_id 列出授权。
-pub async fn list_by_user(pool: &SqlitePool, user_id: i64) -> AppResult<Vec<PartitionPermission>> {
-    Ok(
-        sqlx::query_as("SELECT * FROM partition_permissions WHERE user_id = ?1 ORDER BY id ASC")
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?,
-    )
+pub async fn list_by_user(
+    pool: &DatabasePool,
+    user_id: i64,
+) -> AppResult<Vec<PartitionPermission>> {
+    Ok(crate::with_db!(
+        pool,
+        "SELECT * FROM partition_permissions WHERE user_id = ?1 ORDER BY id ASC",
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(user_id)
+                .fetch_all(db_e)
+                .await?
+        }
+    ))
 }
 
 /// 物理删除授权（rows_affected > 0 表示命中）。
-pub async fn delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
-    let res = sqlx::query("DELETE FROM partition_permissions WHERE id = ?1")
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+pub async fn delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
+    let res = crate::with_db!(
+        pool,
+        "DELETE FROM partition_permissions WHERE id = ?1",
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    Ok(res > 0)
 }

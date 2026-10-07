@@ -10,10 +10,10 @@
 //! 对外 JSON 仍序列化为 `"type"`（对齐 Go `json:"type"`）。
 //! `deleted_at` 在对外视图中剔除（对齐 Go `gorm.DeletedAt` + `json:"-"`）。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -224,30 +224,30 @@ pub struct NewJob {
 }
 
 /// INSERT 作业（自动时间戳，初始状态 pending）。
-pub async fn create(pool: &SqlitePool, input: NewJob) -> AppResult<Job> {
+pub async fn create(pool: &DatabasePool, input: NewJob) -> AppResult<Job> {
     let now = Utc::now();
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO jobs (created_at, updated_at, cluster_id, tenant_id, user_id, name, \
          description, status, type, priority, gpus, cpus, memory, duration, progress) \
          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 0)",
-    )
-    .bind(now)
-    .bind(now)
-    .bind(input.cluster_id)
-    .bind(input.tenant_id)
-    .bind(input.user_id)
-    .bind(&input.name)
-    .bind(&input.description)
-    .bind(&input.kind)
-    .bind(input.priority)
-    .bind(input.gpus)
-    .bind(input.cpus)
-    .bind(input.memory)
-    .bind(input.duration)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(now)
+            .bind(now)
+            .bind(input.cluster_id)
+            .bind(input.tenant_id)
+            .bind(input.user_id)
+            .bind(&input.name)
+            .bind(&input.description)
+            .bind(&input.kind)
+            .bind(input.priority)
+            .bind(input.gpus)
+            .bind(input.cpus)
+            .bind(input.memory)
+            .bind(input.duration)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted job not found"))
@@ -255,7 +255,7 @@ pub async fn create(pool: &SqlitePool, input: NewJob) -> AppResult<Job> {
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Job>> {
@@ -264,7 +264,12 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM jobs WHERE id = ? AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 过滤条件（全部可选；None 表示不按该维度过滤）。
@@ -280,7 +285,7 @@ pub struct JobFilter<'a> {
 
 /// 分页列表（可按 status/type/cluster_id/user_id/tenant_id 过滤，按 name 搜索）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     filter: JobFilter<'_>,
 ) -> AppResult<PaginatedResult<Job>> {
@@ -330,53 +335,66 @@ pub async fn list(
     }
 
     let count_sql = format!("SELECT COUNT(*) FROM jobs WHERE {where_clause}");
-    let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
-    for b in &binds {
-        count_q = count_q.bind(b);
-    }
-    let total: i64 = count_q.fetch_one(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut count_q = crate::db::query_scalar_db(db_e, db_s);
+        for b in &binds {
+            count_q = count_q.bind(b);
+        }
+        count_q.fetch_one(db_e).await?
+    });
 
     let list_sql =
         format!("SELECT * FROM jobs WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?");
-    let mut list_q = sqlx::query_as::<_, Job>(&list_sql);
-    for b in &binds {
-        list_q = list_q.bind(b);
-    }
-    list_q = list_q.bind(params.limit()).bind(params.offset());
-    let rows: Vec<Job> = list_q.fetch_all(pool).await?;
+    let rows: Vec<Job> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut list_q = crate::db::query_as_db(db_e, db_s);
+        for b in &binds {
+            list_q = list_q.bind(b);
+        }
+        list_q = list_q.bind(params.limit()).bind(params.offset());
+        list_q.fetch_all(db_e).await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 按状态统计数量（过滤条件之外，跨状态聚合；用于 GET /jobs/stats）。
 pub async fn count_by_status(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     tenant_id: Option<i64>,
 ) -> AppResult<Vec<(String, i64)>> {
     let rows: Vec<(String, i64)> = if let Some(tid) = tenant_id {
-        sqlx::query_as(
+        crate::with_db!(
+            pool,
             "SELECT status, COUNT(*) FROM jobs WHERE deleted_at IS NULL AND tenant_id = ? \
              GROUP BY status",
+            |db_s, db_e| {
+                crate::db::query_as_db(db_e, db_s)
+                    .bind(tid)
+                    .fetch_all(db_e)
+                    .await?
+            }
         )
-        .bind(tid)
-        .fetch_all(pool)
-        .await?
     } else {
-        sqlx::query_as("SELECT status, COUNT(*) FROM jobs WHERE deleted_at IS NULL GROUP BY status")
-            .fetch_all(pool)
-            .await?
+        crate::with_db!(
+            pool,
+            "SELECT status, COUNT(*) FROM jobs WHERE deleted_at IS NULL GROUP BY status",
+            |db_s, db_e| crate::db::query_as_db(db_e, db_s).fetch_all(db_e).await?
+        )
     };
     Ok(rows)
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("jobs"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(pool, &soft_delete_update_sql("jobs"), |db_s, db_e| {
+        sqlx::query(db_s)
+            .bind(now)
+            .bind(now)
+            .bind(id)
+            .execute(db_e)
+            .await?
+            .rows_affected()
+    });
+    Ok(res > 0)
 }

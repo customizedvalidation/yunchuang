@@ -144,28 +144,36 @@ pub async fn get_job_status(
 
     // 所属集群名（cluster_id=0 表示未绑定，返回 null）。
     let cluster_name: Option<String> = if j.cluster_id > 0 {
-        sqlx::query_scalar::<_, String>(
+        crate::with_db!(
+            &state.pool,
             "SELECT name FROM clusters WHERE id = ? AND deleted_at IS NULL",
+            |db_s, db_e| {
+                crate::db::query_scalar_db(db_e, db_s)
+                    .bind(j.cluster_id)
+                    .fetch_optional(db_e)
+                    .await?
+            }
         )
-        .bind(j.cluster_id)
-        .fetch_optional(&state.pool)
-        .await?
     } else {
         None
     };
 
     // 该作业绑定的 GPU 分配记录（含设备厂商/型号/设备状态）。
     // 列序：(device_id, allocation_status, vendor, model, device_status)
-    let rows: Vec<(i64, String, String, String, String)> = sqlx::query_as(
+    let rows: Vec<(i64, String, String, String, String)> = crate::with_db!(
+        &state.pool,
         "SELECT a.device_id, a.status, d.vendor, d.model, d.status \
          FROM gpu_allocations a \
          LEFT JOIN gpu_devices d ON d.id = a.device_id \
          WHERE a.job_id = ? AND a.deleted_at IS NULL \
          ORDER BY a.id ASC",
-    )
-    .bind(id)
-    .fetch_all(&state.pool)
-    .await?;
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(id)
+                .fetch_all(db_e)
+                .await?
+        }
+    );
     let gpu_allocations: Vec<serde_json::Value> = rows
         .into_iter()
         .map(

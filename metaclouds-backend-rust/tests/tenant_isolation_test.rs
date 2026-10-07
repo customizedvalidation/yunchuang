@@ -26,6 +26,7 @@ use metaclouds_backend_rust::auth::csrf::csrf_protect;
 use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{jwt_auth, require_permission, AppState};
 use metaclouds_backend_rust::auth::password::hash_password;
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::handlers::dataset::{create_dataset, list_datasets};
 
 /// 起一条最小路由：仅数据集的列表 + 创建（租户隔离最典型的两个面）。
@@ -76,7 +77,7 @@ async fn setup_app() -> Router {
     .expect("insert tenant-b user");
 
     let state = AppState {
-        pool,
+        pool: DatabasePool::Sqlite(pool),
         config: Arc::new(config.into()),
     };
 

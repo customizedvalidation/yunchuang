@@ -2,7 +2,7 @@
 //!
 //! CRUD + 按 dataset_id 过滤 + 分页。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::fluid_cache::{self, FluidCache, FluidCacheResponse};
@@ -33,7 +33,7 @@ pub struct UpdateFluidCacheInput {
 
 /// 创建 fluid cache。
 pub async fn create_fluid_cache(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreateFluidCacheInput,
 ) -> AppResult<FluidCacheResponse> {
     let status = input.status.unwrap_or_else(|| "inactive".to_string());
@@ -54,7 +54,7 @@ pub async fn create_fluid_cache(
 }
 
 /// 详情。
-pub async fn get_fluid_cache(pool: &SqlitePool, id: i64) -> AppResult<FluidCacheResponse> {
+pub async fn get_fluid_cache(pool: &DatabasePool, id: i64) -> AppResult<FluidCacheResponse> {
     let cache = fluid_cache::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("fluid cache not found"))?;
@@ -63,7 +63,7 @@ pub async fn get_fluid_cache(pool: &SqlitePool, id: i64) -> AppResult<FluidCache
 
 /// 分页列表（按 dataset_id 过滤）。
 pub async fn list_fluid_caches(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     dataset_id: Option<i64>,
 ) -> AppResult<PaginatedResult<FluidCacheResponse>> {
@@ -84,7 +84,7 @@ pub async fn list_fluid_caches(
 
 /// 更新。
 pub async fn update_fluid_cache(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateFluidCacheInput,
 ) -> AppResult<FluidCacheResponse> {
@@ -93,7 +93,8 @@ pub async fn update_fluid_cache(
         .ok_or_else(|| AppError::not_found("fluid cache not found"))?;
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE fluid_caches SET \
             name = COALESCE(?1, name), \
             namespace = COALESCE(?2, namespace), \
@@ -103,17 +104,21 @@ pub async fn update_fluid_cache(
             status = COALESCE(?6, status), \
             updated_at = ?7 \
          WHERE id = ?8 AND deleted_at IS NULL",
-    )
-    .bind(input.name)
-    .bind(input.namespace)
-    .bind(input.path)
-    .bind(input.cache_class)
-    .bind(input.replicas)
-    .bind(input.status)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(input.name)
+                .bind(input.namespace)
+                .bind(input.path)
+                .bind(input.cache_class)
+                .bind(input.replicas)
+                .bind(input.status)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let cache = fluid_cache::get_by_id(pool, id, false)
         .await?
@@ -122,7 +127,7 @@ pub async fn update_fluid_cache(
 }
 
 /// 软删除。
-pub async fn delete_fluid_cache(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_fluid_cache(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = fluid_cache::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("fluid cache not found"));
@@ -133,20 +138,29 @@ pub async fn delete_fluid_cache(pool: &SqlitePool, id: i64) -> AppResult<()> {
 /// 切换缓存状态（enable→active，disable→inactive，对齐 Go acceleration_extensions.go）。
 ///
 /// 404 若缓存不存在或已软删除。
-pub async fn set_status(pool: &SqlitePool, id: i64, status: &str) -> AppResult<FluidCacheResponse> {
+pub async fn set_status(
+    pool: &DatabasePool,
+    id: i64,
+    status: &str,
+) -> AppResult<FluidCacheResponse> {
     fluid_cache::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("fluid cache not found"))?;
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE fluid_caches SET status = ?1, updated_at = ?2 WHERE id = ?3 AND deleted_at IS NULL",
-    )
-    .bind(status)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(status)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let cache = fluid_cache::get_by_id(pool, id, false)
         .await?
@@ -155,7 +169,7 @@ pub async fn set_status(pool: &SqlitePool, id: i64, status: &str) -> AppResult<F
 }
 
 /// 触发预取（对齐 Go TriggerPrefetch：当前为占位实现，仅校验存在性）。
-pub async fn trigger_prefetch(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn trigger_prefetch(pool: &DatabasePool, id: i64) -> AppResult<()> {
     fluid_cache::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("fluid cache not found"))?;

@@ -2,7 +2,7 @@
 //!
 //! CRUD + 分页。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::inference_config::{self, InferenceConfig, InferenceConfigResponse};
@@ -44,7 +44,7 @@ pub struct UpdateInferenceConfigInput {
 
 /// 创建。
 pub async fn create_inference_config(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreateInferenceConfigInput,
 ) -> AppResult<InferenceConfigResponse> {
     let status = input.status.unwrap_or_else(|| "active".to_string());
@@ -72,7 +72,7 @@ pub async fn create_inference_config(
 
 /// 详情。
 pub async fn get_inference_config(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
 ) -> AppResult<InferenceConfigResponse> {
     let cfg = inference_config::get_by_id(pool, id, false)
@@ -83,7 +83,7 @@ pub async fn get_inference_config(
 
 /// 分页列表。
 pub async fn list_inference_configs(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     tenant_id: Option<i64>,
 ) -> AppResult<PaginatedResult<InferenceConfigResponse>> {
@@ -104,7 +104,7 @@ pub async fn list_inference_configs(
 
 /// 更新。
 pub async fn update_inference_config(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateInferenceConfigInput,
 ) -> AppResult<InferenceConfigResponse> {
@@ -113,7 +113,8 @@ pub async fn update_inference_config(
         .ok_or_else(|| AppError::not_found("inference config not found"))?;
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE inference_configs SET \
             name = COALESCE(?1, name), \
             description = COALESCE(?2, description), \
@@ -128,22 +129,26 @@ pub async fn update_inference_config(
             status = COALESCE(?11, status), \
             updated_at = ?12 \
          WHERE id = ?13 AND deleted_at IS NULL",
-    )
-    .bind(input.name)
-    .bind(input.description)
-    .bind(input.model_path)
-    .bind(input.runtime)
-    .bind(input.replicas)
-    .bind(input.gpu_per_replica)
-    .bind(input.cpu_per_replica)
-    .bind(input.memory_per_replica_gb)
-    .bind(input.port)
-    .bind(input.health_check_path)
-    .bind(input.status)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(input.name)
+                .bind(input.description)
+                .bind(input.model_path)
+                .bind(input.runtime)
+                .bind(input.replicas)
+                .bind(input.gpu_per_replica)
+                .bind(input.cpu_per_replica)
+                .bind(input.memory_per_replica_gb)
+                .bind(input.port)
+                .bind(input.health_check_path)
+                .bind(input.status)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let cfg = inference_config::get_by_id(pool, id, false)
         .await?
@@ -152,7 +157,7 @@ pub async fn update_inference_config(
 }
 
 /// 软删除。
-pub async fn delete_inference_config(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_inference_config(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = inference_config::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("inference config not found"));

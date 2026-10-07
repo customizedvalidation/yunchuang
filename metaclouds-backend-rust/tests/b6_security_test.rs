@@ -16,6 +16,7 @@ use metaclouds_backend_rust::auth::csrf::csrf_protect;
 use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{jwt_auth, require_permission, AppState};
 use metaclouds_backend_rust::auth::password::hash_password;
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::handlers::security::{
     create_policy, delete_policy, disable_policy, enable_policy, get_policy, list_policies,
     update_policy,
@@ -57,7 +58,7 @@ async fn setup_app() -> (Router, sqlx::SqlitePool) {
     .expect("insert test user");
 
     let state = AppState {
-        pool: pool.clone(),
+        pool: DatabasePool::Sqlite(pool.clone()),
         config: Arc::new(config.into()),
     };
 

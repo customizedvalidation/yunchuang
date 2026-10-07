@@ -4,6 +4,7 @@
 
 use sqlx::SqlitePool;
 
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::orm::PaginationParams;
 use metaclouds_backend_rust::services::distributed_training as training_service;
 use metaclouds_backend_rust::services::fluid_cache as fluid_service;
@@ -22,14 +23,15 @@ async fn setup_pool() -> SqlitePool {
 
 #[tokio::test]
 async fn b5_fluid_cache_basic_crud() {
-    let pool = setup_pool().await;
+    let raw = setup_pool().await;
+    let pool = DatabasePool::Sqlite(raw.clone());
 
     // Create a dataset first (FK)
     sqlx::query("INSERT INTO datasets (created_at, updated_at, name, description, type, source_path, format, size_bytes, tenant_id, created_by, status, labels) \
                  VALUES (?1, ?2, 'fc-ds', '', 'private', '/data', '', 0, 1, 1, 'active', '{}')")
         .bind(chrono::Utc::now())
         .bind(chrono::Utc::now())
-        .execute(&pool)
+        .execute(&raw)
         .await
         .unwrap();
 
@@ -89,7 +91,7 @@ async fn b5_fluid_cache_basic_crud() {
 
 #[tokio::test]
 async fn b5_training_config_basic_crud() {
-    let pool = setup_pool().await;
+    let pool = DatabasePool::Sqlite(setup_pool().await);
 
     // Create
     let created = training_service::create_training_config(

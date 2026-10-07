@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 
+use crate::db::DatabasePool;
 use chrono::Utc;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::gpu_allocation::{
@@ -72,7 +72,7 @@ pub struct AllocateGpuInput {
 
 /// 创建 GPU 设备。
 pub async fn create_gpu_device(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreateGpuDeviceInput,
 ) -> AppResult<GpuDeviceResponse> {
     let device = gpu_device::create(
@@ -102,7 +102,7 @@ pub async fn create_gpu_device(
 }
 
 /// GPU 设备详情。
-pub async fn get_gpu_device(pool: &SqlitePool, id: i64) -> AppResult<GpuDeviceResponse> {
+pub async fn get_gpu_device(pool: &DatabasePool, id: i64) -> AppResult<GpuDeviceResponse> {
     let device = gpu_device::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("GPU device not found"))?;
@@ -111,7 +111,7 @@ pub async fn get_gpu_device(pool: &SqlitePool, id: i64) -> AppResult<GpuDeviceRe
 
 /// 分页 GPU 设备列表（按 cluster_id/vendor/status 过滤）。
 pub async fn list_gpu_devices(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     cluster_id: Option<i64>,
     vendor: Option<&str>,
@@ -134,7 +134,7 @@ pub async fn list_gpu_devices(
 
 /// 更新 GPU 设备：仅覆盖传入字段。
 pub async fn update_gpu_device(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateGpuDeviceInput,
 ) -> AppResult<GpuDeviceResponse> {
@@ -143,7 +143,8 @@ pub async fn update_gpu_device(
         .ok_or_else(|| AppError::not_found("GPU device not found"))?;
 
     let now = Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE gpu_devices SET \
             node_name = COALESCE(?, node_name), \
             vendor = COALESCE(?, vendor), \
@@ -162,26 +163,30 @@ pub async fn update_gpu_device(
             details = COALESCE(?, details), \
             updated_at = ? \
          WHERE id = ? AND deleted_at IS NULL",
-    )
-    .bind(&input.node_name)
-    .bind(&input.vendor)
-    .bind(&input.model)
-    .bind(input.total_memory_gb)
-    .bind(input.allocatable_memory_gb)
-    .bind(input.used_memory_gb)
-    .bind(input.mig_enabled)
-    .bind(&input.mig_profiles)
-    .bind(&input.driver_version)
-    .bind(&input.cuda_version)
-    .bind(&input.status)
-    .bind(input.utilization)
-    .bind(input.temperature)
-    .bind(input.power_draw)
-    .bind(&input.details)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(&input.node_name)
+                .bind(&input.vendor)
+                .bind(&input.model)
+                .bind(input.total_memory_gb)
+                .bind(input.allocatable_memory_gb)
+                .bind(input.used_memory_gb)
+                .bind(input.mig_enabled)
+                .bind(&input.mig_profiles)
+                .bind(&input.driver_version)
+                .bind(&input.cuda_version)
+                .bind(&input.status)
+                .bind(input.utilization)
+                .bind(input.temperature)
+                .bind(input.power_draw)
+                .bind(&input.details)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let device = gpu_device::get_by_id(pool, id, false)
         .await?
@@ -190,7 +195,7 @@ pub async fn update_gpu_device(
 }
 
 /// 软删除 GPU 设备。
-pub async fn delete_gpu_device(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_gpu_device(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = gpu_device::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("GPU device not found"));
@@ -200,15 +205,15 @@ pub async fn delete_gpu_device(pool: &SqlitePool, id: i64) -> AppResult<()> {
 
 /// 分配 GPU：挑选满足 vendor/显存/fraction 容量的可用设备，创建 allocation 并联动设备状态。
 pub async fn allocate_gpu(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: AllocateGpuInput,
 ) -> AppResult<GpuAllocationResponse> {
     // 查找可用设备：status available/allocated，vendor 匹配，显存充足，fraction 未超限。
-    let candidates: Vec<GpuDevice> = sqlx::query_as(
+    let candidates: Vec<GpuDevice> = crate::with_db!(pool,
         "SELECT * FROM gpu_devices WHERE deleted_at IS NULL AND (status = 'available' OR status = 'allocated')",
-    )
-    .fetch_all(pool)
-    .await?;
+    |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s).fetch_all(db_e).await?
+    });
 
     let mut selected: Option<GpuDevice> = None;
     for d in candidates {
@@ -220,12 +225,11 @@ pub async fn allocate_gpu(
             continue;
         }
         // 累计已分配 fraction（active）。
-        let used_fraction: f64 = sqlx::query_scalar(
+        let used_fraction: f64 = crate::with_db!(pool,
             "SELECT COALESCE(SUM(fraction), 0.0) FROM gpu_allocations WHERE device_id = ? AND status = 'active'",
-        )
-        .bind(d.id)
-        .fetch_one(pool)
-        .await?;
+        |db_s, db_e| {
+            crate::db::query_scalar_db(db_e, db_s).bind(d.id).fetch_one(db_e).await?
+        });
         if used_fraction + input.fraction > 1.0 + 0.001 {
             continue;
         }
@@ -240,44 +244,43 @@ pub async fn allocate_gpu(
     let now = Utc::now();
     // P1: 写操作事务化——INSERT allocation 与 UPDATE device 必须原子提交，
     // 消除"写一半失败留下孤儿 allocation"的窗口（SQLite/Postgres 通用事务写法）。
-    let mut tx = pool.begin().await?;
-    let res = sqlx::query(
-        "INSERT INTO gpu_allocations (created_at, updated_at, device_id, job_id, tenant_id, \
-         user_id, fraction, memory_gb, status, started_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)",
-    )
-    .bind(now)
-    .bind(now)
-    .bind(device.id)
-    .bind(input.job_id)
-    .bind(input.tenant_id)
-    .bind(input.user_id)
-    .bind(input.fraction)
-    .bind(input.memory_gb)
-    .bind(now)
-    .execute(&mut *tx)
-    .await?;
-
-    let alloc_id = res.last_insert_rowid();
-
-    // 联动设备已用显存与状态。
-    let new_used = device.used_memory_gb + input.memory_gb;
-    let new_status = if new_used > 0 {
-        dev_status::ALLOCATED
-    } else {
-        dev_status::AVAILABLE
-    };
-    sqlx::query(
-        "UPDATE gpu_devices SET used_memory_gb = ?, status = ?, updated_at = ? WHERE id = ?",
-    )
-    .bind(new_used)
-    .bind(new_status)
-    .bind(now)
-    .bind(device.id)
-    .execute(&mut *tx)
-    .await?;
-
-    tx.commit().await?;
+    let alloc_id: i64 =
+        crate::with_tx!(pool, |tx| {
+            let aid = crate::insert_id_tx!(pool, &mut *tx,
+            "INSERT INTO gpu_allocations (created_at, updated_at, device_id, job_id, tenant_id, \
+             user_id, fraction, memory_gb, status, started_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)",
+        |q| q
+            .bind(now)
+            .bind(now)
+            .bind(device.id)
+            .bind(input.job_id)
+            .bind(input.tenant_id)
+            .bind(input.user_id)
+            .bind(input.fraction)
+            .bind(input.memory_gb)
+            .bind(now)
+        );
+            let new_used = device.used_memory_gb + input.memory_gb;
+            let new_status = if new_used > 0 {
+                dev_status::ALLOCATED
+            } else {
+                dev_status::AVAILABLE
+            };
+            crate::with_db_tx!(pool, &mut *tx,
+            "UPDATE gpu_devices SET used_memory_gb = ?, status = ?, updated_at = ? WHERE id = ?",
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(new_used)
+                .bind(new_status)
+                .bind(now)
+                .bind(device.id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        });
+            aid
+        });
 
     let alloc = gpu_allocation::get_by_id(pool, alloc_id)
         .await?
@@ -286,7 +289,7 @@ pub async fn allocate_gpu(
 }
 
 /// 释放 GPU 分配：标记 released，回写设备显存与状态。
-pub async fn release_gpu(pool: &SqlitePool, allocation_id: i64) -> AppResult<()> {
+pub async fn release_gpu(pool: &DatabasePool, allocation_id: i64) -> AppResult<()> {
     let alloc = gpu_allocation::get_by_id(pool, allocation_id)
         .await?
         .ok_or_else(|| AppError::not_found("GPU allocation not found"))?;
@@ -295,14 +298,19 @@ pub async fn release_gpu(pool: &SqlitePool, allocation_id: i64) -> AppResult<()>
     }
 
     let now = Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE gpu_allocations SET status = 'released', ended_at = ?, updated_at = ? WHERE id = ?",
-    )
-    .bind(now)
-    .bind(now)
-    .bind(allocation_id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(now)
+                .bind(now)
+                .bind(allocation_id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     // 回写设备显存。
     let device = gpu_device::get_by_id(pool, alloc.device_id, false).await?;
@@ -313,22 +321,27 @@ pub async fn release_gpu(pool: &SqlitePool, allocation_id: i64) -> AppResult<()>
         } else {
             d.status.clone()
         };
-        sqlx::query(
+        crate::with_db!(
+            pool,
             "UPDATE gpu_devices SET used_memory_gb = ?, status = ?, updated_at = ? WHERE id = ?",
-        )
-        .bind(new_used)
-        .bind(&new_status)
-        .bind(now)
-        .bind(d.id)
-        .execute(pool)
-        .await?;
+            |db_s, db_e| {
+                sqlx::query(db_s)
+                    .bind(new_used)
+                    .bind(&new_status)
+                    .bind(now)
+                    .bind(d.id)
+                    .execute(db_e)
+                    .await?
+                    .rows_affected()
+            }
+        );
     }
     Ok(())
 }
 
 /// 分页分配记录列表（按 job_id/user_id/status 过滤）。
 pub async fn list_allocations(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     job_id: Option<i64>,
     user_id: Option<i64>,
@@ -355,20 +368,28 @@ pub async fn list_allocations(
 
 /// GPU 利用率汇总（按 cluster_id 可选过滤）。
 pub async fn get_gpu_utilization_summary(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     cluster_id: Option<i64>,
 ) -> AppResult<HashMap<String, serde_json::Value>> {
     let rows: Vec<GpuDevice> = match cluster_id {
         Some(cid) => {
-            sqlx::query_as("SELECT * FROM gpu_devices WHERE deleted_at IS NULL AND cluster_id = ?")
-                .bind(cid)
-                .fetch_all(pool)
-                .await?
+            crate::with_db!(
+                pool,
+                "SELECT * FROM gpu_devices WHERE deleted_at IS NULL AND cluster_id = ?",
+                |db_s, db_e| {
+                    crate::db::query_as_db(db_e, db_s)
+                        .bind(cid)
+                        .fetch_all(db_e)
+                        .await?
+                }
+            )
         }
         None => {
-            sqlx::query_as("SELECT * FROM gpu_devices WHERE deleted_at IS NULL")
-                .fetch_all(pool)
-                .await?
+            crate::with_db!(
+                pool,
+                "SELECT * FROM gpu_devices WHERE deleted_at IS NULL",
+                |db_s, db_e| crate::db::query_as_db(db_e, db_s).fetch_all(db_e).await?
+            )
         }
     };
 

@@ -2,9 +2,9 @@
 //!
 //! CRUD + acknowledge/resolve 状态机 + 分页/搜索/过滤 + stats 聚合。
 
+use crate::db::DatabasePool;
 use chrono::Utc;
 use serde::Serialize;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::alert::{self, Alert, AlertListFilter, AlertResponse, NewAlert};
@@ -40,7 +40,10 @@ pub struct UpdateAlertInput {
 }
 
 /// 创建。
-pub async fn create_alert(pool: &SqlitePool, input: CreateAlertInput) -> AppResult<AlertResponse> {
+pub async fn create_alert(
+    pool: &DatabasePool,
+    input: CreateAlertInput,
+) -> AppResult<AlertResponse> {
     let alert = alert::create(
         pool,
         NewAlert {
@@ -62,7 +65,7 @@ pub async fn create_alert(pool: &SqlitePool, input: CreateAlertInput) -> AppResu
 }
 
 /// 详情。
-pub async fn get_alert(pool: &SqlitePool, id: i64) -> AppResult<AlertResponse> {
+pub async fn get_alert(pool: &DatabasePool, id: i64) -> AppResult<AlertResponse> {
     let a = alert::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("alert not found"))?;
@@ -72,7 +75,7 @@ pub async fn get_alert(pool: &SqlitePool, id: i64) -> AppResult<AlertResponse> {
 /// 分页列表。
 #[allow(clippy::too_many_arguments)]
 pub async fn list_alerts(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     severity: Option<&str>,
     kind: Option<&str>,
@@ -105,7 +108,7 @@ pub async fn list_alerts(
 
 /// 更新。
 pub async fn update_alert(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateAlertInput,
 ) -> AppResult<AlertResponse> {
@@ -117,7 +120,8 @@ pub async fn update_alert(
     let metadata_str = input
         .metadata
         .map(|v| serde_json::to_string(&v).unwrap_or_else(|_| "{}".into()));
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE alerts SET \
             name = COALESCE(?, name), \
             description = COALESCE(?, description), \
@@ -129,19 +133,23 @@ pub async fn update_alert(
             metadata = COALESCE(?, metadata), \
             updated_at = ? \
          WHERE id = ? AND deleted_at IS NULL",
-    )
-    .bind(input.name)
-    .bind(input.description)
-    .bind(input.severity)
-    .bind(input.kind)
-    .bind(input.source)
-    .bind(input.message)
-    .bind(input.status)
-    .bind(metadata_str)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(input.name)
+                .bind(input.description)
+                .bind(input.severity)
+                .bind(input.kind)
+                .bind(input.source)
+                .bind(input.message)
+                .bind(input.status)
+                .bind(metadata_str)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let a = alert::get_by_id(pool, id, false)
         .await?
@@ -150,7 +158,7 @@ pub async fn update_alert(
 }
 
 /// 软删除。
-pub async fn delete_alert(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_alert(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = alert::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("alert not found"));
@@ -160,7 +168,7 @@ pub async fn delete_alert(pool: &SqlitePool, id: i64) -> AppResult<()> {
 
 /// 确认告警：status → acknowledged，记录 acknowledged_at / acknowledged_by。
 pub async fn acknowledge_alert(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     user_id: i64,
 ) -> AppResult<AlertResponse> {
@@ -171,17 +179,22 @@ pub async fn acknowledge_alert(
         return Err(AppError::bad_request("cannot acknowledge a resolved alert"));
     }
     let now = Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE alerts SET status = ?, acknowledged_at = ?, acknowledged_by = ?, updated_at = ? \
          WHERE id = ? AND deleted_at IS NULL",
-    )
-    .bind("acknowledged")
-    .bind(now)
-    .bind(user_id)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind("acknowledged")
+                .bind(now)
+                .bind(user_id)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let updated = alert::get_by_id(pool, id, false)
         .await?
@@ -190,21 +203,26 @@ pub async fn acknowledge_alert(
 }
 
 /// 解决告警：status → resolved，记录 resolved_at。
-pub async fn resolve_alert(pool: &SqlitePool, id: i64) -> AppResult<AlertResponse> {
+pub async fn resolve_alert(pool: &DatabasePool, id: i64) -> AppResult<AlertResponse> {
     alert::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("alert not found"))?;
     let now = Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE alerts SET status = ?, resolved_at = ?, updated_at = ? \
          WHERE id = ? AND deleted_at IS NULL",
-    )
-    .bind("resolved")
-    .bind(now)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind("resolved")
+                .bind(now)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let updated = alert::get_by_id(pool, id, false)
         .await?
@@ -221,7 +239,7 @@ pub struct AlertStats {
     pub active: i64,
 }
 
-pub async fn get_alert_stats(pool: &SqlitePool) -> AppResult<AlertStats> {
+pub async fn get_alert_stats(pool: &DatabasePool) -> AppResult<AlertStats> {
     let sev_rows = alert::count_by_severity(pool).await?;
     let status_rows = alert::count_by_status(pool).await?;
 
@@ -237,9 +255,15 @@ pub async fn get_alert_stats(pool: &SqlitePool) -> AppResult<AlertStats> {
         }
         by_status.insert(k, serde_json::json!(v));
     }
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM alerts WHERE deleted_at IS NULL")
-        .fetch_one(pool)
-        .await?;
+    let total: i64 = crate::with_db!(
+        pool,
+        "SELECT COUNT(*) FROM alerts WHERE deleted_at IS NULL",
+        |db_s, db_e| {
+            crate::db::query_scalar_db(db_e, db_s)
+                .fetch_one(db_e)
+                .await?
+        }
+    );
 
     Ok(AlertStats {
         by_severity: serde_json::Value::Object(by_severity),

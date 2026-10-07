@@ -23,6 +23,7 @@ use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{
     jwt_auth, permissions, require_permission, AppState,
 };
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::handlers::cluster::create_cluster;
 use metaclouds_backend_rust::handlers::tenant::{create_tenant, delete_tenant, list_tenants};
 use metaclouds_backend_rust::handlers::user::{create_user, delete_user};
@@ -118,7 +119,7 @@ async fn setup_app() -> (Router, sqlx::SqlitePool) {
         log_level: "warn".to_string(),
     };
     let state = AppState {
-        pool: pool.clone(),
+        pool: DatabasePool::Sqlite(pool.clone()),
         config: Arc::new(config.into()),
     };
 

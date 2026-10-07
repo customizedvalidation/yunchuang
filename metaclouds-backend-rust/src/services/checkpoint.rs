@@ -2,7 +2,7 @@
 //!
 //! CRUD + 按 job_id/dataset_id 过滤 + 分页。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::checkpoint::{self, Checkpoint, CheckpointResponse};
@@ -42,7 +42,7 @@ pub struct UpdateCheckpointInput {
 
 /// 创建。
 pub async fn create_checkpoint(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreateCheckpointInput,
 ) -> AppResult<CheckpointResponse> {
     let status = input.status.unwrap_or_else(|| "completed".to_string());
@@ -74,7 +74,7 @@ pub async fn create_checkpoint(
 }
 
 /// 详情。
-pub async fn get_checkpoint(pool: &SqlitePool, id: i64) -> AppResult<CheckpointResponse> {
+pub async fn get_checkpoint(pool: &DatabasePool, id: i64) -> AppResult<CheckpointResponse> {
     let ckpt = checkpoint::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("checkpoint not found"))?;
@@ -83,7 +83,7 @@ pub async fn get_checkpoint(pool: &SqlitePool, id: i64) -> AppResult<CheckpointR
 
 /// 分页列表（按 job_id / dataset_id 过滤）。
 pub async fn list_checkpoints(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     job_id: Option<i64>,
     dataset_id: Option<i64>,
@@ -105,7 +105,7 @@ pub async fn list_checkpoints(
 
 /// 更新。
 pub async fn update_checkpoint(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateCheckpointInput,
 ) -> AppResult<CheckpointResponse> {
@@ -114,7 +114,8 @@ pub async fn update_checkpoint(
         .ok_or_else(|| AppError::not_found("checkpoint not found"))?;
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE checkpoints SET \
             name = COALESCE(?1, name), \
             description = COALESCE(?2, description), \
@@ -127,24 +128,28 @@ pub async fn update_checkpoint(
             status = COALESCE(?9, status), \
             updated_at = ?10 \
          WHERE id = ?11 AND deleted_at IS NULL",
-    )
-    .bind(input.name)
-    .bind(input.description)
-    .bind(input.path)
-    .bind(input.format)
-    .bind(input.size_bytes)
-    .bind(input.step)
-    .bind(input.epoch)
-    .bind(
-        input
-            .metrics
-            .map(|v| serde_json::to_string(&v).unwrap_or_else(|_| "{}".into())),
-    )
-    .bind(input.status)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(input.name)
+                .bind(input.description)
+                .bind(input.path)
+                .bind(input.format)
+                .bind(input.size_bytes)
+                .bind(input.step)
+                .bind(input.epoch)
+                .bind(
+                    input
+                        .metrics
+                        .map(|v| serde_json::to_string(&v).unwrap_or_else(|_| "{}".into())),
+                )
+                .bind(input.status)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let ckpt = checkpoint::get_by_id(pool, id, false)
         .await?
@@ -153,7 +158,7 @@ pub async fn update_checkpoint(
 }
 
 /// 软删除。
-pub async fn delete_checkpoint(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_checkpoint(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = checkpoint::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("checkpoint not found"));

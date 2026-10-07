@@ -18,6 +18,7 @@ use metaclouds_backend_rust::auth::handler::{
     change_password, get_profile, login, logout, refresh,
 };
 use metaclouds_backend_rust::auth::middleware::{jwt_auth, AppState};
+use metaclouds_backend_rust::db::DatabasePool;
 
 async fn setup_app() -> Router {
     let pool = sqlx::SqlitePool::connect("sqlite::memory:")
@@ -41,7 +42,7 @@ async fn setup_app() -> Router {
         .expect("seed admin");
 
     let state = AppState {
-        pool,
+        pool: DatabasePool::Sqlite(pool),
         config: Arc::new(config.into()),
     };
 

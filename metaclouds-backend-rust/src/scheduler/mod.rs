@@ -16,8 +16,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use crate::db::DatabasePool;
 use chrono::Utc;
-use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::info;
@@ -50,7 +50,7 @@ pub struct Scheduler {
 
 impl Scheduler {
     /// 构造调度器。异步是因为 `JobScheduler::new().await` 为异步。
-    pub async fn new(pool: SqlitePool, config: Arc<Config>) -> AppResult<Self> {
+    pub async fn new(pool: DatabasePool, config: Arc<Config>) -> AppResult<Self> {
         let inner = JobScheduler::new().await.map_err(|e| {
             AppError::with_source(ErrorCode::InternalServerError, "create cron scheduler", e)
         })?;

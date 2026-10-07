@@ -7,10 +7,10 @@
 //! resolved_at(nullable) / acknowledged_by(FK→users, nullable) / metadata(JSON) /
 //! created_at / updated_at / deleted_at。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -153,7 +153,7 @@ pub struct NewAlert<'a> {
 }
 
 /// INSERT（自动时间戳 + triggered_at 默认 now + status 默认 active）。
-pub async fn create(pool: &SqlitePool, input: NewAlert<'_>) -> AppResult<Alert> {
+pub async fn create(pool: &DatabasePool, input: NewAlert<'_>) -> AppResult<Alert> {
     let now = Utc::now();
     let mut alert = Alert {
         id: 0,
@@ -179,30 +179,30 @@ pub async fn create(pool: &SqlitePool, input: NewAlert<'_>) -> AppResult<Alert> 
     };
     alert.before_insert();
 
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO alerts (created_at, updated_at, name, description, severity, type, status, \
          source, message, cluster_id, job_id, resource_id, tenant_id, triggered_at, metadata) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(alert.created_at)
-    .bind(alert.updated_at)
-    .bind(&alert.name)
-    .bind(&alert.description)
-    .bind(&alert.severity)
-    .bind(&alert.kind)
-    .bind(&alert.status)
-    .bind(&alert.source)
-    .bind(&alert.message)
-    .bind(alert.cluster_id)
-    .bind(alert.job_id)
-    .bind(alert.resource_id)
-    .bind(alert.tenant_id)
-    .bind(alert.triggered_at)
-    .bind(&alert.metadata)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(alert.created_at)
+            .bind(alert.updated_at)
+            .bind(&alert.name)
+            .bind(&alert.description)
+            .bind(&alert.severity)
+            .bind(&alert.kind)
+            .bind(&alert.status)
+            .bind(&alert.source)
+            .bind(&alert.message)
+            .bind(alert.cluster_id)
+            .bind(alert.job_id)
+            .bind(alert.resource_id)
+            .bind(alert.tenant_id)
+            .bind(alert.triggered_at)
+            .bind(&alert.metadata)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted alert not found"))
@@ -210,7 +210,7 @@ pub async fn create(pool: &SqlitePool, input: NewAlert<'_>) -> AppResult<Alert> 
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Alert>> {
@@ -219,7 +219,12 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM alerts WHERE id = ? AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 过滤条件（list 用）。
@@ -235,7 +240,7 @@ pub struct AlertListFilter<'a> {
 
 /// 分页列表（可按 severity / type / status / cluster_id / tenant_id 过滤 + name 搜索）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     filter: AlertListFilter<'_>,
 ) -> AppResult<PaginatedResult<Alert>> {
@@ -284,51 +289,58 @@ pub async fn list(
     }
 
     let count_sql = format!("SELECT COUNT(*) FROM alerts WHERE {where_clause}");
-    let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
-    for b in &filter_binds {
-        count_q = count_q.bind(b);
-    }
-    let total: i64 = count_q.fetch_one(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut count_q = crate::db::query_scalar_db(db_e, db_s);
+        for b in &filter_binds {
+            count_q = count_q.bind(b);
+        }
+        count_q.fetch_one(db_e).await?
+    });
 
     let list_sql =
         format!("SELECT * FROM alerts WHERE {where_clause} ORDER BY id DESC LIMIT ? OFFSET ?");
-    let mut list_q = sqlx::query_as::<_, Alert>(&list_sql);
-    for b in &filter_binds {
-        list_q = list_q.bind(b);
-    }
-    list_q = list_q.bind(params.limit()).bind(params.offset());
-    let rows: Vec<Alert> = list_q.fetch_all(pool).await?;
+    let rows: Vec<Alert> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut list_q = crate::db::query_as_db(db_e, db_s);
+        for b in &filter_binds {
+            list_q = list_q.bind(b);
+        }
+        list_q = list_q.bind(params.limit()).bind(params.offset());
+        list_q.fetch_all(db_e).await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("alerts"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(pool, &soft_delete_update_sql("alerts"), |db_s, db_e| {
+        sqlx::query(db_s)
+            .bind(now)
+            .bind(now)
+            .bind(id)
+            .execute(db_e)
+            .await?
+            .rows_affected()
+    });
+    Ok(res > 0)
 }
 
 /// 按 severity/status 统计（dashboard stats 用）。
-pub async fn count_by_severity(pool: &SqlitePool) -> AppResult<Vec<(String, i64)>> {
-    let rows: Vec<(String, i64)> = sqlx::query_as(
+pub async fn count_by_severity(pool: &DatabasePool) -> AppResult<Vec<(String, i64)>> {
+    let rows: Vec<(String, i64)> = crate::with_db!(
+        pool,
         "SELECT severity, COUNT(*) FROM alerts WHERE deleted_at IS NULL GROUP BY severity",
-    )
-    .fetch_all(pool)
-    .await?;
+        |db_s, db_e| crate::db::query_as_db(db_e, db_s).fetch_all(db_e).await?
+    );
     Ok(rows)
 }
 
-pub async fn count_by_status(pool: &SqlitePool) -> AppResult<Vec<(String, i64)>> {
-    let rows: Vec<(String, i64)> = sqlx::query_as(
+pub async fn count_by_status(pool: &DatabasePool) -> AppResult<Vec<(String, i64)>> {
+    let rows: Vec<(String, i64)> = crate::with_db!(
+        pool,
         "SELECT status, COUNT(*) FROM alerts WHERE deleted_at IS NULL GROUP BY status",
-    )
-    .fetch_all(pool)
-    .await?;
+        |db_s, db_e| crate::db::query_as_db(db_e, db_s).fetch_all(db_e).await?
+    );
     Ok(rows)
 }

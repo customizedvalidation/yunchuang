@@ -6,21 +6,21 @@
 //! - 三个模型（User/Tenant/Cluster）完整 CRUD；
 //! - Json<T> 字段往返。
 
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::models::cluster::{self, NewCluster};
 use metaclouds_backend_rust::models::tenant::{self, NewTenant};
 use metaclouds_backend_rust::models::user::{self, NewUser};
 use metaclouds_backend_rust::orm::{total_pages, PaginationParams, SoftDelete};
-use sqlx::sqlite::SqlitePool;
 
 /// 单连接内存库 + 全量迁移。
-async fn memory_pool() -> SqlitePool {
+async fn memory_pool() -> DatabasePool {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
         .connect("sqlite::memory:")
         .await
         .unwrap();
     sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-    pool
+    DatabasePool::Sqlite(pool)
 }
 
 // ---------------------------------------------------------------------------

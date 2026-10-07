@@ -123,51 +123,65 @@ pub async fn get_quota_usage(
     );
 
     let total: i64 = {
-        let mut q = sqlx::query_scalar::<_, i64>(&total_sql);
-        if bind_scope {
-            q = q.bind(scope_id);
-        }
-        q.fetch_one(pool).await?
+        crate::with_db!(pool, &total_sql, |db_s, db_e| {
+            let mut q = crate::db::query_scalar_db(db_e, db_s);
+            if bind_scope {
+                q = q.bind(scope_id);
+            }
+            q.fetch_one(db_e).await?
+        })
     };
     let gpu_allocated: i64 = {
-        let mut q = sqlx::query_scalar::<_, i64>(&allocated_sql);
-        if bind_scope {
-            q = q.bind(scope_id);
-        }
-        q.fetch_one(pool).await?
+        crate::with_db!(pool, &allocated_sql, |db_s, db_e| {
+            let mut q = crate::db::query_scalar_db(db_e, db_s);
+            if bind_scope {
+                q = q.bind(scope_id);
+            }
+            q.fetch_one(db_e).await?
+        })
     };
     let gpu_available: i64 = {
-        let mut q = sqlx::query_scalar::<_, i64>(&available_sql);
-        if bind_scope {
-            q = q.bind(scope_id);
-        }
-        q.fetch_one(pool).await?
+        crate::with_db!(pool, &available_sql, |db_s, db_e| {
+            let mut q = crate::db::query_scalar_db(db_e, db_s);
+            if bind_scope {
+                q = q.bind(scope_id);
+            }
+            q.fetch_one(db_e).await?
+        })
     };
 
     let by_status_rows: Vec<(String, i64)> = {
-        let mut q = sqlx::query_as::<_, (String, i64)>(&by_status_sql);
-        if bind_scope {
-            q = q.bind(scope_id);
-        }
-        q.fetch_all(pool).await?
+        crate::with_db!(pool, &by_status_sql, |db_s, db_e| {
+            let mut q = crate::db::query_as_db(db_e, db_s);
+            if bind_scope {
+                q = q.bind(scope_id);
+            }
+            q.fetch_all(db_e).await?
+        })
     };
     let by_vendor_rows: Vec<(String, i64, i64)> = {
-        let mut q = sqlx::query_as::<_, (String, i64, i64)>(&by_vendor_sql);
-        if bind_scope {
-            q = q.bind(scope_id);
-        }
-        q.fetch_all(pool).await?
+        crate::with_db!(pool, &by_vendor_sql, |db_s, db_e| {
+            let mut q = crate::db::query_as_db(db_e, db_s);
+            if bind_scope {
+                q = q.bind(scope_id);
+            }
+            q.fetch_all(db_e).await?
+        })
     };
 
     // GPU 上限：仅 tenant 维度有配额表记录；cluster/user 维度无配额行，返回 0（不限制）。
     let gpu_limit: i64 = if scope_type == "tenant" {
-        sqlx::query_scalar::<_, i64>(
+        crate::with_db!(
+            pool,
             "SELECT COALESCE(SUM(gpu_limit), 0) FROM resource_quotas \
              WHERE tenant_id = ? AND deleted_at IS NULL",
+            |db_s, db_e| {
+                crate::db::query_scalar_db(db_e, db_s)
+                    .bind(scope_id)
+                    .fetch_one(db_e)
+                    .await?
+            }
         )
-        .bind(scope_id)
-        .fetch_one(pool)
-        .await?
     } else {
         0
     };

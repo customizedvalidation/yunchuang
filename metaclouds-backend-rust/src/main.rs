@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     //   跑 migrations/postgres 方言迁移并播种 admin（此前 connect_pool /
     //   DatabasePool::Postgres 是死代码，compose 下发 postgresql:// 时被静默
     //   忽略、错误地按 SQLite 打开了一个同名文件）。
-    let pool = if db::wants_postgres(&config) {
+    let pool: DatabasePool = if db::wants_postgres(&config) {
         let db_pool = db::connect_pool(&config).await?;
         db::run_migrations(&db_pool).await.map_err(|e| {
             AppError::with_source(
@@ -43,18 +43,13 @@ async fn main() -> anyhow::Result<()> {
             DatabasePool::Postgres(pg) => db::seed_admin_if_empty_postgres(pg).await?,
             DatabasePool::Sqlite(p) => db::seed_admin_if_empty(p).await?,
         }
-        // 请求层（?N 占位符 / last_insert_rowid）尚未移植到 Postgres 方言，
-        // 属下一阶段。此处不再静默兜底到 SQLite 文件——显式报错以免错配数据。
-        db_pool.as_sqlite().cloned().ok_or_else(|| {
-            AppError::internal(
-                "postgres connected and migrated, but the request layer is not yet \
-                 ported to postgres dialect (next stage)",
-            )
-        })?
+        // 请求层已移植到双驱动方言（?N ⇄ $N、last_insert_rowid ⇄ RETURNING id），
+        // Postgres 与 SQLite 共用同一套 SQL，此处可直接以 DatabasePool 对外服务。
+        db_pool
     } else {
-        let pool = db::connect_and_migrate(&config.database_url).await?;
-        db::seed_admin_if_empty(&pool).await?;
-        pool
+        let sqlite_pool = db::connect_and_migrate(&config.database_url).await?;
+        db::seed_admin_if_empty(&sqlite_pool).await?;
+        DatabasePool::Sqlite(sqlite_pool)
     };
 
     // ── Redis 缓存/会话：按配置建立，失败自动降级为 NoopCache ──────────

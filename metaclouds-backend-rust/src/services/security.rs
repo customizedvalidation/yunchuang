@@ -2,8 +2,8 @@
 //!
 //! CRUD + enable/disable + 分页/搜索/过滤 + evaluate_policy 条件评估。
 
+use crate::db::DatabasePool;
 use chrono::Utc;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::security_policy::{
@@ -43,7 +43,7 @@ pub struct UpdatePolicyInput {
 
 /// 创建。
 pub async fn create_policy(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreatePolicyInput,
 ) -> AppResult<SecurityPolicyResponse> {
     let policy = security_policy::create(
@@ -67,7 +67,7 @@ pub async fn create_policy(
 }
 
 /// 详情。
-pub async fn get_policy(pool: &SqlitePool, id: i64) -> AppResult<SecurityPolicyResponse> {
+pub async fn get_policy(pool: &DatabasePool, id: i64) -> AppResult<SecurityPolicyResponse> {
     let p = security_policy::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("security policy not found"))?;
@@ -76,7 +76,7 @@ pub async fn get_policy(pool: &SqlitePool, id: i64) -> AppResult<SecurityPolicyR
 
 /// 分页列表。
 pub async fn list_policies(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     policy_type: Option<&str>,
     enabled: Option<bool>,
@@ -107,7 +107,7 @@ pub async fn list_policies(
 
 /// 更新。
 pub async fn update_policy(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdatePolicyInput,
 ) -> AppResult<SecurityPolicyResponse> {
@@ -130,7 +130,8 @@ pub async fn update_policy(
         .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "{}".into()));
     let enabled_i64 = input.enabled.map(|v| if v { 1i64 } else { 0i64 });
 
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE security_policies SET \
             name = COALESCE(?, name), \
             description = COALESCE(?, description), \
@@ -143,20 +144,24 @@ pub async fn update_policy(
             enabled = COALESCE(?, enabled), \
             updated_at = ? \
          WHERE id = ? AND deleted_at IS NULL",
-    )
-    .bind(input.name)
-    .bind(input.description)
-    .bind(input.policy_type)
-    .bind(input.effect)
-    .bind(resources_str)
-    .bind(actions_str)
-    .bind(conditions_str)
-    .bind(input.priority)
-    .bind(enabled_i64)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(input.name)
+                .bind(input.description)
+                .bind(input.policy_type)
+                .bind(input.effect)
+                .bind(resources_str)
+                .bind(actions_str)
+                .bind(conditions_str)
+                .bind(input.priority)
+                .bind(enabled_i64)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let p = security_policy::get_by_id(pool, id, false)
         .await?
@@ -165,7 +170,7 @@ pub async fn update_policy(
 }
 
 /// 软删除。
-pub async fn delete_policy(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_policy(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = security_policy::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("security policy not found"));
@@ -174,17 +179,17 @@ pub async fn delete_policy(pool: &SqlitePool, id: i64) -> AppResult<()> {
 }
 
 /// 启用策略。
-pub async fn enable_policy(pool: &SqlitePool, id: i64) -> AppResult<SecurityPolicyResponse> {
+pub async fn enable_policy(pool: &DatabasePool, id: i64) -> AppResult<SecurityPolicyResponse> {
     set_enabled(pool, id, true).await
 }
 
 /// 禁用策略。
-pub async fn disable_policy(pool: &SqlitePool, id: i64) -> AppResult<SecurityPolicyResponse> {
+pub async fn disable_policy(pool: &DatabasePool, id: i64) -> AppResult<SecurityPolicyResponse> {
     set_enabled(pool, id, false).await
 }
 
 async fn set_enabled(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     enabled: bool,
 ) -> AppResult<SecurityPolicyResponse> {
@@ -192,14 +197,11 @@ async fn set_enabled(
         .await?
         .ok_or_else(|| AppError::not_found("security policy not found"))?;
     let now = Utc::now();
-    sqlx::query(
-        "UPDATE security_policies SET enabled = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
-    )
+    crate::with_db!(pool, "UPDATE security_policies SET enabled = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL", |db_s, db_e| { sqlx::query(db_s)
     .bind(if enabled { 1i64 } else { 0i64 })
     .bind(now)
     .bind(id)
-    .execute(pool)
-    .await?;
+    .execute(db_e).await?.rows_affected() });
     let p = security_policy::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("policy disappeared after enable/disable"))?;

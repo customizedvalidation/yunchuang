@@ -4,10 +4,10 @@
 //! 多 GPU 厂商与联邦字段。`gpu_vendors` / `scheduler_types` 使用 [`crate::orm::Json`]
 //! 包装（对齐 GORM `type:json` tag）。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -124,7 +124,7 @@ pub struct NewCluster<'a> {
 }
 
 /// INSERT 集群（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewCluster<'_>) -> AppResult<Cluster> {
+pub async fn create(pool: &DatabasePool, input: NewCluster<'_>) -> AppResult<Cluster> {
     let mut cluster = Cluster {
         id: 0,
         created_at: Utc::now(),
@@ -147,32 +147,32 @@ pub async fn create(pool: &SqlitePool, input: NewCluster<'_>) -> AppResult<Clust
     };
     cluster.before_insert();
 
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO clusters (created_at, updated_at, name, description, status, \
          nodes, gpus, cpus, memory, storage, network_type, location, \
          gpu_vendors, scheduler_types, multi_cluster_enabled, federation_id) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-    )
-    .bind(cluster.created_at)
-    .bind(cluster.updated_at)
-    .bind(&cluster.name)
-    .bind(&cluster.description)
-    .bind(&cluster.status)
-    .bind(cluster.nodes)
-    .bind(cluster.gpus)
-    .bind(cluster.cpus)
-    .bind(cluster.memory)
-    .bind(cluster.storage)
-    .bind(&cluster.network_type)
-    .bind(&cluster.location)
-    .bind(&cluster.gpu_vendors)
-    .bind(&cluster.scheduler_types)
-    .bind(cluster.multi_cluster_enabled)
-    .bind(&cluster.federation_id)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(cluster.created_at)
+            .bind(cluster.updated_at)
+            .bind(&cluster.name)
+            .bind(&cluster.description)
+            .bind(&cluster.status)
+            .bind(cluster.nodes)
+            .bind(cluster.gpus)
+            .bind(cluster.cpus)
+            .bind(cluster.memory)
+            .bind(cluster.storage)
+            .bind(&cluster.network_type)
+            .bind(&cluster.location)
+            .bind(&cluster.gpu_vendors)
+            .bind(&cluster.scheduler_types)
+            .bind(cluster.multi_cluster_enabled)
+            .bind(&cluster.federation_id)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted cluster not found"))
@@ -180,7 +180,7 @@ pub async fn create(pool: &SqlitePool, input: NewCluster<'_>) -> AppResult<Clust
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Cluster>> {
@@ -189,12 +189,17 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM clusters WHERE id = ?1 AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 分页列表。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     include_deleted: bool,
 ) -> AppResult<PaginatedResult<Cluster>> {
@@ -205,23 +210,37 @@ pub async fn list(
         " WHERE deleted_at IS NULL"
     };
 
-    let total: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM clusters{where_clause}"))
-        .fetch_one(pool)
-        .await?;
+    let total: i64 = crate::with_db!(
+        pool,
+        &format!("SELECT COUNT(*) FROM clusters{where_clause}"),
+        |db_s, db_e| {
+            crate::db::query_scalar_db(db_e, db_s)
+                .fetch_one(db_e)
+                .await?
+        }
+    );
 
-    let rows: Vec<Cluster> = sqlx::query_as(&format!(
-        "SELECT * FROM clusters{where_clause} ORDER BY id ASC LIMIT ?1 OFFSET ?2"
-    ))
-    .bind(params.limit())
-    .bind(params.offset())
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<Cluster> = crate::with_db!(
+        pool,
+        &format!("SELECT * FROM clusters{where_clause} ORDER BY id ASC LIMIT ?1 OFFSET ?2"),
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(params.limit())
+                .bind(params.offset())
+                .fetch_all(db_e)
+                .await?
+        }
+    );
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 更新集群状态（自动刷 updated_at）。
-pub async fn update_status(pool: &SqlitePool, id: i64, status: &str) -> AppResult<Option<Cluster>> {
+pub async fn update_status(
+    pool: &DatabasePool,
+    id: i64,
+    status: &str,
+) -> AppResult<Option<Cluster>> {
     let mut existing = match get_by_id(pool, id, false).await? {
         Some(c) => c,
         None => return Ok(None),
@@ -229,24 +248,34 @@ pub async fn update_status(pool: &SqlitePool, id: i64, status: &str) -> AppResul
     existing.status = status.to_string();
     existing.before_update();
 
-    sqlx::query("UPDATE clusters SET status = ?1, updated_at = ?2 WHERE id = ?3")
-        .bind(&existing.status)
-        .bind(existing.updated_at)
-        .bind(id)
-        .execute(pool)
-        .await?;
+    crate::with_db!(
+        pool,
+        "UPDATE clusters SET status = ?1, updated_at = ?2 WHERE id = ?3",
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(&existing.status)
+                .bind(existing.updated_at)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     Ok(Some(existing))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("clusters"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(pool, &soft_delete_update_sql("clusters"), |db_s, db_e| {
+        sqlx::query(db_s)
+            .bind(now)
+            .bind(now)
+            .bind(id)
+            .execute(db_e)
+            .await?
+            .rows_affected()
+    });
+    Ok(res > 0)
 }

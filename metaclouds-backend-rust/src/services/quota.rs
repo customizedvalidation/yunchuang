@@ -4,7 +4,7 @@
 //! check_quota（验证资源使用是否超限，返回 allowed + 超限项）+
 //! allocate/release（更新 used 字段）。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::resource_quota::{
@@ -56,17 +56,14 @@ pub struct QuotaCheckResult {
 
 /// 创建配额（status 默认 active，同名同 scope 冲突 409）。
 pub async fn create_quota(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreateQuotaInput,
 ) -> AppResult<ResourceQuotaResponse> {
     // 同名租户内唯一。
-    let dup: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM resource_quotas WHERE tenant_id = ?1 AND name = ?2 AND deleted_at IS NULL LIMIT 1",
-    )
+    let dup: Option<i64> = crate::with_db!(pool, "SELECT id FROM resource_quotas WHERE tenant_id = ?1 AND name = ?2 AND deleted_at IS NULL LIMIT 1", |db_s, db_e| { crate::db::query_scalar_db(db_e, db_s)
     .bind(input.tenant_id)
     .bind(&input.name)
-    .fetch_optional(pool)
-    .await?;
+    .fetch_optional(db_e).await? });
     if dup.is_some() {
         return Err(AppError::conflict(
             "quota name already exists for this tenant",
@@ -95,7 +92,7 @@ pub async fn create_quota(
 }
 
 /// 配额详情（404 若不存在或已软删除）。
-pub async fn get_quota(pool: &SqlitePool, id: i64) -> AppResult<ResourceQuotaResponse> {
+pub async fn get_quota(pool: &DatabasePool, id: i64) -> AppResult<ResourceQuotaResponse> {
     let q = resource_quota::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("resource quota not found"))?;
@@ -104,7 +101,7 @@ pub async fn get_quota(pool: &SqlitePool, id: i64) -> AppResult<ResourceQuotaRes
 
 /// 分页配额列表（按 tenant_id/partition_id/status 过滤；排除软删除）。
 pub async fn list_quotas(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     tenant_id: Option<i64>,
     partition_id: Option<i64>,
@@ -126,7 +123,7 @@ pub async fn list_quotas(
 
 /// 更新配额：仅覆盖传入字段；自动刷 updated_at。
 pub async fn update_quota(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateQuotaInput,
 ) -> AppResult<ResourceQuotaResponse> {
@@ -135,7 +132,8 @@ pub async fn update_quota(
         .ok_or_else(|| AppError::not_found("resource quota not found"))?;
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE resource_quotas SET \
             name = COALESCE(?1, name), \
             description = COALESCE(?2, description), \
@@ -146,18 +144,22 @@ pub async fn update_quota(
             status = COALESCE(?7, status), \
             updated_at = ?8 \
          WHERE id = ?9 AND deleted_at IS NULL",
-    )
-    .bind(&input.name)
-    .bind(&input.description)
-    .bind(input.gpu_limit)
-    .bind(input.cpu_limit)
-    .bind(input.memory_limit_gb)
-    .bind(input.storage_limit_gb)
-    .bind(&input.status)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(&input.name)
+                .bind(&input.description)
+                .bind(input.gpu_limit)
+                .bind(input.cpu_limit)
+                .bind(input.memory_limit_gb)
+                .bind(input.storage_limit_gb)
+                .bind(&input.status)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let q = resource_quota::get_by_id(pool, id, false)
         .await?
@@ -166,7 +168,7 @@ pub async fn update_quota(
 }
 
 /// 软删除配额（404 若不存在或已软删除）。
-pub async fn delete_quota(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_quota(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = resource_quota::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("resource quota not found"));
@@ -179,7 +181,7 @@ pub async fn delete_quota(pool: &SqlitePool, id: i64) -> AppResult<()> {
 /// 对每类资源：若 limit > 0，则 used + requested > limit 记为超限。
 /// 返回 allowed（全部未超限）+ 超限项名称列表。
 pub async fn check_quota(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     request: QuotaRequest,
 ) -> AppResult<QuotaCheckResult> {
@@ -212,7 +214,7 @@ pub async fn check_quota(
 /// 查找匹配 (scope_type, scope_id, status=active) 的配额；无配额视为允许。
 /// 根据 resource_type 检查对应的 limit/used。
 pub async fn check_quota_by_scope(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     scope_type: &str,
     scope_id: i64,
     resource_type: &str,
@@ -222,24 +224,32 @@ pub async fn check_quota_by_scope(
     // 根据 scope_type 构建查询条件。
     let row: Option<ResourceQuota> = match scope_type {
         "tenant" => {
-            sqlx::query_as(
+            crate::with_db!(
+                pool,
                 "SELECT * FROM resource_quotas \
                  WHERE tenant_id = ?1 AND status = 'active' AND deleted_at IS NULL \
                  ORDER BY id ASC LIMIT 1",
+                |db_s, db_e| {
+                    crate::db::query_as_db(db_e, db_s)
+                        .bind(scope_id)
+                        .fetch_optional(db_e)
+                        .await?
+                }
             )
-            .bind(scope_id)
-            .fetch_optional(pool)
-            .await?
         }
         "partition" => {
-            sqlx::query_as(
+            crate::with_db!(
+                pool,
                 "SELECT * FROM resource_quotas \
                  WHERE partition_id = ?1 AND status = 'active' AND deleted_at IS NULL \
                  ORDER BY id ASC LIMIT 1",
+                |db_s, db_e| {
+                    crate::db::query_as_db(db_e, db_s)
+                        .bind(scope_id)
+                        .fetch_optional(db_e)
+                        .await?
+                }
             )
-            .bind(scope_id)
-            .fetch_optional(pool)
-            .await?
         }
         _ => {
             // 未知 scope_type：无配额限制视为允许（对齐 Go findQuota 返回 nil）。
@@ -270,7 +280,7 @@ pub async fn check_quota_by_scope(
 
 /// 分配资源：先校验，未超限则累加 used；超限返回 403。
 pub async fn allocate_resources(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     request: QuotaRequest,
 ) -> AppResult<ResourceQuotaResponse> {
@@ -283,7 +293,8 @@ pub async fn allocate_resources(
     }
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE resource_quotas SET \
             gpu_used = gpu_used + ?1, \
             cpu_used = cpu_used + ?2, \
@@ -291,15 +302,19 @@ pub async fn allocate_resources(
             storage_used_gb = storage_used_gb + ?4, \
             updated_at = ?5 \
          WHERE id = ?6 AND deleted_at IS NULL",
-    )
-    .bind(request.gpu)
-    .bind(request.cpu)
-    .bind(request.memory_gb)
-    .bind(request.storage_gb)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(request.gpu)
+                .bind(request.cpu)
+                .bind(request.memory_gb)
+                .bind(request.storage_gb)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let q = resource_quota::get_by_id(pool, id, false)
         .await?
@@ -309,7 +324,7 @@ pub async fn allocate_resources(
 
 /// 释放资源：扣减 used（不为负）。
 pub async fn release_resources(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     request: QuotaRequest,
 ) -> AppResult<ResourceQuotaResponse> {
@@ -318,7 +333,8 @@ pub async fn release_resources(
         .ok_or_else(|| AppError::not_found("resource quota not found"))?;
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE resource_quotas SET \
             gpu_used = MAX(gpu_used - ?1, 0), \
             cpu_used = MAX(cpu_used - ?2, 0.0), \
@@ -326,15 +342,19 @@ pub async fn release_resources(
             storage_used_gb = MAX(storage_used_gb - ?4, 0.0), \
             updated_at = ?5 \
          WHERE id = ?6 AND deleted_at IS NULL",
-    )
-    .bind(request.gpu)
-    .bind(request.cpu)
-    .bind(request.memory_gb)
-    .bind(request.storage_gb)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(request.gpu)
+                .bind(request.cpu)
+                .bind(request.memory_gb)
+                .bind(request.storage_gb)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let q = resource_quota::get_by_id(pool, id, false)
         .await?

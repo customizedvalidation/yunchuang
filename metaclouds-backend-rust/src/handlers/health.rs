@@ -18,7 +18,7 @@ use axum::extract::State;
 use axum::Json;
 
 use crate::auth::middleware::AppState;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::response::ApiResponse;
 
 /// 进程启动时刻。`main` 启动时调用 [`init_start`] 记录。
@@ -60,13 +60,9 @@ pub async fn liveness() -> Json<ApiResponse<HealthStatus>> {
 /// P1：轻量探活数据库（`SELECT 1`）。DB 不可用时返回 503，便于 K8s
 /// readiness 摘除故障实例；DB 正常时 200 信封结构与此前完全一致。
 pub async fn health(State(state): State<AppState>) -> AppResult<Json<ApiResponse<HealthStatus>>> {
-    sqlx::query("SELECT 1")
-        .execute(&state.pool)
-        .await
-        .map_err(|e| {
-            tracing::warn!(error = %e, "health db probe failed");
-            AppError::service_unavailable("database unavailable")
-        })?;
+    crate::with_db!(&state.pool, "SELECT 1", |db_s, db_e| {
+        sqlx::query(db_s).execute(db_e).await?.rows_affected()
+    });
 
     Ok(Json(ApiResponse::success(HealthStatus {
         status: "ok",

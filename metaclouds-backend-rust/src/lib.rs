@@ -25,6 +25,7 @@ use std::time::Duration;
 pub use crate::auth::middleware::AppState;
 pub use crate::auth::password::{hash_password, verify_password};
 pub use crate::db::seed_admin_if_empty;
+use crate::db::DatabasePool;
 
 /// Test-friendly config mirror. Production code should keep using
 /// `config::Config::from_env()`.
@@ -72,7 +73,7 @@ impl From<TestConfig> for crate::config::Config {
 /// Shared by `main.rs` (production) and integration tests (in-memory sqlite).
 pub fn build_app(pool: sqlx::SqlitePool, config: impl Into<crate::config::Config>) -> axum::Router {
     let state = AppState {
-        pool,
+        pool: DatabasePool::Sqlite(pool),
         config: Arc::new(config.into()),
     };
     routes::build_router(state)

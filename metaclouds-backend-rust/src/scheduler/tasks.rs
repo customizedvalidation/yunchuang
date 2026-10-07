@@ -7,7 +7,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 use tracing::{error, info, warn};
 
 use crate::config::Config;
@@ -15,7 +15,7 @@ use crate::config::Config;
 /// 每个任务的共享上下文（由调度器在注册时克隆进闭包）。
 #[derive(Clone)]
 pub struct TaskContext {
-    pub pool: SqlitePool,
+    pub pool: DatabasePool,
     pub config: Arc<Config>,
 }
 

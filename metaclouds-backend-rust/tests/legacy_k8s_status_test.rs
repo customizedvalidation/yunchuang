@@ -16,6 +16,7 @@ use tower_cookies::CookieManagerLayer;
 use metaclouds_backend_rust::auth::csrf::csrf_protect;
 use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{jwt_auth, AppState};
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::handlers::k8s::cluster_status;
 
 async fn setup_app() -> axum::Router {
@@ -26,7 +27,7 @@ async fn setup_app() -> axum::Router {
         .unwrap();
     let config = metaclouds_backend_rust::TestConfig::default();
     let state = AppState {
-        pool,
+        pool: DatabasePool::Sqlite(pool),
         config: Arc::new(config.into()),
     };
     let protected = Router::new()

@@ -76,6 +76,201 @@ impl DatabasePool {
     }
 }
 
+/// 把 SQLite 风格的位置占位符 `?N` 改写为 Postgres 风格的 `$N`。
+///
+/// 仅匹配 `?` 紧跟数字（`?1`、`?12` …），不动字符串字面量里可能出现的 `?`
+/// （若 SQL 真有字面量 `?5`，SQLite 也会把它当成参数而报参数不匹配，故可安全改写）。
+/// SQLite 分支直接用原文，零拷贝；Postgres 分支走本函数。
+pub fn pg_placeholders(sql: &str) -> String {
+    let bytes = sql.as_bytes();
+    let mut out = String::with_capacity(sql.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'?' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
+            out.push('$');
+            i += 1;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                out.push(bytes[i] as char);
+                i += 1;
+            }
+        } else {
+            // 复制当前字节（SQL 为 ASCII 子集，逐字节安全）。
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// 渲染 SQL：SQLite 原样返回；Postgres 把 `?N` 改写为 `$N`。
+///
+/// 既可作为 `DatabasePool` 的方法调用，也可被宏在编译期按驱动分支选择，
+/// 保证 SQLite 路径与改动前逐字节一致（从而 143 项 lib 测试不受影响）。
+impl DatabasePool {
+    pub fn render_sql<'a>(&self, sql: &'a str) -> std::borrow::Cow<'a, str> {
+        match self {
+            DatabasePool::Sqlite(_) => std::borrow::Cow::Borrowed(sql),
+            DatabasePool::Postgres(_) => std::borrow::Cow::Owned(pg_placeholders(sql)),
+        }
+    }
+}
+
+/// 双驱动 SQL 执行宏（请求层方言移植的核心）。
+///
+/// 用法：`with_db!(&pool, SQL_EXPR, |sql, p| { sqlx::query_as::<_, T>(sql)....fetch_X(p).await? })`
+///
+/// - `sql`：渲染后的 `&str`（`?N` → `$N` 仅对 Postgres 生效）。
+/// - `p`：具体驱动连接池（`&SqlitePool` / `&PgPool`），由宏按 `&pool` 的变体拆分，
+///   sqlx 据此推断数据库类型，故无需为两库写两份 SQL。
+/// - SQLite 分支与改动前完全相同，确保零回归。
+#[macro_export]
+macro_rules! with_db {
+    ($pool:expr, $db_sql:expr, |$db_s:ident, $db_e:ident| $body:expr) => {{
+        let __db_pool = $pool;
+        match __db_pool {
+            $crate::db::DatabasePool::Sqlite($db_e) => {
+                let $db_s: &str = $db_sql;
+                $body
+            }
+            $crate::db::DatabasePool::Postgres($db_e) => {
+                let __pg_sql = $crate::db::pg_placeholders($db_sql);
+                let $db_s: &str = &__pg_sql;
+                $body
+            }
+        }
+    }};
+}
+
+/// 双驱动 INSERT 取自增 id 宏（替代 SQLite 专属的 `last_insert_rowid()`）。
+///
+/// - SQLite：`.execute()` 后 `.last_insert_rowid()`；
+/// - Postgres：`... RETURNING id` + `fetch_one::<(i64,)>()` 取 `.0`。
+///
+/// `$binds` 为以 `q` 开头的 `.bind(...).bind(...)` 链（如 `q.bind(a).bind(b)`）。
+#[macro_export]
+macro_rules! insert_id {
+    ($pool:expr, $db_sql:expr, |$q:ident| $binds:expr) => {{
+        let __db_pool = $pool;
+        match __db_pool {
+            $crate::db::DatabasePool::Sqlite(p) => {
+                let $q = ::sqlx::query($db_sql);
+                let __b = $binds;
+                let __res = __b.execute(p).await?;
+                __res.last_insert_rowid()
+            }
+            $crate::db::DatabasePool::Postgres(p) => {
+                let __pg_sql = format!("{} RETURNING id", $crate::db::pg_placeholders($db_sql));
+                let $q = $crate::db::query_as_db::<_, (i64,), _>(p, &__pg_sql);
+                let __b = $binds;
+                let __row = __b.fetch_one(p).await?;
+                __row.0
+            }
+        }
+    }};
+}
+
+/// 双驱动事务宏：按驱动开启并提交一个事务，体内 `tx` 为具体的事务对象。
+#[macro_export]
+macro_rules! with_tx {
+    ($pool:expr, |$tx:ident| $body:expr) => {{
+        let __db_pool = $pool;
+        match __db_pool {
+            $crate::db::DatabasePool::Sqlite(p) => {
+                let mut $tx = p.begin().await?;
+                let __r = $body;
+                $tx.commit().await?;
+                __r
+            }
+            $crate::db::DatabasePool::Postgres(p) => {
+                let mut $tx = p.begin().await?;
+                let __r = $body;
+                $tx.commit().await?;
+                __r
+            }
+        }
+    }};
+}
+
+/// 事务内的双驱动 SQL 执行宏（executor 为具体事务 `&mut *tx`）。
+///
+/// `$tx` 是 `with_tx!` 提供的具体事务表达式（如 `&mut *tx`）；方言仍由 `$pool` 决定。
+#[macro_export]
+macro_rules! with_db_tx {
+    ($pool:expr, $tx:expr, $db_sql:expr, |$db_s:ident, $db_e:ident| $body:expr) => {{
+        let __db_pool = $pool;
+        let $db_e = $tx;
+        let __db_sql: std::borrow::Cow<'_, str> = match __db_pool {
+            $crate::db::DatabasePool::Sqlite(_) => std::borrow::Cow::Borrowed($db_sql),
+            $crate::db::DatabasePool::Postgres(_) => {
+                std::borrow::Cow::Owned($crate::db::pg_placeholders($db_sql))
+            }
+        };
+        let $db_s: &str = &__db_sql;
+        $body
+    }};
+}
+
+/// 事务内的双驱动 INSERT 取自增 id 宏（executor 为具体事务 `&mut *tx`）。
+///
+/// 注意：本宏始终在 `with_tx!` 内部展开，`$tx` 已是单一驱动的具体事务类型
+/// （`&mut SqliteTransaction` 或 `&mut PgTransaction`），无法再按 `&pool` 做两套
+/// 不同执行路径（否则非匹配臂会因 executor 类型不符而编译失败，例如 SQLite 臂对
+/// `PgTransaction` 调用 `last_insert_rowid()`）。因此这里统一采用
+/// `RETURNING id` + `fetch_one::<(i64,)>` 的方式——SQLite 3.35+ 与 Postgres 均支持
+/// `RETURNING`，驱动差异仅靠占位符 `?N`→`$N` 与执行器类型区分。
+#[macro_export]
+macro_rules! insert_id_tx {
+    ($pool:expr, $tx:expr, $db_sql:expr, |$q:ident| $binds:expr) => {{
+        let __db_pool = $pool;
+        let __tx = $tx;
+        let __sql: String = match __db_pool {
+            $crate::db::DatabasePool::Sqlite(_) => {
+                format!("{} RETURNING id", $db_sql)
+            }
+            $crate::db::DatabasePool::Postgres(_) => {
+                format!("{} RETURNING id", $crate::db::pg_placeholders($db_sql))
+            }
+        };
+        let $q = $crate::db::query_as_db::<_, (i64,), _>(&mut *__tx, &__sql);
+        let __b = $binds;
+        let __row = __b.fetch_one(__tx).await?;
+        __row.0
+    }};
+}
+
+/// 双驱动安全版的 `sqlx::query_as`：借 executor 固定数据库类型，消除
+/// `query_as::<_, O>` 在 `Sqlite` / `Postgres` 两套 `FromRow` 实现之间的推断歧义
+/// （否则 `with_db!` 两臂的 `impl Future` 类型不兼容，无法统一，编译失败）。
+///
+/// `executor` 仅用于类型推断（不实际消费），DB 会据此解析为 `Sqlite` 或 `Postgres`，
+/// 与 `O: FromRow<DB>` 自动对齐。
+pub fn query_as_db<'q, 'c, DB, O, E>(
+    _executor: E,
+    sql: &'q str,
+) -> sqlx::query::QueryAs<'q, DB, O, <DB as sqlx::Database>::Arguments<'q>>
+where
+    DB: sqlx::Database,
+    O: for<'r> sqlx::FromRow<'r, DB::Row>,
+    E: sqlx::Executor<'c, Database = DB>,
+    usize: sqlx::ColumnIndex<<DB as sqlx::Database>::Row>,
+{
+    sqlx::query_as::<DB, O>(sql)
+}
+
+/// 双驱动安全版的 `sqlx::query_scalar`：同上，用 executor 固定数据库类型。
+pub fn query_scalar_db<'q, 'c, DB, T, E>(
+    _executor: E,
+    sql: &'q str,
+) -> sqlx::query::QueryScalar<'q, DB, T, <DB as sqlx::Database>::Arguments<'q>>
+where
+    DB: sqlx::Database,
+    T: for<'r> sqlx::Decode<'r, DB> + sqlx::Type<DB>,
+    E: sqlx::Executor<'c, Database = DB>,
+    usize: sqlx::ColumnIndex<<DB as sqlx::Database>::Row>,
+{
+    sqlx::query_scalar::<DB, T>(sql)
+}
+
 /// DSN 是否为 Postgres 连接串：`postgres://...` 与 `postgresql://...` 均识别
 /// （docker-compose 下发的是 `postgresql://...`，sqlx 两种 scheme 都接受）。
 pub fn is_postgres_url(url: &str) -> bool {

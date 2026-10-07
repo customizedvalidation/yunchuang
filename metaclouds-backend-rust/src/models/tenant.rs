@@ -3,10 +3,10 @@
 //! 字段：id / name(unique) / description / status(active) / 四项配额，
 //! 以及 created_at / updated_at / deleted_at 软删除三件套。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -93,7 +93,7 @@ pub struct NewTenant<'a> {
 }
 
 /// INSERT 租户（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewTenant<'_>) -> AppResult<Tenant> {
+pub async fn create(pool: &DatabasePool, input: NewTenant<'_>) -> AppResult<Tenant> {
     let mut tenant = Tenant {
         id: 0,
         created_at: Utc::now(),
@@ -109,24 +109,24 @@ pub async fn create(pool: &SqlitePool, input: NewTenant<'_>) -> AppResult<Tenant
     };
     tenant.before_insert();
 
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO tenants (created_at, updated_at, name, description, status, \
          gpu_quota, cpu_quota, memory_quota, storage_quota) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-    )
-    .bind(tenant.created_at)
-    .bind(tenant.updated_at)
-    .bind(&tenant.name)
-    .bind(&tenant.description)
-    .bind(&tenant.status)
-    .bind(tenant.gpu_quota)
-    .bind(tenant.cpu_quota)
-    .bind(tenant.memory_quota)
-    .bind(tenant.storage_quota)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(tenant.created_at)
+            .bind(tenant.updated_at)
+            .bind(&tenant.name)
+            .bind(&tenant.description)
+            .bind(&tenant.status)
+            .bind(tenant.gpu_quota)
+            .bind(tenant.cpu_quota)
+            .bind(tenant.memory_quota)
+            .bind(tenant.storage_quota)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted tenant not found"))
@@ -134,7 +134,7 @@ pub async fn create(pool: &SqlitePool, input: NewTenant<'_>) -> AppResult<Tenant
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Tenant>> {
@@ -143,12 +143,17 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM tenants WHERE id = ?1 AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 分页列表。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     include_deleted: bool,
 ) -> AppResult<PaginatedResult<Tenant>> {
@@ -159,24 +164,34 @@ pub async fn list(
         " WHERE deleted_at IS NULL"
     };
 
-    let total: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM tenants{where_clause}"))
-        .fetch_one(pool)
-        .await?;
+    let total: i64 = crate::with_db!(
+        pool,
+        &format!("SELECT COUNT(*) FROM tenants{where_clause}"),
+        |db_s, db_e| {
+            crate::db::query_scalar_db(db_e, db_s)
+                .fetch_one(db_e)
+                .await?
+        }
+    );
 
-    let rows: Vec<Tenant> = sqlx::query_as(&format!(
-        "SELECT * FROM tenants{where_clause} ORDER BY id ASC LIMIT ?1 OFFSET ?2"
-    ))
-    .bind(params.limit())
-    .bind(params.offset())
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<Tenant> = crate::with_db!(
+        pool,
+        &format!("SELECT * FROM tenants{where_clause} ORDER BY id ASC LIMIT ?1 OFFSET ?2"),
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(params.limit())
+                .bind(params.offset())
+                .fetch_all(db_e)
+                .await?
+        }
+    );
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 更新租户状态与配额（自动刷 updated_at）。
 pub async fn update(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     status: Option<&str>,
     gpu_quota: Option<i64>,
@@ -193,25 +208,35 @@ pub async fn update(
     }
     existing.before_update();
 
-    sqlx::query("UPDATE tenants SET status = ?1, gpu_quota = ?2, updated_at = ?3 WHERE id = ?4")
-        .bind(&existing.status)
-        .bind(existing.gpu_quota)
-        .bind(existing.updated_at)
-        .bind(id)
-        .execute(pool)
-        .await?;
+    crate::with_db!(
+        pool,
+        "UPDATE tenants SET status = ?1, gpu_quota = ?2, updated_at = ?3 WHERE id = ?4",
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(&existing.status)
+                .bind(existing.gpu_quota)
+                .bind(existing.updated_at)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     Ok(Some(existing))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("tenants"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(pool, &soft_delete_update_sql("tenants"), |db_s, db_e| {
+        sqlx::query(db_s)
+            .bind(now)
+            .bind(now)
+            .bind(id)
+            .execute(db_e)
+            .await?
+            .rows_affected()
+    });
+    Ok(res > 0)
 }

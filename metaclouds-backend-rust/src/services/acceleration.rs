@@ -3,7 +3,7 @@
 //!
 //! Suite CRUD + 组合查询（含关联对象详情）+ suite 状态流转（start/stop）。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::acceleration_suite::{self, AccelerationSuite, AccelerationSuiteResponse};
@@ -41,20 +41,23 @@ pub struct UpdateSuiteInput {
 
 /// 组装带关联对象的响应。
 async fn build_response(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     suite: AccelerationSuite,
 ) -> AppResult<AccelerationSuiteResponse> {
     let mut resp: AccelerationSuiteResponse = suite.into();
 
     // 组合查询：按需加载关联对象
     if let Some(ds_id) = resp.dataset_id {
-        if let Ok(Some(row)) = sqlx::query_as::<_, crate::models::dataset::Dataset>(
+        if let Some(row) = crate::with_db!(
+            pool,
             "SELECT * FROM datasets WHERE id = ?1 AND deleted_at IS NULL",
-        )
-        .bind(ds_id)
-        .fetch_optional(pool)
-        .await
-        {
+            |db_s, db_e| {
+                crate::db::query_as_db::<_, crate::models::dataset::Dataset, _>(db_e, db_s)
+                    .bind(ds_id)
+                    .fetch_optional(db_e)
+                    .await?
+            }
+        ) {
             resp.associations.dataset = Some(
                 serde_json::to_value(crate::models::dataset::DatasetResponse::from(row))
                     .unwrap_or(serde_json::Value::Null),
@@ -62,16 +65,20 @@ async fn build_response(
         }
     }
     if let Some(tc_id) = resp.training_config_id {
-        if let Ok(Some(row)) = sqlx::query_as::<
-            _,
-            crate::models::distributed_training_config::DistributedTrainingConfig,
-        >(
+        if let Some(row) = crate::with_db!(
+            pool,
             "SELECT * FROM distributed_training_configs WHERE id = ?1 AND deleted_at IS NULL",
-        )
-        .bind(tc_id)
-        .fetch_optional(pool)
-        .await
-        {
+            |db_s, db_e| {
+                crate::db::query_as_db::<
+                    _,
+                    crate::models::distributed_training_config::DistributedTrainingConfig,
+                    _,
+                >(db_e, db_s)
+                .bind(tc_id)
+                .fetch_optional(db_e)
+                .await?
+            }
+        ) {
             resp.associations.training_config = Some(
                 serde_json::to_value(crate::models::distributed_training_config::DistributedTrainingConfigResponse::from(row))
                     .unwrap_or(serde_json::Value::Null),
@@ -79,14 +86,18 @@ async fn build_response(
         }
     }
     if let Some(ic_id) = resp.inference_config_id {
-        if let Ok(Some(row)) =
-            sqlx::query_as::<_, crate::models::inference_config::InferenceConfig>(
-                "SELECT * FROM inference_configs WHERE id = ?1 AND deleted_at IS NULL",
-            )
-            .bind(ic_id)
-            .fetch_optional(pool)
-            .await
-        {
+        if let Some(row) = crate::with_db!(
+            pool,
+            "SELECT * FROM inference_configs WHERE id = ?1 AND deleted_at IS NULL",
+            |db_s, db_e| {
+                crate::db::query_as_db::<_, crate::models::inference_config::InferenceConfig, _>(
+                    db_e, db_s,
+                )
+                .bind(ic_id)
+                .fetch_optional(db_e)
+                .await?
+            }
+        ) {
             resp.associations.inference_config = Some(
                 serde_json::to_value(
                     crate::models::inference_config::InferenceConfigResponse::from(row),
@@ -96,13 +107,16 @@ async fn build_response(
         }
     }
     if let Some(fc_id) = resp.fluid_cache_id {
-        if let Ok(Some(row)) = sqlx::query_as::<_, crate::models::fluid_cache::FluidCache>(
+        if let Some(row) = crate::with_db!(
+            pool,
             "SELECT * FROM fluid_caches WHERE id = ?1 AND deleted_at IS NULL",
-        )
-        .bind(fc_id)
-        .fetch_optional(pool)
-        .await
-        {
+            |db_s, db_e| {
+                crate::db::query_as_db::<_, crate::models::fluid_cache::FluidCache, _>(db_e, db_s)
+                    .bind(fc_id)
+                    .fetch_optional(db_e)
+                    .await?
+            }
+        ) {
             resp.associations.fluid_cache = Some(
                 serde_json::to_value(crate::models::fluid_cache::FluidCacheResponse::from(row))
                     .unwrap_or(serde_json::Value::Null),
@@ -115,7 +129,7 @@ async fn build_response(
 
 /// 创建 suite。
 pub async fn create_suite(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreateSuiteInput,
 ) -> AppResult<AccelerationSuiteResponse> {
     if acceleration_suite::name_taken(pool, &input.name, 0).await? {
@@ -143,7 +157,7 @@ pub async fn create_suite(
 }
 
 /// Suite 详情（含关联对象）。
-pub async fn get_suite(pool: &SqlitePool, id: i64) -> AppResult<AccelerationSuiteResponse> {
+pub async fn get_suite(pool: &DatabasePool, id: i64) -> AppResult<AccelerationSuiteResponse> {
     let suite = acceleration_suite::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("acceleration suite not found"))?;
@@ -152,7 +166,7 @@ pub async fn get_suite(pool: &SqlitePool, id: i64) -> AppResult<AccelerationSuit
 
 /// 分页列表（不含关联对象，仅主表）。
 pub async fn list_suites(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     tenant_id: Option<i64>,
     status: Option<&str>,
@@ -174,7 +188,7 @@ pub async fn list_suites(
 
 /// 更新 suite。
 pub async fn update_suite(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateSuiteInput,
 ) -> AppResult<AccelerationSuiteResponse> {
@@ -189,7 +203,8 @@ pub async fn update_suite(
     }
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE acceleration_suites SET \
             name = COALESCE(?1, name), \
             description = COALESCE(?2, description), \
@@ -202,24 +217,28 @@ pub async fn update_suite(
             status = COALESCE(?9, status), \
             updated_at = ?10 \
          WHERE id = ?11 AND deleted_at IS NULL",
-    )
-    .bind(input.name)
-    .bind(input.description)
-    .bind(input.suite_type)
-    .bind(input.dataset_id.flatten())
-    .bind(input.training_config_id.flatten())
-    .bind(input.inference_config_id.flatten())
-    .bind(input.fluid_cache_id.flatten())
-    .bind(
-        input
-            .acceleration_config
-            .map(|v| serde_json::to_string(&v).unwrap_or_else(|_| "{}".into())),
-    )
-    .bind(input.status)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(input.name)
+                .bind(input.description)
+                .bind(input.suite_type)
+                .bind(input.dataset_id.flatten())
+                .bind(input.training_config_id.flatten())
+                .bind(input.inference_config_id.flatten())
+                .bind(input.fluid_cache_id.flatten())
+                .bind(
+                    input
+                        .acceleration_config
+                        .map(|v| serde_json::to_string(&v).unwrap_or_else(|_| "{}".into())),
+                )
+                .bind(input.status)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let suite = acceleration_suite::get_by_id(pool, id, false)
         .await?
@@ -228,7 +247,7 @@ pub async fn update_suite(
 }
 
 /// 软删除。
-pub async fn delete_suite(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_suite(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = acceleration_suite::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("acceleration suite not found"));
@@ -237,17 +256,22 @@ pub async fn delete_suite(pool: &SqlitePool, id: i64) -> AppResult<()> {
 }
 
 /// 启动 suite：状态 → running。
-pub async fn start_suite(pool: &SqlitePool, id: i64) -> AppResult<AccelerationSuiteResponse> {
+pub async fn start_suite(pool: &DatabasePool, id: i64) -> AppResult<AccelerationSuiteResponse> {
     let now = chrono::Utc::now();
-    let res = sqlx::query(
+    let res = crate::with_db!(
+        pool,
         "UPDATE acceleration_suites SET status = 'running', updated_at = ?1 \
          WHERE id = ?2 AND deleted_at IS NULL",
-    )
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
-    if res.rows_affected() == 0 {
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    if res == 0 {
         return Err(AppError::not_found("acceleration suite not found"));
     }
     let suite = acceleration_suite::get_by_id(pool, id, false)
@@ -257,17 +281,22 @@ pub async fn start_suite(pool: &SqlitePool, id: i64) -> AppResult<AccelerationSu
 }
 
 /// 停止 suite：状态 → stopped。
-pub async fn stop_suite(pool: &SqlitePool, id: i64) -> AppResult<AccelerationSuiteResponse> {
+pub async fn stop_suite(pool: &DatabasePool, id: i64) -> AppResult<AccelerationSuiteResponse> {
     let now = chrono::Utc::now();
-    let res = sqlx::query(
+    let res = crate::with_db!(
+        pool,
         "UPDATE acceleration_suites SET status = 'stopped', updated_at = ?1 \
          WHERE id = ?2 AND deleted_at IS NULL",
-    )
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
-    if res.rows_affected() == 0 {
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    if res == 0 {
         return Err(AppError::not_found("acceleration suite not found"));
     }
     let suite = acceleration_suite::get_by_id(pool, id, false)

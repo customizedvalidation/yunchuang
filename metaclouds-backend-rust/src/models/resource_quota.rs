@@ -6,10 +6,10 @@
 //!
 //! `deleted_at` 在对外视图中剔除（对齐 GORM `gorm.DeletedAt` + `json:"-"`）。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -120,29 +120,29 @@ pub struct NewQuota {
 }
 
 /// INSERT 配额（自动时间戳；used 字段初始化为 0）。
-pub async fn create(pool: &SqlitePool, input: NewQuota) -> AppResult<ResourceQuota> {
+pub async fn create(pool: &DatabasePool, input: NewQuota) -> AppResult<ResourceQuota> {
     let now = Utc::now();
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO resource_quotas (created_at, updated_at, name, description, tenant_id, \
          partition_id, gpu_limit, gpu_used, cpu_limit, cpu_used, memory_limit_gb, memory_used_gb, \
          storage_limit_gb, storage_used_gb, status) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, 0, ?9, 0, ?10, 0, ?11)",
-    )
-    .bind(now)
-    .bind(now)
-    .bind(&input.name)
-    .bind(&input.description)
-    .bind(input.tenant_id)
-    .bind(input.partition_id)
-    .bind(input.gpu_limit)
-    .bind(input.cpu_limit)
-    .bind(input.memory_limit_gb)
-    .bind(input.storage_limit_gb)
-    .bind(&input.status)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(now)
+            .bind(now)
+            .bind(&input.name)
+            .bind(&input.description)
+            .bind(input.tenant_id)
+            .bind(input.partition_id)
+            .bind(input.gpu_limit)
+            .bind(input.cpu_limit)
+            .bind(input.memory_limit_gb)
+            .bind(input.storage_limit_gb)
+            .bind(&input.status)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted resource quota not found"))
@@ -150,7 +150,7 @@ pub async fn create(pool: &SqlitePool, input: NewQuota) -> AppResult<ResourceQuo
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<ResourceQuota>> {
@@ -159,24 +159,36 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM resource_quotas WHERE id = ?1 AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("resource_quotas"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(
+        pool,
+        &soft_delete_update_sql("resource_quotas"),
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(now)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    Ok(res > 0)
 }
 
 /// 分页列表（动态 WHERE：软删除 + 可选 tenant_id / partition_id / status）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     tenant_id: Option<i64>,
     partition_id: Option<i64>,
@@ -208,21 +220,25 @@ pub async fn list(
     }
 
     let count_sql = format!("SELECT COUNT(*) FROM resource_quotas WHERE {where_clause}");
-    let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
-    for b in &filter_binds {
-        count_q = count_q.bind(b);
-    }
-    let total: i64 = count_q.fetch_one(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut count_q = crate::db::query_scalar_db(db_e, db_s);
+        for b in &filter_binds {
+            count_q = count_q.bind(b);
+        }
+        count_q.fetch_one(db_e).await?
+    });
 
     let list_sql = format!(
         "SELECT * FROM resource_quotas WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?"
     );
-    let mut list_q = sqlx::query_as::<_, ResourceQuota>(&list_sql);
-    for b in &filter_binds {
-        list_q = list_q.bind(b);
-    }
-    list_q = list_q.bind(params.limit()).bind(params.offset());
-    let rows: Vec<ResourceQuota> = list_q.fetch_all(pool).await?;
+    let rows: Vec<ResourceQuota> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut list_q = crate::db::query_as_db(db_e, db_s);
+        for b in &filter_binds {
+            list_q = list_q.bind(b);
+        }
+        list_q = list_q.bind(params.limit()).bind(params.offset());
+        list_q.fetch_all(db_e).await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }

@@ -22,6 +22,7 @@ use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{
     jwt_auth, permissions, require_permission, AppState,
 };
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::handlers::cluster::{create_cluster, get_cluster, list_clusters};
 
 // ---------------------------------------------------------------------------
@@ -50,7 +51,7 @@ async fn setup_app() -> Router {
         .expect("seed admin");
 
     let state = AppState {
-        pool,
+        pool: DatabasePool::Sqlite(pool),
         config: Arc::new(config.into()),
     };
 

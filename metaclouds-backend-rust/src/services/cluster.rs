@@ -3,7 +3,7 @@
 //! CRUD + 分页 + name 搜索 + 软删除 + 集群资源状态统计。
 //! handler 只做参数提取与响应封装。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::cluster::{self, Cluster, ClusterResponse};
@@ -49,20 +49,24 @@ pub struct ClusterResourceStats {
 }
 
 /// 按名称检查是否已存在未删除的集群。
-async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<bool> {
-    let exists: Option<i64> = sqlx::query_scalar(
+async fn name_taken(pool: &DatabasePool, name: &str, except_id: i64) -> AppResult<bool> {
+    let exists: Option<i64> = crate::with_db!(
+        pool,
         "SELECT id FROM clusters WHERE name = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1",
-    )
-    .bind(name)
-    .bind(except_id)
-    .fetch_optional(pool)
-    .await?;
+        |db_s, db_e| {
+            crate::db::query_scalar_db(db_e, db_s)
+                .bind(name)
+                .bind(except_id)
+                .fetch_optional(db_e)
+                .await?
+        }
+    );
     Ok(exists.is_some())
 }
 
 /// 创建集群（status 固定 active，对齐 Go `CreateCluster`）。
 pub async fn create_cluster(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreateClusterInput,
 ) -> AppResult<ClusterResponse> {
     if name_taken(pool, &input.name, 0).await? {
@@ -92,7 +96,7 @@ pub async fn create_cluster(
 }
 
 /// 集群详情（404 若不存在或已软删除）。
-pub async fn get_cluster(pool: &SqlitePool, id: i64) -> AppResult<ClusterResponse> {
+pub async fn get_cluster(pool: &DatabasePool, id: i64) -> AppResult<ClusterResponse> {
     let c = cluster::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("cluster not found"))?;
@@ -101,7 +105,7 @@ pub async fn get_cluster(pool: &SqlitePool, id: i64) -> AppResult<ClusterRespons
 
 /// 分页集群列表（可按 name 模糊搜索；过滤软删除）。
 pub async fn list_clusters(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     search: Option<&str>,
 ) -> AppResult<PaginatedResult<ClusterResponse>> {
@@ -117,22 +121,26 @@ pub async fn list_clusters(
 
     let total: i64 = {
         let q = format!("SELECT COUNT(*) FROM clusters WHERE {where_clause}");
-        let mut sc = sqlx::query_scalar::<_, i64>(&q);
-        if let Some(ref l) = has_search {
-            sc = sc.bind(l);
-        }
-        sc.fetch_one(pool).await?
+        crate::with_db!(pool, &q, |db_s, db_e| {
+            let mut sc = crate::db::query_scalar_db(db_e, db_s);
+            if let Some(ref l) = has_search {
+                sc = sc.bind(l);
+            }
+            sc.fetch_one(db_e).await?
+        })
     };
 
     let rows: Vec<Cluster> = {
         let q =
             format!("SELECT * FROM clusters WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?");
-        let mut sq = sqlx::query_as::<_, Cluster>(&q);
-        if let Some(ref l) = has_search {
-            sq = sq.bind(l);
-        }
-        sq = sq.bind(params.limit()).bind(params.offset());
-        sq.fetch_all(pool).await?
+        crate::with_db!(pool, &q, |db_s, db_e| {
+            let mut sq = crate::db::query_as_db(db_e, db_s);
+            if let Some(ref l) = has_search {
+                sq = sq.bind(l);
+            }
+            sq = sq.bind(params.limit()).bind(params.offset());
+            sq.fetch_all(db_e).await?
+        })
     };
 
     Ok(PaginatedResult {
@@ -146,7 +154,7 @@ pub async fn list_clusters(
 
 /// 更新集群：仅覆盖传入字段；重名校验；自动刷 updated_at。
 pub async fn update_cluster(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateClusterInput,
 ) -> AppResult<ClusterResponse> {
@@ -161,7 +169,8 @@ pub async fn update_cluster(
     }
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE clusters SET \
             name = COALESCE(?1, name), \
             description = COALESCE(?2, description), \
@@ -175,21 +184,25 @@ pub async fn update_cluster(
             location = COALESCE(?10, location), \
             updated_at = ?11 \
          WHERE id = ?12 AND deleted_at IS NULL",
-    )
-    .bind(&input.name)
-    .bind(&input.description)
-    .bind(&input.status)
-    .bind(input.nodes)
-    .bind(input.gpus)
-    .bind(input.cpus)
-    .bind(input.memory)
-    .bind(input.storage)
-    .bind(&input.network_type)
-    .bind(&input.location)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(&input.name)
+                .bind(&input.description)
+                .bind(&input.status)
+                .bind(input.nodes)
+                .bind(input.gpus)
+                .bind(input.cpus)
+                .bind(input.memory)
+                .bind(input.storage)
+                .bind(&input.network_type)
+                .bind(&input.location)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let c = cluster::get_by_id(pool, id, false)
         .await?
@@ -198,7 +211,7 @@ pub async fn update_cluster(
 }
 
 /// 软删除集群（404 若不存在或已软删除）。
-pub async fn delete_cluster(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_cluster(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = cluster::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("cluster not found"));
@@ -207,26 +220,34 @@ pub async fn delete_cluster(pool: &SqlitePool, id: i64) -> AppResult<()> {
 }
 
 /// 集群资源状态统计（按 GPU 资源聚合，对齐 Go GetClusterStatus 口径）。
-pub async fn cluster_stats(pool: &SqlitePool, id: i64) -> AppResult<ClusterResourceStats> {
+pub async fn cluster_stats(pool: &DatabasePool, id: i64) -> AppResult<ClusterResourceStats> {
     // 404 早判。
     cluster::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("cluster not found"))?;
 
-    let total_resources: i64 = sqlx::query_scalar(
+    let total_resources: i64 = crate::with_db!(
+        pool,
         "SELECT COUNT(*) FROM resources WHERE cluster_id = ?1 AND deleted_at IS NULL",
-    )
-    .bind(id)
-    .fetch_one(pool)
-    .await?;
+        |db_s, db_e| {
+            crate::db::query_scalar_db(db_e, db_s)
+                .bind(id)
+                .fetch_one(db_e)
+                .await?
+        }
+    );
 
-    let (total_gpu, used_gpu): (Option<i64>, Option<i64>) = sqlx::query_as(
+    let (total_gpu, used_gpu): (Option<i64>, Option<i64>) = crate::with_db!(
+        pool,
         "SELECT COALESCE(SUM(total), 0), COALESCE(SUM(used), 0) \
          FROM resources WHERE cluster_id = ?1 AND type = 'gpu' AND deleted_at IS NULL",
-    )
-    .bind(id)
-    .fetch_one(pool)
-    .await?;
+        |db_s, db_e| {
+            crate::db::query_as_db(db_e, db_s)
+                .bind(id)
+                .fetch_one(db_e)
+                .await?
+        }
+    );
 
     let total_gpu = total_gpu.unwrap_or(0);
     let used_gpu = used_gpu.unwrap_or(0);

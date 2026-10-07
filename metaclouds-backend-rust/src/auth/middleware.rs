@@ -11,12 +11,13 @@ use tower_cookies::Cookies;
 
 use crate::auth::jwt::{verify_token, Claims};
 use crate::config::Config;
+use crate::db::DatabasePool;
 use crate::error::{AppError, AppResult};
 
 /// Shared application state passed to every handler/middleware.
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: sqlx::SqlitePool,
+    pub pool: DatabasePool,
     pub config: Arc<Config>,
 }
 

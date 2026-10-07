@@ -2,7 +2,7 @@
 //!
 //! CRUD + 分页。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::distributed_training_config::{
@@ -44,7 +44,7 @@ pub struct UpdateTrainingConfigInput {
 
 /// 创建。
 pub async fn create_training_config(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     input: CreateTrainingConfigInput,
 ) -> AppResult<DistributedTrainingConfigResponse> {
     let status = input.status.unwrap_or_else(|| "active".to_string());
@@ -71,7 +71,7 @@ pub async fn create_training_config(
 
 /// 详情。
 pub async fn get_training_config(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
 ) -> AppResult<DistributedTrainingConfigResponse> {
     let cfg = distributed_training_config::get_by_id(pool, id, false)
@@ -82,7 +82,7 @@ pub async fn get_training_config(
 
 /// 分页列表。
 pub async fn list_training_configs(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     tenant_id: Option<i64>,
 ) -> AppResult<PaginatedResult<DistributedTrainingConfigResponse>> {
@@ -103,7 +103,7 @@ pub async fn list_training_configs(
 
 /// 更新。
 pub async fn update_training_config(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateTrainingConfigInput,
 ) -> AppResult<DistributedTrainingConfigResponse> {
@@ -112,7 +112,8 @@ pub async fn update_training_config(
         .ok_or_else(|| AppError::not_found("distributed training config not found"))?;
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE distributed_training_configs SET \
             name = COALESCE(?1, name), \
             description = COALESCE(?2, description), \
@@ -126,25 +127,29 @@ pub async fn update_training_config(
             status = COALESCE(?10, status), \
             updated_at = ?11 \
          WHERE id = ?12 AND deleted_at IS NULL",
-    )
-    .bind(input.name)
-    .bind(input.description)
-    .bind(input.framework)
-    .bind(input.worker_replicas)
-    .bind(input.gpu_per_worker)
-    .bind(input.cpu_per_worker)
-    .bind(input.memory_per_worker_gb)
-    .bind(input.entrypoint)
-    .bind(
-        input
-            .env_vars
-            .map(|v| serde_json::to_string(&v).unwrap_or_else(|_| "{}".into())),
-    )
-    .bind(input.status)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(input.name)
+                .bind(input.description)
+                .bind(input.framework)
+                .bind(input.worker_replicas)
+                .bind(input.gpu_per_worker)
+                .bind(input.cpu_per_worker)
+                .bind(input.memory_per_worker_gb)
+                .bind(input.entrypoint)
+                .bind(
+                    input
+                        .env_vars
+                        .map(|v| serde_json::to_string(&v).unwrap_or_else(|_| "{}".into())),
+                )
+                .bind(input.status)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let cfg = distributed_training_config::get_by_id(pool, id, false)
         .await?
@@ -153,7 +158,7 @@ pub async fn update_training_config(
 }
 
 /// 软删除。
-pub async fn delete_training_config(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_training_config(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = distributed_training_config::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("distributed training config not found"));

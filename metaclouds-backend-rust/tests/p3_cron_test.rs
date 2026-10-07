@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Timelike, Utc};
 use metaclouds_backend_rust::config::Config;
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::scheduler::{Scheduler, DEFAULT_JOBS};
 use tokio_cron_scheduler::{Job, JobScheduler};
 
@@ -86,7 +87,7 @@ async fn rust_expressions_parse_ok() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dev_registers_two_jobs() {
-    let sched = Scheduler::new(memory_pool().await, dev_config())
+    let sched = Scheduler::new(DatabasePool::Sqlite(memory_pool().await), dev_config())
         .await
         .expect("scheduler");
     sched.register_all_jobs().await.expect("register");
@@ -100,7 +101,7 @@ async fn production_registers_nothing() {
         environment: "production".to_string(),
         ..Config::default()
     };
-    let sched = Scheduler::new(memory_pool().await, Arc::new(cfg))
+    let sched = Scheduler::new(DatabasePool::Sqlite(memory_pool().await), Arc::new(cfg))
         .await
         .expect("scheduler");
     sched.register_all_jobs().await.expect("register");
@@ -155,7 +156,7 @@ async fn next_tick_sample_inference_aligned() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn start_then_shutdown_no_panic() {
-    let sched = Scheduler::new(memory_pool().await, dev_config())
+    let sched = Scheduler::new(DatabasePool::Sqlite(memory_pool().await), dev_config())
         .await
         .expect("scheduler");
     sched.register_all_jobs().await.expect("register");

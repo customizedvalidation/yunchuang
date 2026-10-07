@@ -7,10 +7,10 @@
 //!
 //! `deleted_at` 在对外视图中剔除（对齐 Go `gorm.DeletedAt` + `json:"-"`）。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -140,7 +140,7 @@ pub struct NewResource<'a> {
 }
 
 /// INSERT 资源（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewResource<'_>) -> AppResult<Resource> {
+pub async fn create(pool: &DatabasePool, input: NewResource<'_>) -> AppResult<Resource> {
     let mut resource = Resource {
         id: 0,
         created_at: Utc::now(),
@@ -164,33 +164,33 @@ pub async fn create(pool: &SqlitePool, input: NewResource<'_>) -> AppResult<Reso
     };
     resource.before_insert();
 
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO resources (created_at, updated_at, cluster_id, type, name, status, \
          total, used, available, utilization, details, vendor, gpu_model, \
          vram_total_mb, vram_used_mb, vram_oversubscription_ratio, mig_enabled) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
-    )
-    .bind(resource.created_at)
-    .bind(resource.updated_at)
-    .bind(resource.cluster_id)
-    .bind(&resource.kind)
-    .bind(&resource.name)
-    .bind(&resource.status)
-    .bind(resource.total)
-    .bind(resource.used)
-    .bind(resource.available)
-    .bind(resource.utilization)
-    .bind(&resource.details)
-    .bind(&resource.vendor)
-    .bind(&resource.gpu_model)
-    .bind(resource.vram_total_mb)
-    .bind(resource.vram_used_mb)
-    .bind(resource.vram_oversubscription_ratio)
-    .bind(resource.mig_enabled)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(resource.created_at)
+            .bind(resource.updated_at)
+            .bind(resource.cluster_id)
+            .bind(&resource.kind)
+            .bind(&resource.name)
+            .bind(&resource.status)
+            .bind(resource.total)
+            .bind(resource.used)
+            .bind(resource.available)
+            .bind(resource.utilization)
+            .bind(&resource.details)
+            .bind(&resource.vendor)
+            .bind(&resource.gpu_model)
+            .bind(resource.vram_total_mb)
+            .bind(resource.vram_used_mb)
+            .bind(resource.vram_oversubscription_ratio)
+            .bind(resource.mig_enabled)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted resource not found"))
@@ -198,7 +198,7 @@ pub async fn create(pool: &SqlitePool, input: NewResource<'_>) -> AppResult<Reso
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Resource>> {
@@ -207,12 +207,17 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM resources WHERE id = ?1 AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 分页列表（可按 type / cluster_id 过滤，可按 name 搜索）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     kind: Option<&str>,
     cluster_id: Option<i64>,
@@ -247,32 +252,39 @@ pub async fn list(
     }
 
     let count_sql = format!("SELECT COUNT(*) FROM resources WHERE {where_clause}");
-    let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
-    for b in &filter_binds {
-        count_q = count_q.bind(b);
-    }
-    let total: i64 = count_q.fetch_one(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut count_q = crate::db::query_scalar_db(db_e, db_s);
+        for b in &filter_binds {
+            count_q = count_q.bind(b);
+        }
+        count_q.fetch_one(db_e).await?
+    });
 
     let list_sql =
         format!("SELECT * FROM resources WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?");
-    let mut list_q = sqlx::query_as::<_, Resource>(&list_sql);
-    for b in &filter_binds {
-        list_q = list_q.bind(b);
-    }
-    list_q = list_q.bind(params.limit()).bind(params.offset());
-    let rows: Vec<Resource> = list_q.fetch_all(pool).await?;
+    let rows: Vec<Resource> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut list_q = crate::db::query_as_db(db_e, db_s);
+        for b in &filter_binds {
+            list_q = list_q.bind(b);
+        }
+        list_q = list_q.bind(params.limit()).bind(params.offset());
+        list_q.fetch_all(db_e).await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("resources"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(pool, &soft_delete_update_sql("resources"), |db_s, db_e| {
+        sqlx::query(db_s)
+            .bind(now)
+            .bind(now)
+            .bind(id)
+            .execute(db_e)
+            .await?
+            .rows_affected()
+    });
+    Ok(res > 0)
 }

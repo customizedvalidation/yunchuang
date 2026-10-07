@@ -26,6 +26,7 @@ use tower_cookies::CookieManagerLayer;
 use metaclouds_backend_rust::auth::csrf::csrf_protect;
 use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{jwt_auth, AppState};
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::handlers::job::{create_job, submit_job_to_k8s};
 use metaclouds_backend_rust::handlers::monitoring::list_monitoring_alerts;
 use metaclouds_backend_rust::handlers::partition::{
@@ -59,7 +60,7 @@ async fn setup_app() -> (Router, sqlx::SqlitePool) {
         .expect("seed admin");
 
     let state = AppState {
-        pool: pool.clone(),
+        pool: DatabasePool::Sqlite(pool.clone()),
         config: Arc::new(config.into()),
     };
 

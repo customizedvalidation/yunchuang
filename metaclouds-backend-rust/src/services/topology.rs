@@ -2,7 +2,7 @@
 //!
 //! CRUD + 分页 + 按 cluster_id / role 过滤。handler 只做参数提取与响应封装。
 
-use sqlx::SqlitePool;
+use crate::db::DatabasePool;
 
 use crate::error::{AppError, AppResult};
 use crate::models::topology::{self, NewNode, NodeTopology, TopologyResponse};
@@ -38,15 +38,15 @@ pub struct UpdateNodeInput {
 }
 
 /// 创建节点。
-pub async fn create_node(pool: &SqlitePool, input: CreateNodeInput) -> AppResult<TopologyResponse> {
+pub async fn create_node(
+    pool: &DatabasePool,
+    input: CreateNodeInput,
+) -> AppResult<TopologyResponse> {
     // hostname 在集群内唯一（对齐 Go CreateNodeTopology 的重名冲突）。
-    let dup: Option<i64> = sqlx::query_scalar(
-        "SELECT id FROM topology_nodes WHERE hostname = ?1 AND cluster_id = ?2 AND deleted_at IS NULL LIMIT 1",
-    )
+    let dup: Option<i64> = crate::with_db!(pool, "SELECT id FROM topology_nodes WHERE hostname = ?1 AND cluster_id = ?2 AND deleted_at IS NULL LIMIT 1", |db_s, db_e| { crate::db::query_scalar_db(db_e, db_s)
     .bind(&input.hostname)
     .bind(input.cluster_id)
-    .fetch_optional(pool)
-    .await?;
+    .fetch_optional(db_e).await? });
     if dup.is_some() {
         return Err(AppError::conflict("node already exists for this host"));
     }
@@ -71,7 +71,7 @@ pub async fn create_node(pool: &SqlitePool, input: CreateNodeInput) -> AppResult
 }
 
 /// 节点详情（404 若不存在或已软删除）。
-pub async fn get_node(pool: &SqlitePool, id: i64) -> AppResult<TopologyResponse> {
+pub async fn get_node(pool: &DatabasePool, id: i64) -> AppResult<TopologyResponse> {
     let node = topology::get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::not_found("node topology not found"))?;
@@ -80,7 +80,7 @@ pub async fn get_node(pool: &SqlitePool, id: i64) -> AppResult<TopologyResponse>
 
 /// 分页节点列表（可按 cluster_id / role 过滤）。
 pub async fn list_nodes(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     cluster_id: Option<i64>,
     role: Option<&str>,
@@ -98,7 +98,7 @@ pub async fn list_nodes(
 
 /// 更新节点：仅覆盖传入字段，自动刷 updated_at。
 pub async fn update_node(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     input: UpdateNodeInput,
 ) -> AppResult<TopologyResponse> {
@@ -113,7 +113,8 @@ pub async fn update_node(
         .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()));
 
     let now = chrono::Utc::now();
-    sqlx::query(
+    crate::with_db!(
+        pool,
         "UPDATE topology_nodes SET \
             hostname = COALESCE(?1, hostname), \
             ip = COALESCE(?2, ip), \
@@ -126,20 +127,24 @@ pub async fn update_node(
             labels = COALESCE(?9, labels), \
             updated_at = ?10 \
          WHERE id = ?11 AND deleted_at IS NULL",
-    )
-    .bind(&input.hostname)
-    .bind(&input.ip)
-    .bind(&input.role)
-    .bind(input.cpu_cores)
-    .bind(input.memory_gb)
-    .bind(input.gpu_count)
-    .bind(&input.gpu_model)
-    .bind(&input.status)
-    .bind(labels_json)
-    .bind(now)
-    .bind(id)
-    .execute(pool)
-    .await?;
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(&input.hostname)
+                .bind(&input.ip)
+                .bind(&input.role)
+                .bind(input.cpu_cores)
+                .bind(input.memory_gb)
+                .bind(input.gpu_count)
+                .bind(&input.gpu_model)
+                .bind(&input.status)
+                .bind(labels_json)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
 
     let node = topology::get_by_id(pool, id, false)
         .await?
@@ -148,7 +153,7 @@ pub async fn update_node(
 }
 
 /// 软删除节点（404 若不存在或已软删除）。
-pub async fn delete_node(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_node(pool: &DatabasePool, id: i64) -> AppResult<()> {
     let hit = topology::soft_delete(pool, id).await?;
     if !hit {
         return Err(AppError::not_found("node topology not found"));

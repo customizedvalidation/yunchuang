@@ -18,6 +18,7 @@ use metaclouds_backend_rust::auth::csrf::csrf_protect;
 use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{jwt_auth, require_permission, AppState};
 use metaclouds_backend_rust::authz::permissions;
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::handlers::alert::{create_alert, list_alerts};
 
 async fn seed_user(pool: &sqlx::SqlitePool, u: &str, role: &str) {
@@ -40,7 +41,7 @@ async fn setup_app() -> axum::Router {
 
     let config = metaclouds_backend_rust::TestConfig::default();
     let state = AppState {
-        pool,
+        pool: DatabasePool::Sqlite(pool),
         config: Arc::new(config.into()),
     };
 

@@ -4,10 +4,10 @@
 //! format / size_bytes / tenant_id(FK) / created_by(FK→users) / status /
 //! labels(JSON TEXT) / created_at / updated_at / deleted_at。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -105,7 +105,7 @@ pub struct NewDataset<'a> {
 }
 
 /// INSERT dataset（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewDataset<'_>) -> AppResult<Dataset> {
+pub async fn create(pool: &DatabasePool, input: NewDataset<'_>) -> AppResult<Dataset> {
     let mut dataset = Dataset {
         id: 0,
         created_at: Utc::now(),
@@ -124,27 +124,27 @@ pub async fn create(pool: &SqlitePool, input: NewDataset<'_>) -> AppResult<Datas
     };
     dataset.before_insert();
 
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO datasets (created_at, updated_at, name, description, type, \
          source_path, format, size_bytes, tenant_id, created_by, status, labels) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-    )
-    .bind(dataset.created_at)
-    .bind(dataset.updated_at)
-    .bind(&dataset.name)
-    .bind(&dataset.description)
-    .bind(&dataset.r#type)
-    .bind(&dataset.source_path)
-    .bind(&dataset.format)
-    .bind(dataset.size_bytes)
-    .bind(dataset.tenant_id)
-    .bind(dataset.created_by)
-    .bind(&dataset.status)
-    .bind(&dataset.labels)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(dataset.created_at)
+            .bind(dataset.updated_at)
+            .bind(&dataset.name)
+            .bind(&dataset.description)
+            .bind(&dataset.r#type)
+            .bind(&dataset.source_path)
+            .bind(&dataset.format)
+            .bind(dataset.size_bytes)
+            .bind(dataset.tenant_id)
+            .bind(dataset.created_by)
+            .bind(&dataset.status)
+            .bind(&dataset.labels)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted dataset not found"))
@@ -152,7 +152,7 @@ pub async fn create(pool: &SqlitePool, input: NewDataset<'_>) -> AppResult<Datas
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Dataset>> {
@@ -161,24 +161,33 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM datasets WHERE id = ?1 AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 按名称检查是否已存在未删除的 dataset。
-pub async fn name_taken(pool: &SqlitePool, name: &str, except_id: i64) -> AppResult<bool> {
-    let exists: Option<i64> = sqlx::query_scalar(
+pub async fn name_taken(pool: &DatabasePool, name: &str, except_id: i64) -> AppResult<bool> {
+    let exists: Option<i64> = crate::with_db!(
+        pool,
         "SELECT id FROM datasets WHERE name = ?1 AND deleted_at IS NULL AND id != ?2 LIMIT 1",
-    )
-    .bind(name)
-    .bind(except_id)
-    .fetch_optional(pool)
-    .await?;
+        |db_s, db_e| {
+            crate::db::query_scalar_db(db_e, db_s)
+                .bind(name)
+                .bind(except_id)
+                .fetch_optional(db_e)
+                .await?
+        }
+    );
     Ok(exists.is_some())
 }
 
 /// 分页列表（可按 tenant_id / type 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     tenant_id: Option<i64>,
     dataset_type: Option<&str>,
@@ -196,33 +205,44 @@ pub async fn list(
     let count_sql = format!("SELECT COUNT(*) FROM datasets {sql_where}");
     let list_sql = format!("SELECT * FROM datasets {sql_where} ORDER BY id ASC LIMIT ? OFFSET ?");
 
-    let mut query_count = sqlx::query_scalar::<_, i64>(&count_sql);
-    let mut query_list = sqlx::query_as::<_, Dataset>(&list_sql);
-
-    if let Some(tid) = tenant_id {
-        query_count = query_count.bind(tid);
-        query_list = query_list.bind(tid);
-    }
-    if let Some(dt) = dataset_type {
-        query_count = query_count.bind(dt);
-        query_list = query_list.bind(dt);
-    }
-    query_list = query_list.bind(params.limit()).bind(params.offset());
-
-    let total: i64 = query_count.fetch_one(pool).await?;
-    let rows: Vec<Dataset> = query_list.fetch_all(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut sc = crate::db::query_scalar_db(db_e, db_s);
+        if let Some(tid) = tenant_id {
+            sc = sc.bind(tid);
+        }
+        if let Some(dt) = dataset_type {
+            sc = sc.bind(dt);
+        }
+        sc.fetch_one(db_e).await?
+    });
+    let rows: Vec<Dataset> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut sc = crate::db::query_as_db(db_e, db_s);
+        if let Some(tid) = tenant_id {
+            sc = sc.bind(tid);
+        }
+        if let Some(dt) = dataset_type {
+            sc = sc.bind(dt);
+        }
+        sc.bind(params.limit())
+            .bind(params.offset())
+            .fetch_all(db_e)
+            .await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("datasets"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(pool, &soft_delete_update_sql("datasets"), |db_s, db_e| {
+        sqlx::query(db_s)
+            .bind(now)
+            .bind(now)
+            .bind(id)
+            .execute(db_e)
+            .await?
+            .rows_affected()
+    });
+    Ok(res > 0)
 }

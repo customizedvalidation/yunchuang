@@ -3,10 +3,10 @@
 //! 字段：id / name / dataset_id(FK) / namespace / path / cache_class /
 //! replicas(i32) / status / created_at / updated_at / deleted_at。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -91,7 +91,7 @@ pub struct NewFluidCache<'a> {
 }
 
 /// INSERT fluid_cache。
-pub async fn create(pool: &SqlitePool, input: NewFluidCache<'_>) -> AppResult<FluidCache> {
+pub async fn create(pool: &DatabasePool, input: NewFluidCache<'_>) -> AppResult<FluidCache> {
     let mut cache = FluidCache {
         id: 0,
         created_at: Utc::now(),
@@ -107,23 +107,23 @@ pub async fn create(pool: &SqlitePool, input: NewFluidCache<'_>) -> AppResult<Fl
     };
     cache.before_insert();
 
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO fluid_caches (created_at, updated_at, name, dataset_id, namespace, \
          path, cache_class, replicas, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-    )
-    .bind(cache.created_at)
-    .bind(cache.updated_at)
-    .bind(&cache.name)
-    .bind(cache.dataset_id)
-    .bind(&cache.namespace)
-    .bind(&cache.path)
-    .bind(&cache.cache_class)
-    .bind(cache.replicas)
-    .bind(&cache.status)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(cache.created_at)
+            .bind(cache.updated_at)
+            .bind(&cache.name)
+            .bind(cache.dataset_id)
+            .bind(&cache.namespace)
+            .bind(&cache.path)
+            .bind(&cache.cache_class)
+            .bind(cache.replicas)
+            .bind(&cache.status)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted fluid cache not found"))
@@ -131,7 +131,7 @@ pub async fn create(pool: &SqlitePool, input: NewFluidCache<'_>) -> AppResult<Fl
 
 /// 按 id 查询。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<FluidCache>> {
@@ -140,12 +140,17 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM fluid_caches WHERE id = ?1 AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 按 dataset_id 过滤分页列表。
 pub async fn list_by_dataset(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     dataset_id: Option<i64>,
 ) -> AppResult<PaginatedResult<FluidCache>> {
@@ -159,29 +164,42 @@ pub async fn list_by_dataset(
     let list_sql =
         format!("SELECT * FROM fluid_caches WHERE {sql_where} ORDER BY id ASC LIMIT ? OFFSET ?");
 
-    let mut query_count = sqlx::query_scalar::<_, i64>(&count_sql);
-    let mut query_list = sqlx::query_as::<_, FluidCache>(&list_sql);
-
-    if let Some(did) = dataset_id {
-        query_count = query_count.bind(did);
-        query_list = query_list.bind(did);
-    }
-    query_list = query_list.bind(params.limit()).bind(params.offset());
-
-    let total: i64 = query_count.fetch_one(pool).await?;
-    let rows: Vec<FluidCache> = query_list.fetch_all(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut sc = crate::db::query_scalar_db(db_e, db_s);
+        if let Some(did) = dataset_id {
+            sc = sc.bind(did);
+        }
+        sc.fetch_one(db_e).await?
+    });
+    let rows: Vec<FluidCache> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut sc = crate::db::query_as_db(db_e, db_s);
+        if let Some(did) = dataset_id {
+            sc = sc.bind(did);
+        }
+        sc.bind(params.limit())
+            .bind(params.offset())
+            .fetch_all(db_e)
+            .await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("fluid_caches"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(
+        pool,
+        &soft_delete_update_sql("fluid_caches"),
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(now)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    Ok(res > 0)
 }

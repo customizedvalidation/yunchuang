@@ -18,6 +18,7 @@ use tower_cookies::CookieManagerLayer;
 use metaclouds_backend_rust::auth::csrf::csrf_protect;
 use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{jwt_auth, AppState};
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::middleware::apply_core_stack;
 
 // ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ async fn auth_app() -> Router {
         .expect("seed admin");
 
     let state = AppState {
-        pool,
+        pool: DatabasePool::Sqlite(pool),
         config: Arc::new(config.into()),
     };
 

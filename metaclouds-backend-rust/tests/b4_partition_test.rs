@@ -18,6 +18,7 @@ use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{
     jwt_auth, permissions, require_permission, AppState,
 };
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::handlers::partition::{
     create_partition, delete_partition, get_partition, get_partition_resources, grant_permission,
     list_partitions, revoke_permission, update_partition,
@@ -49,7 +50,7 @@ async fn setup_app() -> (Router, sqlx::SqlitePool) {
         .bind(now).bind(now).bind(hash).execute(&pool).await.unwrap();
 
     let state = AppState {
-        pool: pool.clone(),
+        pool: DatabasePool::Sqlite(pool.clone()),
         config: Arc::new(config.into()),
     };
     let read = Router::new()

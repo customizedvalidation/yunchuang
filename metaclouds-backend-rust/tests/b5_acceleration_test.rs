@@ -17,6 +17,7 @@ use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{
     jwt_auth, permissions, require_permission, AppState,
 };
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::handlers::acceleration::{
     create_suite, delete_suite, get_suite, list_suites, start_suite, stop_suite, update_suite,
 };
@@ -56,7 +57,7 @@ async fn setup_app() -> (Router, sqlx::SqlitePool) {
     .unwrap();
 
     let state = AppState {
-        pool: pool.clone(),
+        pool: DatabasePool::Sqlite(pool.clone()),
         config: Arc::new(config.into()),
     };
 

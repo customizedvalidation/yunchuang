@@ -5,10 +5,10 @@
 //! priority(i32) / enabled(bool) / tenant_id(FK) / created_by(FK→users) /
 //! created_at / updated_at / deleted_at。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -123,7 +123,10 @@ pub struct NewSecurityPolicy<'a> {
 }
 
 /// INSERT（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewSecurityPolicy<'_>) -> AppResult<SecurityPolicy> {
+pub async fn create(
+    pool: &DatabasePool,
+    input: NewSecurityPolicy<'_>,
+) -> AppResult<SecurityPolicy> {
     let now = Utc::now();
     let mut policy = SecurityPolicy {
         id: 0,
@@ -144,28 +147,28 @@ pub async fn create(pool: &SqlitePool, input: NewSecurityPolicy<'_>) -> AppResul
     };
     policy.before_insert();
 
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO security_policies (created_at, updated_at, name, description, policy_type, \
          effect, resources, actions, conditions, priority, enabled, tenant_id, created_by) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(policy.created_at)
-    .bind(policy.updated_at)
-    .bind(&policy.name)
-    .bind(&policy.description)
-    .bind(&policy.policy_type)
-    .bind(&policy.effect)
-    .bind(&policy.resources)
-    .bind(&policy.actions)
-    .bind(&policy.conditions)
-    .bind(policy.priority)
-    .bind(policy.enabled)
-    .bind(policy.tenant_id)
-    .bind(policy.created_by)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(policy.created_at)
+            .bind(policy.updated_at)
+            .bind(&policy.name)
+            .bind(&policy.description)
+            .bind(&policy.policy_type)
+            .bind(&policy.effect)
+            .bind(&policy.resources)
+            .bind(&policy.actions)
+            .bind(&policy.conditions)
+            .bind(policy.priority)
+            .bind(policy.enabled)
+            .bind(policy.tenant_id)
+            .bind(policy.created_by)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted security policy not found"))
@@ -173,7 +176,7 @@ pub async fn create(pool: &SqlitePool, input: NewSecurityPolicy<'_>) -> AppResul
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<SecurityPolicy>> {
@@ -182,7 +185,12 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM security_policies WHERE id = ? AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 过滤条件。
@@ -195,7 +203,7 @@ pub struct PolicyListFilter<'a> {
 
 /// 分页列表（可按 policy_type / enabled 过滤 + name 搜索）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     filter: PolicyListFilter<'_>,
 ) -> AppResult<PaginatedResult<SecurityPolicy>> {
@@ -225,33 +233,44 @@ pub async fn list(
     }
 
     let count_sql = format!("SELECT COUNT(*) FROM security_policies WHERE {where_clause}");
-    let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
-    for b in &filter_binds {
-        count_q = count_q.bind(b);
-    }
-    let total: i64 = count_q.fetch_one(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut count_q = crate::db::query_scalar_db(db_e, db_s);
+        for b in &filter_binds {
+            count_q = count_q.bind(b);
+        }
+        count_q.fetch_one(db_e).await?
+    });
 
     let list_sql = format!(
         "SELECT * FROM security_policies WHERE {where_clause} ORDER BY priority ASC, id ASC LIMIT ? OFFSET ?"
     );
-    let mut list_q = sqlx::query_as::<_, SecurityPolicy>(&list_sql);
-    for b in &filter_binds {
-        list_q = list_q.bind(b);
-    }
-    list_q = list_q.bind(params.limit()).bind(params.offset());
-    let rows: Vec<SecurityPolicy> = list_q.fetch_all(pool).await?;
+    let rows: Vec<SecurityPolicy> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut list_q = crate::db::query_as_db(db_e, db_s);
+        for b in &filter_binds {
+            list_q = list_q.bind(b);
+        }
+        list_q = list_q.bind(params.limit()).bind(params.offset());
+        list_q.fetch_all(db_e).await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("security_policies"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(
+        pool,
+        &soft_delete_update_sql("security_policies"),
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(now)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    Ok(res > 0)
 }

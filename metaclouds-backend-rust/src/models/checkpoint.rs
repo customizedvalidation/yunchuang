@@ -4,10 +4,10 @@
 //! path / format / size_bytes / step(i64) / epoch(i64) / metrics(JSON TEXT) /
 //! tenant_id(FK) / created_by(FK) / status / created_at / updated_at / deleted_at。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -116,7 +116,7 @@ pub struct NewCheckpoint<'a> {
 }
 
 /// INSERT。
-pub async fn create(pool: &SqlitePool, input: NewCheckpoint<'_>) -> AppResult<Checkpoint> {
+pub async fn create(pool: &DatabasePool, input: NewCheckpoint<'_>) -> AppResult<Checkpoint> {
     let mut ckpt = Checkpoint {
         id: 0,
         created_at: Utc::now(),
@@ -138,30 +138,30 @@ pub async fn create(pool: &SqlitePool, input: NewCheckpoint<'_>) -> AppResult<Ch
     };
     ckpt.before_insert();
 
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO checkpoints (created_at, updated_at, name, description, job_id, dataset_id, \
          path, format, size_bytes, step, epoch, metrics, tenant_id, created_by, status) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-    )
-    .bind(ckpt.created_at)
-    .bind(ckpt.updated_at)
-    .bind(&ckpt.name)
-    .bind(&ckpt.description)
-    .bind(ckpt.job_id)
-    .bind(ckpt.dataset_id)
-    .bind(&ckpt.path)
-    .bind(&ckpt.format)
-    .bind(ckpt.size_bytes)
-    .bind(ckpt.step)
-    .bind(ckpt.epoch)
-    .bind(&ckpt.metrics)
-    .bind(ckpt.tenant_id)
-    .bind(ckpt.created_by)
-    .bind(&ckpt.status)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(ckpt.created_at)
+            .bind(ckpt.updated_at)
+            .bind(&ckpt.name)
+            .bind(&ckpt.description)
+            .bind(ckpt.job_id)
+            .bind(ckpt.dataset_id)
+            .bind(&ckpt.path)
+            .bind(&ckpt.format)
+            .bind(ckpt.size_bytes)
+            .bind(ckpt.step)
+            .bind(ckpt.epoch)
+            .bind(&ckpt.metrics)
+            .bind(ckpt.tenant_id)
+            .bind(ckpt.created_by)
+            .bind(&ckpt.status)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted checkpoint not found"))
@@ -169,7 +169,7 @@ pub async fn create(pool: &SqlitePool, input: NewCheckpoint<'_>) -> AppResult<Ch
 
 /// 按 id 查询。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<Checkpoint>> {
@@ -178,12 +178,17 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM checkpoints WHERE id = ?1 AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 分页列表（可按 job_id / dataset_id 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     job_id: Option<i64>,
     dataset_id: Option<i64>,
@@ -201,33 +206,48 @@ pub async fn list(
     let list_sql =
         format!("SELECT * FROM checkpoints WHERE {sql_where} ORDER BY id ASC LIMIT ? OFFSET ?");
 
-    let mut query_count = sqlx::query_scalar::<_, i64>(&count_sql);
-    let mut query_list = sqlx::query_as::<_, Checkpoint>(&list_sql);
-
-    if let Some(jid) = job_id {
-        query_count = query_count.bind(jid);
-        query_list = query_list.bind(jid);
-    }
-    if let Some(did) = dataset_id {
-        query_count = query_count.bind(did);
-        query_list = query_list.bind(did);
-    }
-    query_list = query_list.bind(params.limit()).bind(params.offset());
-
-    let total: i64 = query_count.fetch_one(pool).await?;
-    let rows: Vec<Checkpoint> = query_list.fetch_all(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut sc = crate::db::query_scalar_db(db_e, db_s);
+        if let Some(jid) = job_id {
+            sc = sc.bind(jid);
+        }
+        if let Some(did) = dataset_id {
+            sc = sc.bind(did);
+        }
+        sc.fetch_one(db_e).await?
+    });
+    let rows: Vec<Checkpoint> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut sc = crate::db::query_as_db(db_e, db_s);
+        if let Some(jid) = job_id {
+            sc = sc.bind(jid);
+        }
+        if let Some(did) = dataset_id {
+            sc = sc.bind(did);
+        }
+        sc.bind(params.limit())
+            .bind(params.offset())
+            .fetch_all(db_e)
+            .await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("checkpoints"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(
+        pool,
+        &soft_delete_update_sql("checkpoints"),
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(now)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    Ok(res > 0)
 }

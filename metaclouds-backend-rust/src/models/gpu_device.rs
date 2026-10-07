@@ -7,10 +7,10 @@
 //! `deleted_at` 在对外视图中剔除（对齐 Go `gorm.DeletedAt` + `json:"-"`）。
 //! `gpu_index` 列名规避 SQL 歧义，对外 JSON 仍为 `"index"`。
 
+use crate::db::DatabasePool;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use sqlx::SqlitePool;
 
 use crate::error::{AppError, AppResult};
 use crate::orm::{
@@ -148,38 +148,38 @@ pub struct NewGpuDevice<'a> {
 }
 
 /// INSERT GPU 设备（自动时间戳）。
-pub async fn create(pool: &SqlitePool, input: NewGpuDevice<'_>) -> AppResult<GpuDevice> {
+pub async fn create(pool: &DatabasePool, input: NewGpuDevice<'_>) -> AppResult<GpuDevice> {
     let now = Utc::now();
-    let res = sqlx::query(
+    let res = crate::insert_id!(
+        pool,
         "INSERT INTO gpu_devices (created_at, updated_at, cluster_id, node_name, vendor, model, \
          gpu_index, total_memory_gb, allocatable_memory_gb, used_memory_gb, mig_enabled, \
          mig_profiles, driver_version, cuda_version, status, utilization, temperature, \
          power_draw, details) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(now)
-    .bind(now)
-    .bind(input.cluster_id)
-    .bind(input.node_name)
-    .bind(input.vendor)
-    .bind(input.model)
-    .bind(input.index)
-    .bind(input.total_memory_gb)
-    .bind(input.allocatable_memory_gb)
-    .bind(input.used_memory_gb)
-    .bind(input.mig_enabled)
-    .bind(input.mig_profiles)
-    .bind(input.driver_version)
-    .bind(input.cuda_version)
-    .bind(input.status)
-    .bind(input.utilization)
-    .bind(input.temperature)
-    .bind(input.power_draw)
-    .bind(input.details)
-    .execute(pool)
-    .await?;
+        |q| q
+            .bind(now)
+            .bind(now)
+            .bind(input.cluster_id)
+            .bind(input.node_name)
+            .bind(input.vendor)
+            .bind(input.model)
+            .bind(input.index)
+            .bind(input.total_memory_gb)
+            .bind(input.allocatable_memory_gb)
+            .bind(input.used_memory_gb)
+            .bind(input.mig_enabled)
+            .bind(input.mig_profiles)
+            .bind(input.driver_version)
+            .bind(input.cuda_version)
+            .bind(input.status)
+            .bind(input.utilization)
+            .bind(input.temperature)
+            .bind(input.power_draw)
+            .bind(input.details)
+    );
 
-    let id = res.last_insert_rowid();
+    let id = res;
     get_by_id(pool, id, false)
         .await?
         .ok_or_else(|| AppError::internal("inserted gpu device not found"))
@@ -187,7 +187,7 @@ pub async fn create(pool: &SqlitePool, input: NewGpuDevice<'_>) -> AppResult<Gpu
 
 /// 按 id 查询（默认排除软删除）。
 pub async fn get_by_id(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     id: i64,
     include_deleted: bool,
 ) -> AppResult<Option<GpuDevice>> {
@@ -196,7 +196,12 @@ pub async fn get_by_id(
     } else {
         "SELECT * FROM gpu_devices WHERE id = ? AND deleted_at IS NULL"
     };
-    Ok(sqlx::query_as(sql).bind(id).fetch_optional(pool).await?)
+    Ok(crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_as_db(db_e, db_s)
+            .bind(id)
+            .fetch_optional(db_e)
+            .await?
+    }))
 }
 
 /// 过滤条件。
@@ -209,7 +214,7 @@ pub struct GpuDeviceFilter<'a> {
 
 /// 分页列表（可按 cluster_id/vendor/status 过滤）。
 pub async fn list(
-    pool: &SqlitePool,
+    pool: &DatabasePool,
     params: PaginationParams,
     filter: GpuDeviceFilter<'_>,
 ) -> AppResult<PaginatedResult<GpuDevice>> {
@@ -239,32 +244,43 @@ pub async fn list(
     }
 
     let count_sql = format!("SELECT COUNT(*) FROM gpu_devices WHERE {where_clause}");
-    let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
-    for b in &binds {
-        count_q = count_q.bind(b);
-    }
-    let total: i64 = count_q.fetch_one(pool).await?;
+    let total: i64 = crate::with_db!(pool, &count_sql, |db_s, db_e| {
+        let mut count_q = crate::db::query_scalar_db(db_e, db_s);
+        for b in &binds {
+            count_q = count_q.bind(b);
+        }
+        count_q.fetch_one(db_e).await?
+    });
 
     let list_sql =
         format!("SELECT * FROM gpu_devices WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?");
-    let mut list_q = sqlx::query_as::<_, GpuDevice>(&list_sql);
-    for b in &binds {
-        list_q = list_q.bind(b);
-    }
-    list_q = list_q.bind(params.limit()).bind(params.offset());
-    let rows: Vec<GpuDevice> = list_q.fetch_all(pool).await?;
+    let rows: Vec<GpuDevice> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
+        let mut list_q = crate::db::query_as_db(db_e, db_s);
+        for b in &binds {
+            list_q = list_q.bind(b);
+        }
+        list_q = list_q.bind(params.limit()).bind(params.offset());
+        list_q.fetch_all(db_e).await?
+    });
 
     Ok(PaginatedResult::new(rows, total, params))
 }
 
 /// 软删除。
-pub async fn soft_delete(pool: &SqlitePool, id: i64) -> AppResult<bool> {
+pub async fn soft_delete(pool: &DatabasePool, id: i64) -> AppResult<bool> {
     let now = Utc::now();
-    let res = sqlx::query(&soft_delete_update_sql("gpu_devices"))
-        .bind(now)
-        .bind(now)
-        .bind(id)
-        .execute(pool)
-        .await?;
-    Ok(res.rows_affected() > 0)
+    let res = crate::with_db!(
+        pool,
+        &soft_delete_update_sql("gpu_devices"),
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(now)
+                .bind(now)
+                .bind(id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    Ok(res > 0)
 }

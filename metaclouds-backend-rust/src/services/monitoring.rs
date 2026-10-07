@@ -11,8 +11,8 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use crate::db::DatabasePool;
 use serde::Serialize;
-use sqlx::SqlitePool;
 
 use crate::error::AppResult;
 
@@ -23,19 +23,20 @@ fn start_time() -> std::time::Instant {
     *START_TIME.get_or_init(std::time::Instant::now)
 }
 
-/// 安全 COUNT：表不存在或查询失败时返回 0，不中断 dashboard。
-async fn safe_count(pool: &SqlitePool, sql: &str) -> i64 {
-    sqlx::query_scalar::<_, i64>(sql)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(0)
+/// 安全 COUNT：查询失败（表不存在等）返回 0，不中断 dashboard。
+async fn safe_count(pool: &DatabasePool, sql: &str) -> i64 {
+    crate::with_db!(pool, sql, |db_s, db_e| {
+        crate::db::query_scalar_db(db_e, db_s)
+            .fetch_one(db_e)
+            .await
+            .unwrap_or(0)
+    })
 }
 
-/// 聚合 dashboard 全部 13 指标。
-pub async fn get_dashboard_stats(pool: &SqlitePool) -> AppResult<serde_json::Value> {
+/// 聚合 13 个业务指标（对齐 Go metrics_business.go）。
+pub async fn get_dashboard_stats(pool: &DatabasePool) -> AppResult<serde_json::Value> {
     let total_users = safe_count(pool, "SELECT COUNT(*) FROM users").await;
-    // active_users：这里用「最近 24h 有登录记录」近似；当前 schema 无登录表，
-    // 退而求其次：统计非软删除用户总数的一个合理近似（与 total_users 对齐）。
+    // active_users：当前 schema 无登录表，退而求其次用 total_users 近似。
     let active_users = total_users;
     let total_tenants = safe_count(
         pool,
@@ -100,7 +101,7 @@ pub async fn get_dashboard_stats(pool: &SqlitePool) -> AppResult<serde_json::Val
 }
 
 /// 按指标名查询单个指标（不存在返回 null）。
-pub async fn get_metric(pool: &SqlitePool, name: &str) -> AppResult<serde_json::Value> {
+pub async fn get_metric(pool: &DatabasePool, name: &str) -> AppResult<serde_json::Value> {
     let all = get_dashboard_stats(pool).await?;
     let v = all.get(name).cloned().unwrap_or(serde_json::Value::Null);
     Ok(serde_json::json!({
@@ -289,7 +290,7 @@ pub fn list_alert_rules() -> Vec<AlertRuleDef> {
 }
 
 /// 评估告警规则（当前基于 dashboard 指标做静态评估，返回被触发的规则列表）。
-pub async fn evaluate_alert_rules(pool: &SqlitePool) -> AppResult<Vec<serde_json::Value>> {
+pub async fn evaluate_alert_rules(pool: &DatabasePool) -> AppResult<Vec<serde_json::Value>> {
     let stats = get_dashboard_stats(pool).await?;
     let rules = list_alert_rules();
     let mut triggered = Vec::new();

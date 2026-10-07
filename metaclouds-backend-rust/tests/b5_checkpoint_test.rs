@@ -17,6 +17,7 @@ use metaclouds_backend_rust::auth::handler::login;
 use metaclouds_backend_rust::auth::middleware::{
     jwt_auth, permissions, require_permission, AppState,
 };
+use metaclouds_backend_rust::db::DatabasePool;
 use metaclouds_backend_rust::handlers::checkpoint::{
     create_checkpoint, delete_checkpoint, get_checkpoint, list_checkpoints, update_checkpoint,
 };
@@ -43,7 +44,7 @@ async fn setup_app() -> (Router, sqlx::SqlitePool) {
         .expect("seed admin");
 
     let state = AppState {
-        pool: pool.clone(),
+        pool: DatabasePool::Sqlite(pool.clone()),
         config: Arc::new(config.into()),
     };
 
