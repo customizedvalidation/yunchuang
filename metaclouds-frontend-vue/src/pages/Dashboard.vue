@@ -6,6 +6,10 @@
         <p class="mc-page-desc">{{ rangeLabel }} · 实时掌握全平台算力水位、作业吞吐与风险告警</p>
       </div>
       <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
         <el-radio-group v-model="range" size="small">
           <el-radio-button value="today">今日</el-radio-button>
           <el-radio-button value="7d">近 7 天</el-radio-button>
@@ -23,20 +27,46 @@
       retry-text="重新加载"
       @retry="refetchAll"
     >
-      <!-- KPI 卡片行 -->
+      <!-- KPI 卡片行（可点击跳转 + 数值滚动 + GPU 利用率动态环） -->
       <div class="kpi-grid">
-        <div v-for="card in kpiCards" :key="card.title" class="kpi-card">
+        <RouterLink
+          v-for="card in kpiCards"
+          :key="card.title"
+          :to="card.to"
+          class="kpi-card"
+          :aria-label="`${card.title}，点击查看详情`"
+        >
           <div class="kpi-icon" :style="{ background: card.bg }">
             <el-icon :size="22" color="#fff"><component :is="card.icon" /></el-icon>
           </div>
           <div class="kpi-body">
             <div class="kpi-title">{{ card.title }}</div>
             <div class="kpi-value">
-              {{ card.value }}<span class="kpi-suffix">{{ card.suffix }}</span>
+              <CountUp :value="card.value" />
+              <span class="kpi-suffix">{{ card.suffix }}</span>
             </div>
             <div class="kpi-footer" v-html="card.footer"></div>
           </div>
-        </div>
+          <!-- GPU 利用率动态环形指示器 -->
+          <svg
+            v-if="card.ring"
+            class="kpi-ring"
+            viewBox="0 0 44 44"
+            aria-hidden="true"
+          >
+            <circle class="kpi-ring-bg" cx="22" cy="22" :r="RING_RADIUS" />
+            <circle
+              class="kpi-ring-fg"
+              cx="22"
+              cy="22"
+              :r="RING_RADIUS"
+              :stroke-dasharray="RING_CIRC"
+              :stroke-dashoffset="ringOffset(card.value)"
+            />
+            <text x="22" y="26" class="kpi-ring-text">{{ card.value }}%</text>
+          </svg>
+          <el-icon class="kpi-go" :size="14"><ArrowRight /></el-icon>
+        </RouterLink>
       </div>
 
       <!-- 三个饼图 -->
@@ -46,7 +76,10 @@
             <template #header>
               <div class="chart-card-head">
                 <h3 class="chart-card-title">资源分布</h3>
-                <span class="chart-card-extra">GPU 卡</span>
+                <span class="chart-card-head-right">
+                  <span class="chart-card-extra">GPU 卡</span>
+                  <RouterLink class="chart-card-more" to="/gpus">查看详情 <el-icon :size="12"><ArrowRight /></el-icon></RouterLink>
+                </span>
               </div>
             </template>
             <div v-if="gpuTotal > 0" ref="resourceChartRef" class="chart-box" />
@@ -58,7 +91,10 @@
             <template #header>
               <div class="chart-card-head">
                 <h3 class="chart-card-title">作业状态分布</h3>
-                <span class="chart-card-extra">共 {{ totalJobs }} 个</span>
+                <span class="chart-card-head-right">
+                  <span class="chart-card-extra">共 {{ totalJobs }} 个</span>
+                  <RouterLink class="chart-card-more" to="/job">查看详情 <el-icon :size="12"><ArrowRight /></el-icon></RouterLink>
+                </span>
               </div>
             </template>
             <div v-if="jobStatusData.length > 0" ref="jobChartRef" class="chart-box" />
@@ -70,7 +106,10 @@
             <template #header>
               <div class="chart-card-head">
                 <h3 class="chart-card-title">GPU 厂商分布</h3>
-                <span class="chart-card-extra">共 {{ gpuDevices.length }} 张</span>
+                <span class="chart-card-head-right">
+                  <span class="chart-card-extra">共 {{ gpuDevices.length }} 张</span>
+                  <RouterLink class="chart-card-more" to="/gpus">查看详情 <el-icon :size="12"><ArrowRight /></el-icon></RouterLink>
+                </span>
               </div>
             </template>
             <div v-if="gpuVendorData.length > 0" ref="vendorChartRef" class="chart-box" />
@@ -84,7 +123,10 @@
         <template #header>
           <div class="chart-card-head">
             <h3 class="chart-card-title">最近告警</h3>
-            <span class="chart-card-extra">按严重程度排序</span>
+            <span class="chart-card-head-right">
+              <span class="chart-card-extra">按严重程度排序</span>
+              <RouterLink class="chart-card-more" to="/monitoring">查看全部 <el-icon :size="12"><ArrowRight /></el-icon></RouterLink>
+            </span>
           </div>
         </template>
         <el-empty v-if="alertsData.length === 0" description="暂无告警，系统运行正常" :image-size="80" />
@@ -107,8 +149,9 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Refresh, Coin, Cloudy, Timer, Bell, UserFilled, Grid, Operation } from '@element-plus/icons-vue'
+import { Refresh, Coin, Cloudy, Timer, Bell, UserFilled, Grid, Operation, ArrowRight } from '@element-plus/icons-vue'
 import PageState from '@/components/PageState.vue'
+import CountUp from '@/components/CountUp.vue'
 // 经 @/theme/echarts 统一入口引入（已按需 use() 注册，勿直接引 'echarts' 全量包）
 import { registerMcLightTheme, palette, echarts } from '@/theme/echarts'
 import type { ECharts } from 'echarts/core'
@@ -176,6 +219,43 @@ function refetchAll() {
   partitionsF.refetch()
   schedulersF.refetch()
   tenantsF.refetch()
+  // 手动/自动刷新均重置自动刷新倒计时
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+}
+
+// ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') refetchAll()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    refetchAll()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
 }
 
 // ---------- 时间范围 ----------
@@ -217,6 +297,7 @@ const kpiCards = computed(() => [
     icon: Coin,
     bg: 'var(--mc-brand-grad)',
     footer: '统一纳管的计算集群',
+    to: '/cluster',
   },
   {
     title: 'GPU 利用率',
@@ -225,6 +306,8 @@ const kpiCards = computed(() => [
     icon: Cloudy,
     bg: 'var(--mc-brand-grad)',
     footer: `<span class="mc-num">已用 ${gpuUsed.value} / 共 ${gpuTotal.value}</span>`,
+    to: '/gpus',
+    ring: true,
   },
   {
     title: '运行中作业',
@@ -233,6 +316,7 @@ const kpiCards = computed(() => [
     icon: Timer,
     bg: 'var(--mc-brand-grad)',
     footer: `排队中 <b class="mc-num">${pendingJobs.value}</b> 个`,
+    to: '/job',
   },
   {
     title: '活跃告警',
@@ -241,6 +325,7 @@ const kpiCards = computed(() => [
     icon: Bell,
     bg: alertCount.value > 0 ? 'var(--mc-danger-fg)' : 'var(--mc-brand-grad)',
     footer: alertCount.value > 0 ? '<span style="color:var(--mc-danger-fg)">需要关注</span>' : '运行正常',
+    to: '/monitoring',
   },
   {
     title: '租户数量',
@@ -249,6 +334,7 @@ const kpiCards = computed(() => [
     icon: UserFilled,
     bg: 'var(--mc-brand-grad)',
     footer: '多租户资源隔离与配额',
+    to: '/tenant',
   },
   {
     title: '分区状态',
@@ -257,6 +343,7 @@ const kpiCards = computed(() => [
     icon: Grid,
     bg: 'var(--mc-brand-grad)',
     footer: `活跃 ${partitionStats.value.active} · 维护 ${partitionStats.value.maintenance}`,
+    to: '/partitions',
   },
   {
     title: '调度器集成',
@@ -265,8 +352,16 @@ const kpiCards = computed(() => [
     icon: Operation,
     bg: 'var(--mc-brand-grad)',
     footer: `活跃 ${schedulerStats.value.active}${schedulerStats.value.error > 0 ? ` · 异常 ${schedulerStats.value.error}` : ''}`,
+    to: '/schedulers',
   },
 ])
+
+// ---------- GPU 利用率动态环 ----------
+const RING_RADIUS = 18
+const RING_CIRC = 2 * Math.PI * RING_RADIUS
+function ringOffset(value: number) {
+  return RING_CIRC * (1 - Math.min(Math.max(value, 0), 100) / 100)
+}
 
 // ---------- 图表 ----------
 const VENDOR_LABEL: Record<string, string> = {
@@ -413,6 +508,9 @@ onMounted(async () => {
   resizeObserver = new ResizeObserver(() => resizeCharts())
   const content = document.querySelector('.mc-app-content')
   if (content) resizeObserver.observe(content)
+  // 动态呈现：启动自动轮询，页面隐藏时暂停、回到前台立即刷新
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
@@ -421,6 +519,8 @@ onBeforeUnmount(() => {
   resourceChart?.dispose()
   jobChart?.dispose()
   vendorChart?.dispose()
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 watch(resourceOption, syncChartsAfterTick, { flush: 'post' })
@@ -446,6 +546,7 @@ function alertLevelClass(level?: string) {
   gap: var(--mc-gap);
 }
 .kpi-card {
+  position: relative;
   background: var(--mc-surface);
   border-radius: var(--mc-radius-lg);
   box-shadow: var(--mc-shadow-raised-sm);
@@ -453,6 +554,23 @@ function alertLevelClass(level?: string) {
   display: flex;
   align-items: center;
   gap: var(--mc-gap);
+  /* 可点击卡片：默认与品牌色一致的细边框，hover 上浮 + 描边强化 */
+  border: 1px solid transparent;
+  text-decoration: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+  outline-offset: 2px;
+}
+.kpi-card:hover,
+.kpi-card:focus-visible {
+  border-color: var(--mc-brand);
+  box-shadow: 0 8px 24px rgba(24, 110, 255, 0.14);
+  transform: translateY(-2px);
+}
+.kpi-card:active {
+  transform: translateY(0);
 }
 .kpi-icon {
   width: 44px;
@@ -468,11 +586,91 @@ function alertLevelClass(level?: string) {
 .kpi-value { font-size: 26px; font-weight: 680; letter-spacing: -0.5px; color: var(--mc-text-1); }
 .kpi-suffix { font-size: 14px; font-weight: 400; color: var(--mc-text-3); }
 .kpi-footer { font-size: 12.5px; color: var(--mc-text-3); margin-top: 4px; }
+.kpi-go {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--mc-text-3);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.kpi-card:hover .kpi-go,
+.kpi-card:focus-visible .kpi-go {
+  opacity: 1;
+  transform: translateY(-50%) translateX(2px);
+  color: var(--mc-brand);
+}
+/* GPU 利用率动态环 */
+.kpi-ring {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+}
+.kpi-ring-bg {
+  fill: none;
+  stroke: var(--mc-line);
+  stroke-width: 4;
+}
+.kpi-ring-fg {
+  fill: none;
+  stroke: var(--mc-brand);
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.kpi-ring-text {
+  fill: var(--mc-text-1);
+  font-size: 10px;
+  font-weight: 650;
+  transform: rotate(90deg);
+  transform-origin: 22px 22px;
+  text-anchor: middle;
+}
+
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 
 .chart-box { height: 280px; }
-.chart-card-head { display: flex; justify-content: space-between; align-items: center; }
+.chart-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.chart-card-head-right { display: inline-flex; align-items: center; gap: 12px; }
 .chart-card-title { margin: 0; font-size: var(--mc-fs-h2); font-weight: 650; color: var(--mc-text-1); }
 .chart-card-extra { font-size: 12px; color: var(--mc-text-3); font-weight: 400; }
+.chart-card-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mc-brand);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.chart-card-more:hover {
+  color: var(--mc-brand-600);
+}
 
 .alert-list { list-style: none; margin: 0; padding: 0; }
 .alert-item { padding: 12px 0; border-bottom: 1px solid var(--mc-line); }
