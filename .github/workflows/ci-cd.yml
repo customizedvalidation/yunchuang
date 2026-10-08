@@ -141,11 +141,14 @@ jobs:
       - name: TypeScript type check
         run: npm run type-check
 
-      # Vue 项目暂无 lint 脚本与 ESLint 配置，跳过该步骤
-      # TODO(frontend-quality): 待测试/ lint 体系补齐后恢复
-
+      # ----------------------------------------------------------------------
+      # 前端单元测试（vitest）：仓库已含真实测试（api/http、stores/auth、
+      # pages/Login|JobManagement|Dashboard 共 5 文件 31 用例），不再使用
+      # passWithNoTests——该 flag 会掩盖"测试文件缺失"的真实回归。
+      # continue-on-error 保留以便失败时 job 仍产 dist 交付，但会在日志标注。
+      # ----------------------------------------------------------------------
       - name: Run frontend tests
-        run: npm run test -- --passWithNoTests
+        run: npm run test
         continue-on-error: true
 
       - name: Build frontend
@@ -155,10 +158,14 @@ jobs:
 
       # ----------------------------------------------------------------------
       # 前端安全扫描（npm audit）
+      # npm audit 对 high 级漏洞返回 exit 1；此处显式捕获为 warning，
+      # 避免 continue-on-error 残留 "Process completed with exit code 1"
+      # 的 error annotation（Run #65 噪音来源）。漏洞详情进工作流日志，
+      # 阻断性依赖升级由依赖机器人/人工 PR 另行处理。
       # ----------------------------------------------------------------------
-      - name: npm audit (high severity)
-        run: npm audit --audit-level=high
-        continue-on-error: true
+      - name: npm audit (high severity, non-blocking)
+        run: |
+          npm audit --audit-level=high || echo "::warning title=npm audit::npm audit found high-severity issues — see logs above; dependency upgrades tracked separately."
 
       # ----------------------------------------------------------------------
       # 上传前端 dist 构建产物
