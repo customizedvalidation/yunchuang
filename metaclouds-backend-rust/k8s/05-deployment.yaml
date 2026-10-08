@@ -25,9 +25,6 @@
 #    迁移到 PostgreSQL 后：replicas 改回 3、strategy 改回 RollingUpdate、
 #    HPA 改回 2/10、PDB 改回 minAvailable: 2，并删除 19-backend-data-pvc.yaml。
 # ==============================================================================
-#checkov:skip=CKV_K8S_14:Image tag is injected by CI/CD at deploy time (GIT_SHA); placeholder tag only
-#checkov:skip=CKV_K8S_43:Image digest pinned by CI/CD at deploy time (GIT_SHA tag); placeholder only
-#checkov:skip=CKV_K8S_35:Secrets injected via env from k8s Secret (RBAC-protected, not plaintext in manifests)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
