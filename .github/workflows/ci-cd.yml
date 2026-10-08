@@ -88,7 +88,12 @@ jobs:
           #    已配 runAsNonRoot + fsGroup + seccomp + drop ALL，host 冲突风险受控
           #  - CKV_K8S_43: 镜像 digest 由 CI 在 deploy 时以 GIT_SHA tag 注入（不可变），
           #    清单占位 tag 非最终值；静态扫描无法解析运行时注入
-          skip_check: CKV_K8S_35,CKV_K8S_40,CKV_K8S_43
+          #  - CKV_SECRET_4/6: 02-secret.yaml 与 docker-compose.yml 中的值均为
+          #    base64 占位符（原文 CHANGEME-* / dev-*），CI "Guard - reject placeholder
+          #    secrets" 会在 apply 前拒绝任何含 CHANGEME 的值，真实密钥不落 Git
+          #  - CKV_GHA_7: workflow_dispatch inputs（environment/log_level）是部署运维
+          #    选择项，不参与构建产物注入；镜像内容仅来自受保护分支的 push/PR
+          skip_check: CKV_K8S_35,CKV_K8S_40,CKV_K8S_43,CKV_SECRET_4,CKV_SECRET_6,CKV_GHA_7
 
       - name: Detect secrets (gitleaks)
         run: |

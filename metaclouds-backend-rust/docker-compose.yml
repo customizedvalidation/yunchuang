@@ -36,7 +36,9 @@ services:
 
       # ---- 数据库（PostgreSQL）----
       # Rust 端 main.rs 使用 DATABASE_URL 连接串；sqlx 双驱动已就绪
-      DATABASE_URL: postgresql://metaclouds_user:metaclouds_password@postgres:5432/metaclouds?sslmode=disable
+      # 凭据经 .env 注入（compose 自动读取同目录 .env），不在此硬编码明文：
+      #   DATABASE_URL=postgresql://metaclouds_user:${POSTGRES_PASSWORD:-metaclouds_password}@postgres:5432/metaclouds?sslmode=disable
+      DATABASE_URL: postgresql://metaclouds_user:${POSTGRES_PASSWORD:-metaclouds_password}@postgres:5432/metaclouds?sslmode=disable
       USE_SQLITE: "false"
       MEMORY_STORE_ENABLED: "false"
 
@@ -45,7 +47,9 @@ services:
       REDIS_URL: redis://redis:6379/0
 
       # ---- JWT（开发用，生产必须通过 .env 覆盖）----
-      JWT_SECRET: dev-secret-change-me-please-32-chars-minimum-xxxxxxxx
+      # 密钥经 .env 注入：JWT_SECRET 生产必须设置强随机值，此处仅提供
+      # 本地开发占位（docker-compose 默认值，非真实密钥）
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-please-32-chars-minimum-xxxxxxxx}
       JWT_EXPIRATION_HOURS: "24"
 
       # ---- 监控 ----

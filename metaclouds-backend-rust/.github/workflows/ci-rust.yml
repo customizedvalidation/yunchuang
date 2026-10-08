@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# 最小权限（CKV2_GHA_1）：本工作流仅构建与测试，无需写权限
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   SQLX_OFFLINE: "true"
