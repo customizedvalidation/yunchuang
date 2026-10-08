@@ -709,13 +709,18 @@ jobs:
               for i, doc in enumerate(docs):
                   if doc is None:
                       continue
-                  if "kind" not in doc or "metadata" not in doc:
-                      errors.append(f"{fn}[{i}]: missing kind/metadata")
+                  kind = doc.get("kind")
+                  # Kustomization 按 v5 规范无 metadata（metadata.name 已弃用），
+                  # 只需校验 kind；其余资源必须含 metadata（及 namespace）
+                  if kind == "Kustomization":
+                      manifests.setdefault(fn, []).append(kind)
                       continue
-                  kind = doc["kind"]
+                  if "metadata" not in doc:
+                      errors.append(f"{fn}[{i}]: missing metadata")
+                      continue
                   name = doc["metadata"].get("name", "")
                   manifests.setdefault(fn, []).append(kind)
-                  if kind != "Namespace" and kind != "Kustomization" and not doc["metadata"].get("namespace"):
+                  if kind != "Namespace" and not doc["metadata"].get("namespace"):
                       errors.append(f"{fn}[{i}] {kind}/{name}: missing namespace")
 
           # 2) 镜像名一致性：所有 image 引用必须使用 ghcr.io/<owner>/<repo>/<image> 层级命名
