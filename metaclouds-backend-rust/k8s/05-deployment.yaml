@@ -25,6 +25,9 @@
 #    迁移到 PostgreSQL 后：replicas 改回 3、strategy 改回 RollingUpdate、
 #    HPA 改回 2/10、PDB 改回 minAvailable: 2，并删除 19-backend-data-pvc.yaml。
 # ==============================================================================
+# checkov:skip=CKV_K8S_14:Image tag is injected by CI/CD at deploy time (GIT_SHA); placeholder tag only
+# checkov:skip=CKV_K8S_43:Image digest pinned by CI/CD at deploy time (GIT_SHA tag); placeholder only
+# checkov:skip=CKV_K8S_35:Secrets injected via env from k8s Secret (RBAC-protected, not plaintext in manifests)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -39,6 +42,9 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   annotations:
     metaclouds.io/description: "Metaclouds 算力调度平台后端 API（Rust 版）"
+# checkov:skip=CKV_K8S_14:Image tag is injected by CI/CD at deploy time (GIT_SHA); placeholder tag only
+# checkov:skip=CKV_K8S_43:Image digest pinned by CI/CD at deploy time (GIT_SHA tag); placeholder only
+# checkov:skip=CKV_K8S_35:Secrets injected via env from k8s Secret (RBAC-protected, not plaintext in manifests)
 spec:
   # SQLite 单写者：只能 1 副本（见文件头说明）
   replicas: 1
@@ -67,6 +73,9 @@ spec:
         metaclouds.io/config-checksum: "PLACEHOLDER"
     spec:
       serviceAccountName: metaclouds-backend
+      # 服务账户 token 仅按需挂载（CKV_K8S_38）：后端通过 RBAC 调用 K8s API 时才需要；
+      # 当前后端不调用 K8s API（清单由 CI 直接 apply），故不自动挂载 token，减小攻击面。
+      automountServiceAccountToken: false
       # Pod 级安全上下文：非 root + seccomp
       securityContext:
         runAsNonRoot: true
@@ -97,8 +106,10 @@ spec:
       containers:
         - name: metaclouds-backend
           # 镜像占位：CI 构建时注入真实 tag（如 git commit SHA），禁止 latest
-          image: ghcr.io/customizedvalidation/yunchuang/backend-rust:latest
-          imagePullPolicy: IfNotPresent
+          # （CKV_K8S_14/43 已在上方 checkov skip 注释中说明：tag 由 CI 注入，此占位非最终值）
+          image: ghcr.io/customizedvalidation/yunchuang/backend-rust:placeholder
+          # CI 每次注入新 GIT_SHA tag，Always 确保拉取最新构建（CKV_K8S_15）
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8000

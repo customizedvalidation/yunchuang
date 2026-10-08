@@ -30,7 +30,18 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # 自定义 nginx 配置（SPA 回退 + 静态资源缓存策略）
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# nginx 默认监听 80
-EXPOSE 80
+# 非 root 运行（对齐 K8s runAsUser: 101）：
+#  - 站点文件、nginx 运行时目录（缓存/pid/log）归 uid 101
+#  - 容器默认不再以 root 启动，满足非特权容器基线
+RUN chown -R 101:101 /usr/share/nginx/html \
+    && chown -R 101:101 /var/cache/nginx /var/run /tmp /var/log/nginx
+USER 101
+
+# nginx 非特权端口 8080（USER 101 无法绑定特权端口 80，与 K8s containerPort 8080 对齐）
+EXPOSE 8080
+
+# 容器级健康检查（nginx 自带 busybox wget，探测 8080 上 /healthz 静态页）
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

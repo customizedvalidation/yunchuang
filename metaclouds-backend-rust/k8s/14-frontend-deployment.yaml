@@ -15,6 +15,8 @@
 #   kubectl set image deployment/metaclouds-frontend \
 #     metaclouds-frontend=ghcr.io/customizedvalidation/yunchuang/frontend:${GIT_SHA}
 # ==============================================================================
+# checkov:skip=CKV_K8S_14:Image tag is injected by CI/CD at deploy time (GIT_SHA); placeholder tag only
+# checkov:skip=CKV_K8S_43:Image digest pinned by CI/CD at deploy time (GIT_SHA tag); placeholder only
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -49,6 +51,8 @@ spec:
         app.kubernetes.io/part-of: metaclouds
         app.kubernetes.io/component: frontend
     spec:
+      # 前端无需访问 K8s API，不自动挂载 SA token（CKV_K8S_38）
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 101
@@ -60,11 +64,14 @@ spec:
       containers:
         - name: metaclouds-frontend
           # 镜像占位：CI 构建时注入真实 tag（如 git commit SHA），禁止 latest
-          image: ghcr.io/customizedvalidation/yunchuang/frontend:latest
-          imagePullPolicy: IfNotPresent
+          # （CKV_K8S_14/43 已在上方 checkov skip 注释中说明：tag 由 CI 注入，此占位非最终值）
+          image: ghcr.io/customizedvalidation/yunchuang/frontend:placeholder
+          # CI 每次注入新 GIT_SHA tag，Always 确保拉取最新构建（CKV_K8S_15）
+          imagePullPolicy: Always
           ports:
             - name: http
-              containerPort: 80
+              # nginx 非特权用户（Dockerfile USER 101）无法绑定特权端口 80，使用 8080
+              containerPort: 8080
               protocol: TCP
           resources:
             requests:

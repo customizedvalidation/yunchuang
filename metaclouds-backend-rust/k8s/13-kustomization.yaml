@@ -38,9 +38,11 @@ commonLabels:
   app.kubernetes.io/part-of: metaclouds
   app.kubernetes.io/managed-by: kustomize
 
-# 镜像占位（生产环境通过 CI 覆盖 tag，禁止 latest）
+# 镜像占位（生产环境通过 CI 覆盖 tag，禁止 latest）：
+# 注意：kustomize images 段的 newTag 会强制覆盖 deployment 中的 image tag，
+# 因此必须与 05/14 deployment 中的占位一致（placeholder），由 CI set image 注入真实 GIT_SHA。
 images:
   - name: ghcr.io/customizedvalidation/yunchuang/backend-rust
-    newTag: latest
+    newTag: placeholder
   - name: ghcr.io/customizedvalidation/yunchuang/frontend
-    newTag: latest
+    newTag: placeholder
