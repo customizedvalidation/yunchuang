@@ -5,10 +5,14 @@
       <div class="mc-page-head-main">
         <h1 class="mc-page-title">作业管理</h1>
         <p class="mc-page-desc">
-          共 {{ stats.total }} 个作业 · 排队 {{ stats.pending }} 个 · 运行中 {{ stats.running }} 个
+          共 {{ stats.total }} 个作业 · 排队 <CountUp :value="stats.pending" /> 个 · 运行中 <CountUp :value="stats.running" /> 个
         </p>
       </div>
       <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
         <Can :roles="['admin', 'manager']">
           <el-button type="primary" @click="openCreate">新建作业</el-button>
         </Can>
@@ -49,7 +53,7 @@
         :error="jobsError"
         :data="pagedJobs"
         :empty-text="emptyText"
-        @retry="loadJobs"
+        @retry="refreshJobs"
       >
         <el-table :data="pagedJobs" stripe style="width: 100%" row-key="id">
           <el-table-column prop="id" label="ID" width="80">
@@ -390,7 +394,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
@@ -400,6 +404,7 @@ import type { Job, JobStatus, JobType, JobPriority, GPUVendor, Checkpoint, Parti
 import { useFetch, useMutation } from '@/utils/useFetch'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
+import CountUp from '@/components/CountUp.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -523,6 +528,58 @@ const stats = computed(() => ({
   running: jobs.value.filter((j) => j.status === 'running').length,
 }))
 
+// ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
+// 当前 Tab 的作业数据由前端按 route.path 过滤，故刷新 jobs 即刷新当前 Tab 主数据。
+// 复用页面已有主数据加载函数 loadJobs；手动/自动刷新均重置倒计时。
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+function refreshJobs() {
+  loadJobs()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+}
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') refreshJobs()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    refreshJobs()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
+
 // ---------- 展示辅助 ----------
 function statusClass(s?: string) {
   return ['running', 'pending', 'completed', 'failed', 'cancelled'].includes(s ?? '') ? (s as string) : 'idle'
@@ -610,7 +667,7 @@ async function submitCreate() {
     await createMut.mutate({ ...form } as Partial<Job>)
     ElMessage.success('作业创建成功')
     createVisible.value = false
-    loadJobs()
+    refreshJobs()
   } catch {
     ElMessage.error('作业创建失败，请检查必填项后重试')
   }
@@ -630,7 +687,7 @@ async function handleCancel(row: Job) {
   try {
     await cancelMut.mutate(row.id)
     ElMessage.success('作业已取消')
-    loadJobs()
+    refreshJobs()
   } catch {
     ElMessage.error('作业取消失败，请稍后重试')
   }
@@ -639,7 +696,7 @@ async function handleSubmitToK8S(row: Job) {
   try {
     await submitMut.mutate(row.id)
     ElMessage.success('作业已提交到K8S')
-    loadJobs()
+    refreshJobs()
   } catch {
     ElMessage.error('提交作业到K8S失败')
   }
@@ -676,4 +733,28 @@ async function openDetail(row: Job) {
 :deep(.el-dialog) { max-width: 92vw; }
 /* 操作列 link 按钮触控目标扩容（视觉紧凑，命中区≥32px） */
 :deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }
+
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 </style>

@@ -5,13 +5,19 @@
         <h1 class="mc-page-title">基础资源管理</h1>
         <p class="mc-page-desc">AI 计算资源池 · AI 存储资源 · AI 网络资源 三大基础层总览</p>
       </div>
+      <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
+      </div>
     </div>
 
     <!-- GPU 资源概览卡片 -->
     <div class="gpu-overview">
       <el-card shadow="never" v-for="s in vendorStats" :key="s.key">
         <div class="gpu-stat-label">{{ s.label }}</div>
-        <div class="gpu-stat-value mc-num">{{ s.value }}<span class="gpu-stat-unit">{{ s.unit }}</span></div>
+        <div class="gpu-stat-value mc-num"><CountUp :value="s.value" /><span class="gpu-stat-unit">{{ s.unit }}</span></div>
       </el-card>
     </div>
 
@@ -142,18 +148,64 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
+import CountUp from '@/components/CountUp.vue'
 import { resourceApi } from '@/api'
 import { useFetch } from '@/utils/useFetch'
 import type { Resource, GPUVendor } from '@/types'
 
 const { data, loading, error, refetch } = useFetch<Resource[]>(() => resourceApi.list())
 const resourcesData = computed(() => data.value ?? [])
+
+// ---------- 自动轮询（动态呈现：数据按周期自动刷新，复用 useFetch 的 refetch） ----------
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') refetch()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    refetch()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 
 // ---------- 搜索 / 类型筛选 ----------
 const keyword = ref('')
@@ -297,5 +349,28 @@ function statusTagType(status?: string): 'success' | 'warning' | 'danger' | 'inf
 .toolbar { display: flex; gap: var(--mc-gap); margin-bottom: var(--mc-gap); flex-wrap: wrap; }
 .toolbar-search { flex: 1; min-width: 240px; max-width: 380px; }
 .pager { display: flex; justify-content: flex-end; margin-top: var(--mc-gap); }
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 :deep(.el-dialog) { max-width: 92vw; }
 </style>

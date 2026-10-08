@@ -8,6 +8,10 @@
         </p>
       </div>
       <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
         <Can :roles="['admin', 'manager']">
           <el-button type="primary" @click="openCreate">新增 GPU 设备</el-button>
         </Can>
@@ -19,31 +23,31 @@
       <el-col :xs="12" :sm="12" :md="8" :lg="4" :xl="4">
         <el-card shadow="never">
           <div class="stat-label">总设备数</div>
-          <div class="stat-value">{{ stats.total }} <span class="stat-unit">张</span></div>
+          <div class="stat-value"><CountUp :value="stats.total" /> <span class="stat-unit">张</span></div>
         </el-card>
       </el-col>
       <el-col :xs="12" :sm="12" :md="8" :lg="4" :xl="4">
         <el-card shadow="never">
           <div class="stat-label">可用</div>
-          <div class="stat-value" style="color: var(--mc-success-fg)">{{ stats.available }} <span class="stat-unit">张</span></div>
+          <div class="stat-value" style="color: var(--mc-success-fg)"><CountUp :value="stats.available" /> <span class="stat-unit">张</span></div>
         </el-card>
       </el-col>
       <el-col :xs="12" :sm="12" :md="8" :lg="4" :xl="4">
         <el-card shadow="never">
           <div class="stat-label">已分配</div>
-          <div class="stat-value" style="color: var(--mc-warning-fg)">{{ stats.allocated }} <span class="stat-unit">张</span></div>
+          <div class="stat-value" style="color: var(--mc-warning-fg)"><CountUp :value="stats.allocated" /> <span class="stat-unit">张</span></div>
         </el-card>
       </el-col>
       <el-col :xs="12" :sm="12" :md="8" :lg="4" :xl="4">
         <el-card shadow="never">
           <div class="stat-label">维护中</div>
-          <div class="stat-value" style="color: var(--mc-brand-fg)">{{ stats.maintenance }} <span class="stat-unit">张</span></div>
+          <div class="stat-value" style="color: var(--mc-brand-fg)"><CountUp :value="stats.maintenance" /> <span class="stat-unit">张</span></div>
         </el-card>
       </el-col>
       <el-col :xs="12" :sm="12" :md="8" :lg="4" :xl="4">
         <el-card shadow="never">
           <div class="stat-label">故障</div>
-          <div class="stat-value" style="color: var(--mc-danger-fg)">{{ stats.fault }} <span class="stat-unit">张</span></div>
+          <div class="stat-value" style="color: var(--mc-danger-fg)"><CountUp :value="stats.fault" /> <span class="stat-unit">张</span></div>
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="24" :md="24" :lg="4" :xl="4">
@@ -116,7 +120,7 @@
         :error="devices.error.value"
         :data="pagedData"
         empty-text="暂无 GPU 设备，登记后可进行细粒度分配与监控"
-        @retry="devices.refetch"
+        @retry="refreshAll"
       >
         <el-table :data="pagedData" stripe border style="width: 100%">
           <el-table-column prop="id" label="ID" width="70">
@@ -382,11 +386,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
+import CountUp from '@/components/CountUp.vue'
 import { gpuApi, clusterApi } from '@/api'
 import { useFetch } from '@/utils/useFetch'
 import type { GPUDevice, GPUAllocation, GPUVendor, Cluster } from '@/types'
@@ -511,6 +516,58 @@ const vendorDist = computed<Record<string, number>>(() => {
 const fracFull = computed(() => allocationsData.value.filter((a) => a.fraction >= 1).length)
 const fracHalf = computed(() => allocationsData.value.filter((a) => a.fraction === 0.5).length)
 const fracQuarter = computed(() => allocationsData.value.filter((a) => a.fraction === 0.25).length)
+
+// ---------- 自动轮询（动态呈现：表格与统计按周期自动刷新） ----------
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+function refreshAll() {
+  devices.refetch()
+  allocations.refetch()
+  // 手动/自动刷新均重置自动刷新倒计时
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+}
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') refreshAll()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    refreshAll()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 
 /** 设为维护模式 */
 async function handleSetMaintenance(row: GPUDevice) {
@@ -686,6 +743,29 @@ const detailRows = computed(() => {
 .stat-label { font-size: 12.5px; color: var(--mc-text-3); margin-bottom: 6px; }
 .stat-value { font-size: 24px; font-weight: 660; color: var(--mc-text-1); }
 .stat-unit { font-size: 12px; font-weight: 500; color: var(--mc-text-3); }
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 .vendor-dist { display: flex; flex-wrap: wrap; gap: 6px; }
 .detail-row { display: flex; padding: 8px 0; border-bottom: 1px solid var(--mc-line); }
 .detail-label { width: 120px; color: var(--mc-text-3); flex-shrink: 0; }

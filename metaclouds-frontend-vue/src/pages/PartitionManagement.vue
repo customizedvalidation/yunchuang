@@ -3,9 +3,13 @@
     <div class="mc-page-head">
       <div class="mc-page-head-main">
         <h1 class="mc-page-title">分区管理</h1>
-        <p class="mc-page-desc">共 {{ partitionsData.length }} 个分区 · 管理计算资源边界、优先级与权限</p>
+        <p class="mc-page-desc">共 <CountUp :value="partitionsData.length" /> 个分区 · 管理计算资源边界、优先级与权限</p>
       </div>
       <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
         <Can :roles="['admin', 'manager']">
           <el-button type="primary" @click="openCreate">创建分区</el-button>
         </Can>
@@ -29,7 +33,7 @@
         :error="partitions.error.value"
         :data="pagedData"
         empty-text="暂无分区，创建后可划分计算资源边界"
-        @retry="partitions.refetch"
+        @retry="refreshPartitions"
       >
         <el-table :data="pagedData" stripe border style="width: 100%">
           <el-table-column label="ID" width="70">
@@ -290,11 +294,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
+import CountUp from '@/components/CountUp.vue'
 import { partitionApi, clusterApi } from '@/api'
 import { useFetch } from '@/utils/useFetch'
 import type { Partition, PartitionPermission, GPUVendor, Cluster } from '@/types'
@@ -378,6 +383,57 @@ const pagedData = computed(() =>
 )
 watch(filteredPartitions, () => (currentPage.value = 1))
 
+// ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
+// 复用页面已有主数据 refetch（partitions）；手动/自动刷新均重置倒计时。
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+function refreshPartitions() {
+  partitions.refetch()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+}
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') refreshPartitions()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    refreshPartitions()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
+
 // ---------- 表单 ----------
 const formRef = ref<FormInstance>()
 const dialogVisible = ref(false)
@@ -442,7 +498,7 @@ async function submitForm() {
     }
     dialogVisible.value = false
     resetForm()
-    partitions.refetch()
+    refreshPartitions()
   } catch {
     ElMessage.error('操作失败，请检查必填项后重试')
   }
@@ -451,7 +507,7 @@ async function handleDelete(id: number) {
   try {
     await partitionApi.remove(id)
     ElMessage.success('分区删除成功')
-    partitions.refetch()
+    refreshPartitions()
   } catch {
     ElMessage.error('删除失败，请稍后重试')
   }
@@ -472,7 +528,7 @@ async function savePriority() {
     await partitionApi.updatePriority(priorityTarget.value.id, priorityValue.value)
     ElMessage.success('优先级更新成功')
     priorityVisible.value = false
-    partitions.refetch()
+    refreshPartitions()
   } catch {
     ElMessage.error('操作失败，请稍后重试')
   }
@@ -493,7 +549,7 @@ async function saveRuntime() {
     await partitionApi.updateMaxRuntime(runtimeTarget.value.id, runtimeValue.value)
     ElMessage.success('最大运行时长更新成功')
     runtimeVisible.value = false
-    partitions.refetch()
+    refreshPartitions()
   } catch {
     ElMessage.error('操作失败，请稍后重试')
   }
@@ -543,6 +599,30 @@ async function removePermission(id: number) {
 <style scoped>
 .toolbar { display: flex; flex-wrap: wrap; gap: var(--mc-gap); align-items: center; }
 .mc-empty-mini { color: var(--mc-text-3); }
+
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 :deep(.el-dialog) { max-width: 92vw; }
 :deep(.el-drawer) { max-width: 92vw; }
 :deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }

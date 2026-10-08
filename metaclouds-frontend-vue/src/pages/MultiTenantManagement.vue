@@ -3,9 +3,13 @@
     <div class="mc-page-head">
       <div class="mc-page-head-main">
         <h1 class="mc-page-title">多租户管理</h1>
-        <p class="mc-page-desc">共 {{ tenants.length }} 个租户 · 按租户划分命名空间与配额边界</p>
+        <p class="mc-page-desc">共 <CountUp :value="tenants.length" /> 个租户 · 按租户划分命名空间与配额边界</p>
       </div>
       <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
         <Can :roles="['admin']">
           <el-button type="primary" @click="openCreate">创建租户</el-button>
         </Can>
@@ -46,7 +50,7 @@
         :error="listError"
         :data="filteredTenants"
         empty-text="还没有租户，创建以划分命名空间与配额边界。"
-        @retry="fetchTenants"
+        @retry="refreshCurrentTab"
       >
         <el-table :data="pagedTenants" row-key="id" border stripe style="width: 100%">
           <el-table-column prop="id" label="ID" width="80">
@@ -134,7 +138,7 @@
           :error="quotaError"
           :data="quotas"
           empty-text="暂无配额，为该维度新增 GPU / CPU / 内存 / 存储资源配额。"
-          @retry="loadQuotas"
+          @retry="refreshCurrentTab"
         >
           <el-alert
             v-if="quotaUsageSummary"
@@ -328,12 +332,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { FormInstance, FormRules } from 'element-plus'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
+import CountUp from '@/components/CountUp.vue'
 import { tenantApi, quotaApi } from '@/api'
 import type { Tenant, ResourceQuota } from '@/types'
 
@@ -557,6 +562,59 @@ const quotaUsageSummary = computed(() => {
   return ''
 })
 
+// ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+// 多 Tab 页面：轮询只刷新当前 Tab 的主数据（复用各 Tab 已有刷新函数）
+function refreshCurrentTab() {
+  if (activeTab.value === 'quotas') void loadQuotas()
+  else void fetchTenants()
+  // 手动/自动刷新均重置自动刷新倒计时
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+}
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') refreshCurrentTab()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    refreshCurrentTab()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
+
 function goQuota(row: Tenant) {
   activeTab.value = 'quotas'
   quotaScope.value = 'tenant'
@@ -678,5 +736,28 @@ function statusTagType(status?: string) {
 }
 :deep(.el-table .el-button.is-link) {
   min-height: 44px;
+}
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 </style>

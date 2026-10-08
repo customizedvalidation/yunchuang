@@ -3,9 +3,13 @@
     <div class="mc-page-head">
       <div class="mc-page-head-main">
         <h1 class="mc-page-title">拓扑管理</h1>
-        <p class="mc-page-desc">共 {{ topologiesData.length }} 条拓扑记录 · 机架/交换机/NUMA/GPU 层级管理与评分</p>
+        <p class="mc-page-desc">共 <CountUp :value="topologiesData.length" /> 条拓扑记录 · 机架/交换机/NUMA/GPU 层级管理与评分</p>
       </div>
       <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
         <el-button @click="scoreVisible = true">拓扑评分工具</el-button>
         <Can :roles="['admin', 'manager']">
           <el-button type="primary" @click="openCreate">新增拓扑</el-button>
@@ -29,7 +33,7 @@
         :error="topologies.error.value"
         :data="pagedData"
         empty-text="暂无节点拓扑，登记后可进行拓扑感知调度评分"
-        @retry="topologies.refetch"
+        @retry="refreshTopologies"
       >
         <el-table :data="pagedData" stripe border style="width: 100%">
           <el-table-column label="ID" width="70">
@@ -218,11 +222,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
+import CountUp from '@/components/CountUp.vue'
 import { topologyApi, clusterApi, jobApi } from '@/api'
 import { useFetch } from '@/utils/useFetch'
 import { colorTokens } from '@/theme/tokens'
@@ -249,11 +254,63 @@ const topologies = useFetch<NodeTopology[]>(() =>
 const clusters = useFetch<Cluster[]>(() => clusterApi.list())
 const jobs = useFetch<Job[]>(() => jobApi.list())
 
-watch(clusterFilter, () => topologies.refetch())
+watch(clusterFilter, () => refreshTopologies())
 
 const topologiesData = computed(() => topologies.data.value ?? [])
 const clustersData = computed(() => clusters.data.value ?? [])
 const jobsData = computed(() => jobs.data.value ?? [])
+
+// ---------- 自动轮询（动态呈现：拓扑主表按周期自动刷新） ----------
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+function refreshTopologies() {
+  topologies.refetch()
+  clusters.refetch()
+  // 手动/自动刷新均重置自动刷新倒计时
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+}
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') refreshTopologies()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    refreshTopologies()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 
 function clusterName(id?: number) {
   return clustersData.value.find((c) => c.id === id)?.name ?? '-'
@@ -336,7 +393,7 @@ async function submitForm() {
     }
     dialogVisible.value = false
     resetForm()
-    topologies.refetch()
+    refreshTopologies()
   } catch {
     ElMessage.error('操作失败，请检查必填项后重试')
   }
@@ -345,7 +402,7 @@ async function handleDelete(id: number) {
   try {
     await topologyApi.remove(id)
     ElMessage.success('拓扑删除成功')
-    topologies.refetch()
+    refreshTopologies()
   } catch {
     ElMessage.error('删除失败，请稍后重试')
   }
@@ -435,6 +492,29 @@ async function calculateScore() {
 .score-title { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
 .score-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
 .score-name { width: 150px; flex-shrink: 0; font-size: 13px; color: var(--mc-text-2); }
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 :deep(.el-table .el-button.is-link) {
   min-height: 44px;
 }

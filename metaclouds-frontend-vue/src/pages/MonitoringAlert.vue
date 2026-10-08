@@ -7,38 +7,58 @@
         <p class="mc-page-desc">系统资源监控 · 多级告警管理</p>
       </div>
       <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
         <el-button :icon="Refresh" @click="refreshAll">刷新</el-button>
       </div>
     </div>
 
     <!-- KPI 指标卡 -->
     <div class="kpi-grid">
-      <div class="kpi-card">
+      <RouterLink
+        :to="'/cluster'"
+        class="kpi-card kpi-card--link"
+        :aria-label="`集群总数，点击查看详情`"
+      >
         <div class="kpi-icon" style="background: var(--mc-brand-50); color: var(--mc-brand-fg)"><OfficeBuilding /></div>
         <div>
           <div class="kpi-label">集群总数</div>
-          <div class="kpi-value mc-num">{{ kpi.clusterTotal }}</div>
+          <div class="kpi-value mc-num"><CountUp :value="kpi.clusterTotal" /></div>
         </div>
-      </div>
-      <div class="kpi-card">
+        <el-icon class="kpi-go" :size="14"><ArrowRight /></el-icon>
+      </RouterLink>
+      <RouterLink
+        :to="'/cluster'"
+        class="kpi-card kpi-card--link"
+        :aria-label="`在线节点，点击查看详情`"
+      >
         <div class="kpi-icon" style="background: var(--mc-success-soft); color: var(--mc-success-fg)"><Monitor /></div>
         <div>
           <div class="kpi-label">在线节点</div>
-          <div class="kpi-value mc-num">{{ kpi.onlineNodes }}</div>
+          <div class="kpi-value mc-num"><CountUp :value="kpi.onlineNodes" /></div>
         </div>
-      </div>
-      <div class="kpi-card">
+        <el-icon class="kpi-go" :size="14"><ArrowRight /></el-icon>
+      </RouterLink>
+      <RouterLink
+        :to="'/gpus'"
+        class="kpi-card kpi-card--link"
+        :aria-label="`GPU 利用率，点击查看详情`"
+      >
         <div class="kpi-icon" style="background: var(--mc-info-soft); color: var(--mc-info-fg)"><Cpu /></div>
         <div>
           <div class="kpi-label">GPU 利用率</div>
-          <div class="kpi-value mc-num">{{ kpi.gpuUtil }}%</div>
+          <div class="kpi-value mc-num"><CountUp :value="kpi.gpuUtil" />%</div>
         </div>
-      </div>
+        <el-icon class="kpi-go" :size="14"><ArrowRight /></el-icon>
+      </RouterLink>
+      <!-- 活跃告警主题即本页（/monitoring），自链不跳转，保持静态卡片 -->
       <div class="kpi-card">
         <div class="kpi-icon" style="background: var(--mc-warning-soft); color: var(--mc-warning-fg)"><Bell /></div>
         <div>
           <div class="kpi-label">活跃告警</div>
-          <div class="kpi-value mc-num">{{ kpi.activeAlerts }}</div>
+          <div class="kpi-value mc-num"><CountUp :value="kpi.activeAlerts" /></div>
         </div>
       </div>
     </div>
@@ -165,11 +185,12 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import {
-  OfficeBuilding, Monitor, Cpu, Bell, Refresh,
+  OfficeBuilding, Monitor, Cpu, Bell, Refresh, ArrowRight,
 } from '@element-plus/icons-vue'
 // 经 @/theme/echarts 统一入口引入（已按需 use() 注册，勿直接引 'echarts' 全量包）
 import { echarts } from '@/theme/echarts'
 import type { ECharts } from 'echarts/core'
+import CountUp from '@/components/CountUp.vue'
 import { monitoringApi } from '@/api'
 import { toUserMessage } from '@/utils/error'
 import type { Alert, AlertLevel, AlertStatus, MetricsOverview } from '@/types'
@@ -366,23 +387,65 @@ function resizeCharts() {
   throughputChart?.resize()
 }
 
+// ---------- 自动轮询（动态呈现：指标与告警列表按周期自动刷新） ----------
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') refreshAll()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    refreshAll()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
 onMounted(() => {
   if (trendChartRef.value) trendChart = echarts.init(trendChartRef.value)
   if (throughputChartRef.value) throughputChart = echarts.init(throughputChartRef.value)
   renderTrend()
   renderThroughput()
   window.addEventListener('resize', resizeCharts)
+  // 动态呈现：启动自动轮询，页面隐藏时暂停、回到前台立即刷新
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeCharts)
   trendChart?.dispose()
   throughputChart?.dispose()
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 watch(kpi, () => renderTrend())
 
 function refreshAll() {
   reloadMetrics()
   alertsRefetch()
+  // 手动/自动刷新均重置自动刷新倒计时
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
 }
 
 // ---------- 详情 ----------
@@ -410,6 +473,62 @@ void metricsLoading
   background: var(--mc-surface);
   border-radius: var(--mc-radius-lg);
   box-shadow: var(--mc-shadow-raised-sm);
+}
+/* 可点击卡片：hover 上浮 + 品牌描边 */
+.kpi-card--link {
+  position: relative;
+  border: 1px solid transparent;
+  text-decoration: none;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+  outline-offset: 2px;
+}
+.kpi-card--link:hover,
+.kpi-card--link:focus-visible {
+  border-color: var(--mc-brand);
+  box-shadow: 0 8px 24px rgba(24, 110, 255, 0.14);
+  transform: translateY(-2px);
+}
+.kpi-card--link:active { transform: translateY(0); }
+.kpi-go {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--mc-text-3);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.kpi-card--link:hover .kpi-go,
+.kpi-card--link:focus-visible .kpi-go {
+  opacity: 1;
+  transform: translateY(-50%) translateX(2px);
+  color: var(--mc-brand);
+}
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 .kpi-icon {
   width: 40px;

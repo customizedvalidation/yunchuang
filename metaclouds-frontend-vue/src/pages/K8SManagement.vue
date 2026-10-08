@@ -6,6 +6,12 @@
         <h1 class="mc-page-title">K8S 管理</h1>
         <p class="mc-page-desc">GPU 节点、运行 Pod 与服务总览</p>
       </div>
+      <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
+      </div>
     </div>
 
     <!-- Tab 由 route.path 决定 -->
@@ -25,14 +31,14 @@
           style="width: 240px"
           aria-label="搜索节点"
         />
-        <el-button :icon="Refresh" :loading="gpuLoading" @click="loadGpu">刷新GPU资源</el-button>
+        <el-button :icon="Refresh" :loading="gpuLoading" @click="refreshCurrentTab">刷新GPU资源</el-button>
       </div>
       <PageState
         :loading="gpuLoading"
         :error="gpuError"
         :data="pagedNodes"
         empty-text="当前集群没有登记 GPU 节点资源"
-        @retry="loadGpu"
+        @retry="refreshCurrentTab"
       >
         <el-table :data="pagedNodes" stripe>
           <el-table-column label="名称" min-width="160">
@@ -79,14 +85,14 @@
           style="width: 240px"
           aria-label="搜索 Pod"
         />
-        <el-button :icon="Refresh" :loading="jobsLoading" @click="loadJobs">刷新</el-button>
+        <el-button :icon="Refresh" :loading="jobsLoading" @click="refreshCurrentTab">刷新</el-button>
       </div>
       <PageState
         :loading="jobsLoading"
         :error="jobsError"
         :data="pagedPods"
         empty-text="暂无运行中的 Pod：提交并调度作业后，运行中的工作负载会出现在这里"
-        @retry="loadJobs"
+        @retry="refreshCurrentTab"
       >
         <el-table :data="pagedPods" stripe>
           <el-table-column label="名称" min-width="180">
@@ -130,14 +136,14 @@
           style="width: 240px"
           aria-label="搜索服务"
         />
-        <el-button :icon="Refresh" :loading="svcLoading" @click="loadSvc">刷新</el-button>
+        <el-button :icon="Refresh" :loading="svcLoading" @click="refreshCurrentTab">刷新</el-button>
       </div>
       <PageState
         :loading="svcLoading"
         :error="svcError"
         :data="pagedSvcs"
         empty-text="暂无服务：当前命名空间下还没有可调度的服务资源"
-        @retry="loadSvc"
+        @retry="refreshCurrentTab"
       >
         <el-table :data="pagedSvcs" stripe>
           <el-table-column label="名称" min-width="160">
@@ -184,7 +190,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
 import { jobApi, resourceApi } from '@/api'
@@ -229,6 +235,60 @@ const {
   data: svcRaw, loading: svcLoading, error: svcError, execute: loadSvc,
 } = useFetch<Resource[]>(() => resourceApi.list())
 const svcList = computed<Resource[]>(() => svcRaw.value ?? [])
+
+// ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+// 多 Tab 页面：轮询只刷新当前 Tab 的主数据（复用各 Tab 已有刷新函数）
+function refreshCurrentTab() {
+  if (activeTab.value === 'pods') loadJobs()
+  else if (activeTab.value === 'services') loadSvc()
+  else loadGpu()
+  // 手动/自动刷新均重置自动刷新倒计时
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+}
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') refreshCurrentTab()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    refreshCurrentTab()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 
 // ---------- 搜索 ----------
 const nodeSearch = ref('')
@@ -300,4 +360,27 @@ function showNodeDetail(row: GPUResource) {
 
 <style scoped>
 :deep(.el-dialog) { max-width: 92vw; }
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 </style>

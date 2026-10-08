@@ -3,9 +3,13 @@
     <div class="mc-page-head">
       <div class="mc-page-head-main">
         <h1 class="mc-page-title">数据集与 Fluid 缓存管理</h1>
-        <p class="mc-page-desc">共 {{ datasets.length }} 个数据集 · 分布式缓存加速训练数据读取</p>
+        <p class="mc-page-desc">共 <CountUp :value="datasets.length" /> 个数据集 · 分布式缓存加速训练数据读取</p>
       </div>
       <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
         <Can :roles="['admin', 'manager']">
           <el-button type="primary" @click="openCreate">新增数据集</el-button>
         </Can>
@@ -316,12 +320,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import type { FormInstance, FormRules } from 'element-plus'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
+import CountUp from '@/components/CountUp.vue'
 import { datasetApi } from '@/api'
 import type { Dataset, FluidCache } from '@/types'
 
@@ -365,6 +370,51 @@ const statusFilter = ref('')
 const page = ref(1)
 const pageSize = ref(10)
 
+// ---------- 自动轮询（动态呈现：数据集主表按周期自动刷新） ----------
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') fetchDatasets()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    fetchDatasets()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
+
 async function fetchDatasets() {
   listLoading.value = true
   listError.value = ''
@@ -375,6 +425,8 @@ async function fetchDatasets() {
     datasets.value = []
   } finally {
     listLoading.value = false
+    // 手动/自动刷新均重置自动刷新倒计时
+    autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
   }
 }
 fetchDatasets()
@@ -679,6 +731,29 @@ function statusTagType(status?: string) {
 }
 .mc-num {
   font-variant-numeric: tabular-nums;
+}
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 :deep(.el-table .el-button.is-link) {
   min-height: 44px;

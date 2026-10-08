@@ -4,10 +4,14 @@
       <div class="mc-page-head-main">
         <h1 class="mc-page-title">集群管理</h1>
         <p class="mc-page-desc">
-          共 {{ clustersData.length }} 个集群 · 多集群统一调度 / 高可用 / SSH·VNC·WEB 多方式访问
+          共 <CountUp :value="clustersData.length" /> 个集群 · 多集群统一调度 / 高可用 / SSH·VNC·WEB 多方式访问
         </p>
       </div>
       <div class="mc-page-head-extra">
+        <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
+          <i class="auto-refresh-dot" />
+          自动刷新 · 下次 {{ autoRefreshCountdown }}s
+        </span>
         <Can :roles="['admin', 'manager']">
           <el-button type="primary" :icon="Plus" @click="openCreate">创建集群</el-button>
         </Can>
@@ -39,7 +43,7 @@
         :data="clustersData"
         empty-text="还没有集群，点击右上角创建第一个集群"
         retry-text="重新加载"
-        @retry="refetch"
+        @retry="refreshClusters"
       >
         <el-table :data="pagedClusters" row-key="id" stripe style="width: 100%">
           <el-table-column prop="id" label="ID" width="80">
@@ -315,12 +319,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
+import CountUp from '@/components/CountUp.vue'
 import { clusterApi, partitionApi } from '@/api'
 import { useFetch } from '@/utils/useFetch'
 import type { Cluster, Partition } from '@/types'
@@ -337,6 +342,57 @@ const partitionsF = useFetch<Partition[]>(() => partitionApi.list({}))
 
 const clustersData = computed(() => data.value ?? [])
 const partitionsData = computed(() => partitionsF.data.value ?? [])
+
+// ---------- 自动轮询（动态呈现：集群列表按周期自动刷新） ----------
+const AUTO_REFRESH_SECONDS = 30
+const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
+let countdownTimer: number | null = null
+
+function refreshClusters() {
+  refetch()
+  // 手动/自动刷新均重置自动刷新倒计时
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+}
+
+function stopAutoRefresh() {
+  if (countdownTimer !== null) {
+    window.clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = window.setInterval(() => {
+    autoRefreshCountdown.value -= 1
+    if (autoRefreshCountdown.value <= 0) {
+      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
+      if (document.visibilityState === 'visible') refreshClusters()
+    }
+  }, 1000)
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    // 回到前台：立即刷新一次并重启周期
+    refreshClusters()
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  startAutoRefresh()
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+})
 
 // ---------- 搜索 / 筛选 ----------
 const searchText = ref('')
@@ -434,7 +490,7 @@ async function handleSubmit() {
       ElMessage.success('集群创建成功')
     }
     formVisible.value = false
-    refetch()
+    refreshClusters()
   } catch {
     ElMessage.error(editing.value ? '集群更新失败，请稍后重试' : '集群创建失败，请检查必填项后重试')
   } finally {
@@ -446,7 +502,7 @@ async function handleDelete(row: ClusterRecord) {
   try {
     await clusterApi.remove(row.id)
     ElMessage.success('集群删除成功')
-    refetch()
+    refreshClusters()
   } catch {
     ElMessage.error('集群删除失败，请稍后重试')
   }
@@ -456,7 +512,7 @@ async function handleRebuild(row: ClusterRecord) {
   try {
     await clusterApi.update(row.id, { status: 'rebuilding' })
     ElMessage.success('集群重建指令已下发')
-    refetch()
+    refreshClusters()
   } catch {
     ElMessage.error('重建失败，请稍后重试')
   }
@@ -485,7 +541,7 @@ async function handleSaveScale() {
     })
     ElMessage.success('集群扩容指令已下发')
     scaleVisible.value = false
-    refetch()
+    refreshClusters()
   } catch {
     ElMessage.error('扩容失败，请稍后重试')
   } finally {
@@ -542,4 +598,27 @@ function statusTagType(status?: string): 'success' | 'warning' | 'danger' | 'inf
 .detail-desc :deep(p) { margin: 0 0 8px; }
 :deep(.el-dialog) { max-width: 92vw; }
 :deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }
+.auto-refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--mc-text-3);
+  margin-right: 8px;
+  transition: color 0.3s ease;
+}
+.auto-refresh-hint.is-counting .auto-refresh-dot {
+  animation: mc-pulse 1s ease-in-out infinite;
+}
+.auto-refresh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mc-brand);
+  opacity: 0.85;
+}
+@keyframes mc-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
 </style>
