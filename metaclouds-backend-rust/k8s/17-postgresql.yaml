@@ -41,6 +41,9 @@ spec:
       protocol: TCP
 
 ---
+#checkov:skip=CKV_K8S_35:POSTGRES_PASSWORD injected via env per official postgres image entrypoint contract (Secret object RBAC-protected)
+#checkov:skip=CKV_K8S_40:runAsUser 999 is the official postgres image uid (non-root, immutable within image)
+#checkov:skip=CKV_K8S_43:Image pinned to postgres:16-alpine fixed minor tag (non-latest); digest pin optional at release time
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -67,6 +70,8 @@ spec:
         app.kubernetes.io/part-of: metaclouds
         app.kubernetes.io/component: database
     spec:
+      # postgres 无需访问 K8s API，不自动挂载 SA token（CKV_K8S_38）
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         # postgres 官方镜像内的 postgres 用户 uid/gid = 999
@@ -78,7 +83,8 @@ spec:
       containers:
         - name: postgresql
           image: postgres:16-alpine
-          imagePullPolicy: IfNotPresent
+          # 固定 minor tag，Always 确保补丁更新（CKV_K8S_15）
+          imagePullPolicy: Always
           ports:
             - name: postgres
               containerPort: 5432
@@ -113,7 +119,8 @@ spec:
               memory: "1Gi"
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
+            # 根文件系统只读（CKV_K8S_22）：数据落 PVC，运行时写路径挂 emptyDir
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -141,6 +148,17 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            # 根文件系统只读后，postgres 运行时写路径改挂 emptyDir：
+            #   /tmp（临时文件）、/var/run/postgresql（unix socket）
+            - name: tmp
+              mountPath: /tmp
+            - name: pg-run
+              mountPath: /var/run/postgresql
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: pg-run
+          emptyDir: {}
   volumeClaimTemplates:
     - metadata:
         name: data

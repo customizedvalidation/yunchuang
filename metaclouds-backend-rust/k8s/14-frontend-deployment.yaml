@@ -15,8 +15,9 @@
 #   kubectl set image deployment/metaclouds-frontend \
 #     metaclouds-frontend=ghcr.io/customizedvalidation/yunchuang/frontend:${GIT_SHA}
 # ==============================================================================
-# checkov:skip=CKV_K8S_14:Image tag is injected by CI/CD at deploy time (GIT_SHA); placeholder tag only
-# checkov:skip=CKV_K8S_43:Image digest pinned by CI/CD at deploy time (GIT_SHA tag); placeholder only
+#checkov:skip=CKV_K8S_14:Image tag is injected by CI/CD at deploy time (GIT_SHA); placeholder tag only
+#checkov:skip=CKV_K8S_43:Image digest pinned by CI/CD at deploy time (GIT_SHA tag); placeholder only
+#checkov:skip=CKV_K8S_40:runAsUser 101 is the official nginx user (non-root, UID stable across nginx images); host conflict risk mitigated by fsGroup + seccomp
 apiVersion: apps/v1
 kind: Deployment
 metadata:
