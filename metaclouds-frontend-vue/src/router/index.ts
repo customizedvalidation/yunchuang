@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { getNavRoles } from '@/nav'
+import type { UserRole } from '@/types'
 
 const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'Login', component: () => import('@/pages/Login.vue') },
@@ -21,7 +23,7 @@ const routes: RouteRecordRaw[] = [
         path: 'tenant',
         name: 'Tenant',
         component: () => import('@/pages/MultiTenantManagement.vue'),
-        meta: { roles: ['admin', 'manager'] as const },
+        // 角色约束收口到 navConfig（@/nav 的 /tenant.roles），不再在此硬编码
       },
       { path: 'acceleration', name: 'Acceleration', component: () => import('@/pages/AccelerationSuiteManagement.vue') },
       { path: 'security', name: 'Security', component: () => import('@/pages/SecurityManagement.vue') },
@@ -52,8 +54,9 @@ router.beforeEach((to) => {
   // 角色守卫（fail-closed）：role 为 null/未知时一律拒绝。
   // 旧写法 `roles && auth.role && !roles.includes(...)` 在 role 缺失时放行，
   // 清空 localStorage 里的 user 即可绕过角色路由。
-  const roles = to.meta.roles as readonly string[] | undefined
-  if (roles && !roles.includes(auth.role ?? '')) {
+  // 角色约束统一从 navConfig 取（与 Sidebar 菜单过滤同源）。
+  const navRoles = getNavRoles(to.path)
+  if (navRoles && !navRoles.includes((auth.role ?? '') as UserRole)) {
     return { path: '/dashboard' }
   }
   return true

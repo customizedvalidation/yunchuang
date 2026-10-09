@@ -6,7 +6,10 @@
       <main class="mc-app-content">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
-            <component :is="Component" :key="route.fullPath" />
+            <!-- 顶层模块 key：同级子路由（/job/list↔/job/queue↔/job/history、
+                 /k8s/nodes↔/k8s/pods↔/k8s/services）共享 key → 切换不重挂载，
+                 保留分页/搜索/轮询状态；跨顶层模块 key 不同 → 仍重挂载。 -->
+            <component :is="Component" :key="layoutKey" />
           </transition>
         </router-view>
       </main>
@@ -16,7 +19,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import Sidebar from './Sidebar.vue'
 import Topbar from './Topbar.vue'
@@ -24,6 +27,13 @@ import Topbar from './Topbar.vue'
 const route = useRoute()
 const collapsed = ref(false)
 const mobileOpen = ref(false)
+
+// 顶层模块 key：取路由路径首段（如 'job' / 'k8s' / 'dashboard'），
+// 保证同级子路由切换时组件不重挂载。
+const layoutKey = computed(() => {
+  const seg = route.path.split('/').filter(Boolean)[0]
+  return seg || 'root'
+})
 
 // Esc 关闭移动端浮层
 function onKey(e: KeyboardEvent) {

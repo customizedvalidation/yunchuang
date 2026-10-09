@@ -20,7 +20,16 @@
         <template v-for="item in group.children" :key="item.key">
           <!-- 有子菜单 -->
           <template v-if="item.children && item.children.length">
-            <div class="mc-sidebar-item" :class="{ active: isParentActive(item) }" @click="toggleSubmenu(item.key!)">
+            <div
+              class="mc-sidebar-item"
+              :class="{ active: isParentActive(item) }"
+              role="button"
+              tabindex="0"
+              :aria-expanded="openKeys.includes(item.key!)"
+              @click="toggleSubmenu(item.key!)"
+              @keydown.enter="toggleSubmenu(item.key!)"
+              @keydown.space.prevent="toggleSubmenu(item.key!)"
+            >
               <el-icon class="mc-sidebar-item-icon"><component :is="item.icon" /></el-icon>
               <div class="mc-sidebar-item-content">
                 <div class="mc-sidebar-item-label">
@@ -76,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Cpu, ArrowLeft, ArrowRight, SwitchButton,
@@ -84,10 +93,18 @@ import {
   Connection, Box, Share, House,
   Promotion, FolderOpened, Bell, UserFilled, Lock,
 } from '@element-plus/icons-vue'
-import type { MenuItem, UserRole, Job } from '@/types'
-import { isRoleAllowed, readStoredRole } from '@/utils/auth'
+import type { UserRole, Job } from '@/types'
+import { navConfig, type NavItem, type NavGroup } from '@/nav'
+import { isRoleAllowed } from '@/utils/auth'
 import { jobApi, clusterApi, resourceApi, tenantApi, gpuApi, partitionApi, schedulerApi, datasetApi, monitoringApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+
+// 注：图标名称 → 组件映射保留（iconMap），与 navConfig 的 icon 字符串名一一对应。
+const iconMap: Record<string, unknown> = {
+  Odometer, Tickets, Cloudy, Lightning, Grid,
+  Connection, Box, Share, House,
+  Promotion, FolderOpened, Bell, UserFilled, Lock,
+}
 
 defineProps<{ collapsed: boolean }>()
 defineEmits<{ (e: 'collapse', v: boolean): void }>()
@@ -96,84 +113,17 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
-// 菜单配置（与 React 版 Sidebar.tsx menuItems 对齐）
-const menuItems: MenuItem[] = [
-  {
-    type: 'group', label: '总览',
-    children: [
-      { key: '/dashboard', icon: 'Odometer', label: '仪表盘', description: '算力总览' },
-    ],
-  },
-  {
-    type: 'group', label: '作业调度',
-    children: [
-      {
-        key: '/job', icon: 'Tickets', label: '作业管理', description: '作业调度',
-        children: [
-          { key: '/job/list', label: '作业列表' },
-          { key: '/job/queue', label: '任务队列' },
-          { key: '/job/history', label: '历史记录' },
-        ],
-      },
-    ],
-  },
-  {
-    type: 'group', label: '基础资源',
-    children: [
-      { key: '/resource', icon: 'Cloudy', label: '资源管理', description: '资源分配' },
-      { key: '/gpus', icon: 'Lightning', label: 'GPU 设备', description: '细粒度分配' },
-      { key: '/partitions', icon: 'Grid', label: '分区管理', description: '分区配额' },
-    ],
-  },
-  {
-    type: 'group', label: '集群管理',
-    children: [
-      { key: '/cluster', icon: 'Connection', label: '集群管理', description: '高可用集群' },
-      {
-        key: '/k8s', icon: 'Box', label: 'K8S 管理', description: '容器编排',
-        children: [
-          { key: '/k8s/nodes', label: '节点管理' },
-          { key: '/k8s/pods', label: 'Pod 管理' },
-          { key: '/k8s/services', label: '服务管理' },
-        ],
-      },
-      { key: '/schedulers', icon: 'Share', label: '调度器', description: 'Slurm/LSF' },
-      { key: '/topology', icon: 'House', label: '拓扑感知', description: '网络拓扑' },
-    ],
-  },
-  {
-    type: 'group', label: '加速套件',
-    children: [
-      { key: '/acceleration', icon: 'Promotion', label: '加速套件', description: '推理加速' },
-      { key: '/datasets', icon: 'FolderOpened', label: '数据集', description: 'Fluid 加速' },
-    ],
-  },
-  {
-    type: 'group', label: '系统治理',
-    children: [
-      { key: '/monitoring', icon: 'Bell', label: '监控告警', description: '实时监控' },
-      { key: '/tenant', icon: 'UserFilled', label: '多租户', description: '租户配额', roles: ['admin', 'manager'] },
-      { key: '/security', icon: 'Lock', label: '安全管理', description: '安全策略' },
-    ],
-  },
-]
+// 菜单数据统一收口到 @/nav 的 navConfig（与 Topbar 面包屑、router 角色守卫同源）
 
-// 图标映射
-const iconMap: Record<string, unknown> = {
-  Odometer, Tickets, Cloudy, Lightning, Grid,
-  Connection, Box, Share, House,
-  Promotion, FolderOpened, Bell, UserFilled, Lock,
-}
+// 角色来源统一为 Pinia store（与路由守卫单一真相一致）
+const currentRole = computed<UserRole | null>(() => auth.role)
 
-const currentRole = computed<UserRole | null>(() => readStoredRole())
-
-// 按角色过滤菜单
-const visibleMenu = computed(() => {
+// 按角色过滤菜单（与 navConfig 同源）
+const visibleMenu = computed<NavGroup[]>(() => {
   const role = currentRole.value
-  const result: MenuItem[] = []
-  for (const group of menuItems) {
-    if (group.type !== 'group') continue
-    const children = (group.children || []).filter((item) => {
+  const result: NavGroup[] = []
+  for (const group of navConfig) {
+    const children = group.children.filter((item) => {
       if (item.roles && role && !isRoleAllowed(role, item.roles)) return false
       return true
     })
@@ -204,7 +154,7 @@ function toggleSubmenu(key: string) {
   else openKeys.value.push(key)
 }
 
-function isParentActive(item: MenuItem): boolean {
+function isParentActive(item: NavItem): boolean {
   if (!item.key) return false
   return route.path === item.key || route.path.startsWith(item.key + '/')
 }
@@ -216,7 +166,6 @@ function badgeColor(key: string, count: number): string {
   if (!count) return ''
   if (key === '/monitoring') return count >= 5 ? 'danger' : 'warning'
   if (key === '/job/queue') return ''
-  if (key === '/k8s/pods') return 'success'
   if (key === '/job/history') return 'muted'
   return ''
 }
@@ -239,7 +188,8 @@ async function loadBadges() {
       '/job': jobsArr.length,
       '/job/queue': jobsArr.filter((j) => j.status === 'pending').length,
       '/job/history': jobsArr.filter((j) => ['completed', 'failed', 'cancelled'].includes(j.status)).length,
-      '/k8s/pods': jobsArr.filter((j) => j.status === 'running').length,
+      // 注：/k8s/pods 不再展示“运行中作业数”徽标——后端无真实 Pod 接口，
+      // 曾用运行中作业数填充会误导用户以为这是 Pod 数量，故移除该误导徽标。
       '/cluster': (clusters as unknown[]).length,
       '/resource': (resources as unknown[]).length,
       '/tenant': (tenants as unknown[]).length,
@@ -253,7 +203,17 @@ async function loadBadges() {
     // 徽标加载失败不影响页面
   }
 }
-onMounted(loadBadges)
+
+// 徽标：挂载即拉取一次，并每 30s 定时刷新（失败不影响页面），卸载清理定时器
+const BADGE_REFRESH_MS = 30_000
+let badgeTimer: number | null = null
+onMounted(() => {
+  void loadBadges()
+  badgeTimer = window.setInterval(() => void loadBadges(), BADGE_REFRESH_MS)
+})
+onUnmounted(() => {
+  if (badgeTimer !== null) window.clearInterval(badgeTimer)
+})
 
 // 退出登录
 function handleLogout() {

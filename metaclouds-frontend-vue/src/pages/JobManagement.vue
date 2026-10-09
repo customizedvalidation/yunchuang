@@ -402,6 +402,8 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { jobApi, partitionApi, checkpointApi } from '@/api'
 import type { Job, JobStatus, JobType, JobPriority, GPUVendor, Checkpoint, Partition } from '@/types'
 import { useFetch, useMutation } from '@/utils/useFetch'
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { jobStatusText as statusText, jobStatusClass as statusClass } from '@/utils/status'
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
 import CountUp from '@/components/CountUp.vue'
@@ -531,65 +533,14 @@ const stats = computed(() => ({
 // ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
 // 当前 Tab 的作业数据由前端按 route.path 过滤，故刷新 jobs 即刷新当前 Tab 主数据。
 // 复用页面已有主数据加载函数 loadJobs；手动/自动刷新均重置倒计时。
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
-
+// 倒计时 + setInterval + visibilitychange + 生命周期清理统一收口到 useAutoRefresh。
 function refreshJobs() {
   loadJobs()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
 }
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
-
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refreshJobs()
-    }
-  }, 1000)
-}
-
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refreshJobs()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
-
-onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
-})
-
-onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
-})
+const { autoRefreshCountdown, refresh } = useAutoRefresh(refreshJobs)
 
 // ---------- 展示辅助 ----------
-function statusClass(s?: string) {
-  return ['running', 'pending', 'completed', 'failed', 'cancelled'].includes(s ?? '') ? (s as string) : 'idle'
-}
-function statusText(s?: string) {
-  const map: Record<string, string> = {
-    pending: '排队中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消',
-  }
-  return map[s ?? ''] ?? s ?? '-'
-}
 function priorityText(p?: number) {
   const map: Record<number, string> = { 0: '低', 1: '中', 2: '高', 3: '紧急' }
   return p == null ? '-' : map[p] ?? String(p)
@@ -667,7 +618,7 @@ async function submitCreate() {
     await createMut.mutate({ ...form } as Partial<Job>)
     ElMessage.success('作业创建成功')
     createVisible.value = false
-    refreshJobs()
+    refresh()
   } catch {
     ElMessage.error('作业创建失败，请检查必填项后重试')
   }
@@ -687,7 +638,7 @@ async function handleCancel(row: Job) {
   try {
     await cancelMut.mutate(row.id)
     ElMessage.success('作业已取消')
-    refreshJobs()
+    refresh()
   } catch {
     ElMessage.error('作业取消失败，请稍后重试')
   }
@@ -696,7 +647,7 @@ async function handleSubmitToK8S(row: Job) {
   try {
     await submitMut.mutate(row.id)
     ElMessage.success('作业已提交到K8S')
-    refreshJobs()
+    refresh()
   } catch {
     ElMessage.error('提交作业到K8S失败')
   }

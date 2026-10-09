@@ -41,6 +41,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Menu, Refresh, ArrowDown } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { csrfHeaders } from '@/api/http'
+import { getNavTitle } from '@/nav'
 
 defineEmits<{ (e: 'menuClick'): void; (e: 'refresh'): void }>()
 
@@ -63,30 +64,8 @@ const roleLabel = computed(() => {
   return '普通用户'
 })
 
-const titleMap: Record<string, string> = {
-  '/dashboard': '仪表盘',
-  '/cluster': '集群管理',
-  '/resource': '资源管理',
-  '/job': '作业管理',
-  '/job/list': '作业列表',
-  '/job/queue': '任务队列',
-  '/job/history': '历史记录',
-  '/monitoring': '监控告警',
-  '/tenant': '多租户管理',
-  '/acceleration': '加速套件',
-  '/security': '安全管理',
-  '/k8s': 'K8S 管理',
-  '/k8s/nodes': '节点管理',
-  '/k8s/pods': 'Pod 管理',
-  '/k8s/services': '服务管理',
-  '/gpus': 'GPU 设备',
-  '/partitions': '分区管理',
-  '/schedulers': '调度器',
-  '/topology': '拓扑感知',
-  '/datasets': '数据集',
-}
-
-const currentTitle = computed(() => titleMap[route.path] || 'Metaclouds')
+// 面包屑标题统一由 navConfig 生成（与 Sidebar 菜单、router 角色守卫同源）
+const currentTitle = computed(() => getNavTitle(route.path))
 
 function handleCommand(command: string) {
   if (command === 'logout') {

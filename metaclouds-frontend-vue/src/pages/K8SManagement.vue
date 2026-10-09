@@ -31,7 +31,7 @@
           style="width: 240px"
           aria-label="搜索节点"
         />
-        <el-button :icon="Refresh" :loading="gpuLoading" @click="refreshCurrentTab">刷新GPU资源</el-button>
+        <el-button :icon="Refresh" :loading="gpuLoading" @click="refresh">刷新GPU资源</el-button>
       </div>
       <PageState
         :loading="gpuLoading"
@@ -85,7 +85,7 @@
           style="width: 240px"
           aria-label="搜索 Pod"
         />
-        <el-button :icon="Refresh" :loading="jobsLoading" @click="refreshCurrentTab">刷新</el-button>
+        <el-button :icon="Refresh" :loading="jobsLoading" @click="refresh">刷新</el-button>
       </div>
       <PageState
         :loading="jobsLoading"
@@ -136,7 +136,7 @@
           style="width: 240px"
           aria-label="搜索服务"
         />
-        <el-button :icon="Refresh" :loading="svcLoading" @click="refreshCurrentTab">刷新</el-button>
+        <el-button :icon="Refresh" :loading="svcLoading" @click="refresh">刷新</el-button>
       </div>
       <PageState
         :loading="svcLoading"
@@ -196,6 +196,8 @@ import { Refresh } from '@element-plus/icons-vue'
 import { jobApi, resourceApi } from '@/api'
 import type { Job, GPUResource, Resource } from '@/types'
 import { useFetch } from '@/utils/useFetch'
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { resourceStatusText as statusText, resourceStatusClass as statusClass } from '@/utils/status'
 import PageState from '@/components/PageState.vue'
 
 const route = useRoute()
@@ -237,58 +239,15 @@ const {
 const svcList = computed<Resource[]>(() => svcRaw.value ?? [])
 
 // ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
-
-// 多 Tab 页面：轮询只刷新当前 Tab 的主数据（复用各 Tab 已有刷新函数）
+// 多 Tab 页面：轮询只刷新当前 Tab 的主数据（复用各 Tab 已有刷新函数）。
+// 倒计时 + setInterval + visibilitychange + 生命周期清理统一收口到 useAutoRefresh。
 function refreshCurrentTab() {
   if (activeTab.value === 'pods') loadJobs()
   else if (activeTab.value === 'services') loadSvc()
   else loadGpu()
-  // 手动/自动刷新均重置自动刷新倒计时
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
 }
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
-
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refreshCurrentTab()
-    }
-  }, 1000)
-}
-
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refreshCurrentTab()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
-
-onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
-})
-
-onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
-})
+const { autoRefreshCountdown, refresh } = useAutoRefresh(refreshCurrentTab)
 
 // ---------- 搜索 ----------
 const nodeSearch = ref('')
@@ -329,23 +288,6 @@ const pagedSvcs = computed(() => {
 })
 
 // ---------- 展示辅助 ----------
-function statusClass(s?: string) {
-  // CSS 仅定义 running/pending/completed/failed/idle 五种修饰类；
-  // active/online/ready/available 均归并到 running（brand-fg 运行态）
-  const runningSet = ['running', 'active', 'online', 'ready', 'available']
-  if (runningSet.includes(s ?? '')) return 'running'
-  if (s === 'pending') return 'pending'
-  if (s === 'completed') return 'completed'
-  if (s === 'failed' || s === 'error') return 'failed'
-  return 'idle'
-}
-function statusText(s?: string) {
-  const map: Record<string, string> = {
-    running: '运行中', pending: '排队中', completed: '已完成', failed: '失败', cancelled: '已取消',
-    active: '在线', online: '在线', ready: '就绪', available: '可用',
-  }
-  return map[s ?? ''] ?? s ?? '-'
-}
 
 // ---------- 节点详情 ----------
 const nodeDetailVisible = ref(false)

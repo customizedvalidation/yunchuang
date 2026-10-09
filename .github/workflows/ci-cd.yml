@@ -145,11 +145,10 @@ jobs:
       # 前端单元测试（vitest）：仓库已含真实测试（api/http、stores/auth、
       # pages/Login|JobManagement|Dashboard 共 5 文件 31 用例），不再使用
       # passWithNoTests——该 flag 会掩盖"测试文件缺失"的真实回归。
-      # continue-on-error 保留以便失败时 job 仍产 dist 交付，但会在日志标注。
+      # 前端单测为阻断项：测试失败时直接中断该 job，不再使用 continue-on-error。
       # ----------------------------------------------------------------------
       - name: Run frontend tests
         run: npm run test
-        continue-on-error: true
 
       - name: Build frontend
         run: npm run build

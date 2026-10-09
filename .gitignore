@@ -24,6 +24,7 @@ dist-verify/
 
 # ===== Logs =====
 *.log
+*.err
 logs/
 **/logs/
 

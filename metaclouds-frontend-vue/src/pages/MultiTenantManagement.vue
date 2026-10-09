@@ -50,7 +50,7 @@
         :error="listError"
         :data="filteredTenants"
         empty-text="还没有租户，创建以划分命名空间与配额边界。"
-        @retry="refreshCurrentTab"
+        @retry="refresh"
       >
         <el-table :data="pagedTenants" row-key="id" border stripe style="width: 100%">
           <el-table-column prop="id" label="ID" width="80">
@@ -138,7 +138,7 @@
           :error="quotaError"
           :data="quotas"
           empty-text="暂无配额，为该维度新增 GPU / CPU / 内存 / 存储资源配额。"
-          @retry="refreshCurrentTab"
+          @retry="refresh"
         >
           <el-alert
             v-if="quotaUsageSummary"
@@ -340,6 +340,8 @@ import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
 import CountUp from '@/components/CountUp.vue'
 import { tenantApi, quotaApi } from '@/api'
+import { useFetch } from '@/utils/useFetch'
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import type { Tenant, ResourceQuota } from '@/types'
 
 interface TenantForm {
@@ -352,27 +354,15 @@ interface TenantForm {
   storage_quota: number | undefined
 }
 
-const tenants = ref<Tenant[]>([])
-const listLoading = ref(false)
-const listError = ref('')
+// 租户列表统一用全站 useFetch（三态守卫 loading/error/data），
+// 与其他页面的取数方式保持一致；立即拉取一次。
+const { data: tenantsRaw, loading: listLoading, error: listError, execute: fetchTenants } =
+  useFetch<Tenant[]>(() => tenantApi.list())
+const tenants = computed<Tenant[]>(() => tenantsRaw.value ?? [])
 const keyword = ref('')
 const statusFilter = ref('')
 const page = ref(1)
 const pageSize = ref(10)
-
-async function fetchTenants() {
-  listLoading.value = true
-  listError.value = ''
-  try {
-    tenants.value = await tenantApi.list()
-  } catch (e) {
-    listError.value = e instanceof Error ? e.message : '加载租户失败'
-    tenants.value = []
-  } finally {
-    listLoading.value = false
-  }
-}
-fetchTenants()
 
 const filteredTenants = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
@@ -563,57 +553,14 @@ const quotaUsageSummary = computed(() => {
 })
 
 // ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
-
-// 多 Tab 页面：轮询只刷新当前 Tab 的主数据（复用各 Tab 已有刷新函数）
+// 多 Tab 页面：轮询只刷新当前 Tab 的主数据（复用各 Tab 已有刷新函数）。
+// 倒计时 + setInterval + visibilitychange + 生命周期清理统一收口到 useAutoRefresh。
 function refreshCurrentTab() {
   if (activeTab.value === 'quotas') void loadQuotas()
   else void fetchTenants()
-  // 手动/自动刷新均重置自动刷新倒计时
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
 }
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
-
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refreshCurrentTab()
-    }
-  }, 1000)
-}
-
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refreshCurrentTab()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
-
-onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
-})
-
-onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
-})
+const { autoRefreshCountdown, refresh } = useAutoRefresh(refreshCurrentTab)
 
 function goQuota(row: Tenant) {
   activeTab.value = 'quotas'
