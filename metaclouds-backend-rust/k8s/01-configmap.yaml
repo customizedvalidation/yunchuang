@@ -32,20 +32,17 @@ data:
   METRICS_TRUSTED_CIDRS: "10.0.0.0/8"
 
   # ---- 数据库 ----
-  # ⚠️ 当前阶段：SQLite + PVC 单副本（19-backend-data-pvc.yaml）。
-  #    原因：请求层仍是 SQLite 方言（`?N` 占位符 + last_insert_rowid），
-  #    main.rs 在 Postgres 模式下会 fail-closed 直接退出，多副本又会并发写
-  #    同一个 db 文件。PostgreSQL 工作负载已在 17-postgresql.yaml 就绪。
-  #
-  #    切到 PostgreSQL 的完整动作（方言迁移完成后）：
-  #      1. USE_SQLITE: "true"            → "false"
-  #      2. 删掉 DATABASE_URL 这一行（改由 02-secret.yaml 的 database-url 注入，见 05-deployment.yaml 注释）
-  #      3. 05-deployment.yaml replicas 1→3、strategy Recreate→RollingUpdate、
-  #         07-hpa.yaml 1/1→2/10、08-pdb.yaml maxUnavailable→minAvailable: 2，
-  #         并删除 19-backend-data-pvc.yaml
-  USE_SQLITE: "true"
+  # ✅ 已切到 PostgreSQL（多副本 HA）：请求层双驱动方言已完成（?N ⇄ $N、
+  #    last_insert_rowid ⇄ RETURNING id），main.rs 按 USE_SQLITE/DATABASE_URL
+  #    自动选择驱动；USE_SQLITE=false 即走 Postgres（见 17-postgresql.yaml）。
+  #    配套：05-deployment 已 3 副本 + RollingUpdate，07-hpa 2/10，08-pdb
+  #    minAvailable:2，19-backend-data-pvc.yaml 已删除。
+  # ⚠️ 前置：必须先部署 17-postgresql StatefulSet 并通过 02-secret 注入真实的
+  #    database-url（postgresql://...）；缺失或占位会导致后端 fail-closed 退出。
+  USE_SQLITE: "false"
   MEMORY_STORE_ENABLED: "false"
-  DATABASE_URL: "sqlite:///app/data/metaclouds.db"
+  # DATABASE_URL 改由 02-secret.yaml 的 database-url 注入（见 05-deployment.yaml），
+  # 不再在此硬编码 SQLite 路径；DATABASE_HOST/PORT/NAME/USER/SSL_MODE 供 DSN 兜底拼装。
   # 以下 PostgreSQL 参数在 SQLite 阶段不生效，切库时直接启用（与 17-postgresql.yaml 对齐）
   DATABASE_HOST: "postgresql.metaclouds.svc.cluster.local"
   DATABASE_PORT: "5432"

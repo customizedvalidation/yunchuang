@@ -16,14 +16,13 @@
 #    三探针（startup/liveness/readiness）统一使用 `/health`，与 Go 版对齐。
 #    `/metrics` 仅供 Prometheus scraper 抓取。
 #
-# 镜像 tag 通过 CI/CD 注入：
-#   kubectl set image deployment/metaclouds-backend \
-#     metaclouds-backend=ghcr.io/customizedvalidation/yunchuang/backend-rust:${GIT_SHA}
+# 镜像 tag 通过 CI 注入（kustomize images.newTag=main，或 scripts/deploy-k8s.sh
+# 用 GIT_SHA 钉版本，见 13-kustomization.yaml）。禁止 latest。
 #
-# ⚠️ 副本数固定为 1（strategy: Recreate）：后端请求层仍是 SQLite 方言，
-#    单写者约束下不能多副本并发写同一个 db 文件（见 19-backend-data-pvc.yaml）。
-#    迁移到 PostgreSQL 后：replicas 改回 3、strategy 改回 RollingUpdate、
-#    HPA 改回 2/10、PDB 改回 minAvailable: 2，并删除 19-backend-data-pvc.yaml。
+# ✅ 已切到 PostgreSQL 多副本 HA：replicas=3、RollingUpdate、HPA 2/10、PDB
+#    minAvailable:2；SQLite 数据盘（19-backend-data-pvc.yaml）已删除，DATABASE_URL
+#    改由 Secret 注入。
+# ⚠️ 前置：集群内须先有 17-postgresql 且 02-secret 的 database-url 为真实连接串。
 # ==============================================================================
 apiVersion: apps/v1
 kind: Deployment
@@ -40,12 +39,14 @@ metadata:
   annotations:
     metaclouds.io/description: "Metaclouds 算力调度平台后端 API（Rust 版）"
 spec:
-  # SQLite 单写者：只能 1 副本（见文件头说明）
-  replicas: 1
-  # Recreate：先停旧 Pod 再起新 Pod，杜绝新旧两个 Pod 同时挂载 RWO 数据盘。
-  # （RollingUpdate + maxSurge=1 会短暂出现 2 个 Pod 抢同一块盘。）
+  # PostgreSQL 多副本：可水平扩展（见文件头说明）
+  replicas: 3
+  # RollingUpdate：PostgreSQL 多副本下后端可并行滚动、零宕机（已无 SQLite RWO 盘争抢）。
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: metaclouds
@@ -119,13 +120,12 @@ spec:
                 secretKeyRef:
                   name: metaclouds-secrets
                   key: jwt-secret
-            # DATABASE_URL 走 ConfigMap（当前 SQLite 文件路径，非敏感）。
-            # 切到 PostgreSQL 后改回从 Secret 取，避免连接串里的口令进 ConfigMap：
-            #   - name: DATABASE_URL
-            #     valueFrom:
-            #       secretKeyRef:
-            #         name: metaclouds-secrets
-            #         key: database-url
+            # DATABASE_URL 走 Secret（含口令，避免进入 ConfigMap；sslmode=require 对齐 17-postgresql）。
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: database-url
             - name: PROTECTED_ENDPOINTS_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -201,9 +201,6 @@ spec:
               mountPath: /tmp
             - name: run
               mountPath: /run/metaclouds
-            # SQLite 数据盘（DATABASE_URL=sqlite:///app/data/metaclouds.db）
-            - name: data
-              mountPath: /app/data
           # 优雅关闭钩子
           lifecycle:
             preStop:
@@ -216,6 +213,3 @@ spec:
         - name: run
           emptyDir:
             sizeLimit: "10Mi"
-        - name: data
-          persistentVolumeClaim:
-            claimName: metaclouds-backend-data

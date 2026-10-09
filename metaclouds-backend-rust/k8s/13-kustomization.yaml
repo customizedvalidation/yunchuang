@@ -24,11 +24,9 @@ resources:
   - 10-ingress.yaml
   - 11-servicemonitor.yaml
   - 12-prometheusrule.yaml
-  # 数据面：PostgreSQL（17，当前阶段预置待切）+ Redis（18，会话撤销名单在用）
-  # 后端 SQLite 数据盘（19，切到 PostgreSQL 后连同 05/07/08 的改动一起删除）
+  # 数据面：PostgreSQL（17，后端已切到它做多副本 HA）+ Redis（18，会话撤销名单在用）
   - 17-postgresql.yaml
   - 18-redis.yaml
-  - 19-backend-data-pvc.yaml
   - 14-frontend-deployment.yaml
   - 15-frontend-service.yaml
   - 16-frontend-networkpolicy.yaml
@@ -38,11 +36,12 @@ commonLabels:
   app.kubernetes.io/part-of: metaclouds
   app.kubernetes.io/managed-by: kustomize
 
-# 镜像占位（生产环境通过 CI 覆盖 tag，禁止 latest）：
-# 注意：kustomize images 段的 newTag 会强制覆盖 deployment 中的 image tag，
-# 因此必须与 05/14 deployment 中的占位一致（placeholder），由 CI set image 注入真实 GIT_SHA。
+# 镜像 tag：默认 main（CI 在 push 到 main 时按 type=ref,event=branch 推送该分支 tag），
+# 手动 kubectl apply -k 即可拉到，消除 placeholder 导致的 ImagePullBackOff。
+# 生产钉版本请用 scripts/deploy-k8s.sh GIT_SHA=...（不可变 sha tag）。
+# 禁止 latest。
 images:
   - name: ghcr.io/customizedvalidation/yunchuang/backend-rust
-    newTag: placeholder
+    newTag: main
   - name: ghcr.io/customizedvalidation/yunchuang/frontend
-    newTag: placeholder
+    newTag: main
