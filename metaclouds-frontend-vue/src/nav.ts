@@ -93,7 +93,7 @@ export const navConfig: NavGroup[] = [
     label: '系统治理',
     children: [
       { key: '/monitoring', icon: 'Bell', label: '监控告警', description: '实时监控' },
-      { key: '/tenant', icon: 'UserFilled', label: '多租户', description: '租户配额', roles: ['admin', 'manager'] },
+      { key: '/tenant', icon: 'UserFilled', label: '多租户管理', description: '租户配额', roles: ['admin', 'manager'] },
       { key: '/security', icon: 'Lock', label: '安全管理', description: '安全策略' },
     ],
   },

@@ -83,7 +83,7 @@ describe('nav.ts 统一导航源', () => {
     expect(getNavTitle('/job/history')).toBe('历史记录')
     expect(getNavTitle('/k8s/nodes')).toBe('节点管理')
     expect(getNavTitle('/k8s/services')).toBe('服务管理')
-    expect(getNavTitle('/tenant')).toBe('多租户')
+    expect(getNavTitle('/tenant')).toBe('多租户管理')
     expect(getNavTitle('/no-such-page')).toBe('Metaclouds')
   })
 
