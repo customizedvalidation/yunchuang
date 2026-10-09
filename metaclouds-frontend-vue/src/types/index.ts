@@ -76,8 +76,9 @@ export interface Cluster extends BaseEntity {
   storage?: number
   network_type?: string
   location?: string
-  gpu_vendors?: string
-  scheduler_types?: string
+  /** 逗号字符串或 JSON 数组（后端两种形态都可能返回） */
+  gpu_vendors?: string | string[]
+  scheduler_types?: string | string[]
   multi_cluster_enabled?: boolean
   federation_id?: string
 }

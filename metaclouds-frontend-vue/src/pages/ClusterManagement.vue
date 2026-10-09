@@ -51,7 +51,7 @@
           </el-table-column>
           <el-table-column label="名称" min-width="150">
             <template #default="{ row }">
-              <el-link type="primary" :underline="false" @click="openDetail(row)">{{ row.name }}</el-link>
+              <el-link type="primary" :underline="'never'" @click="openDetail(row)">{{ row.name }}</el-link>
             </template>
           </el-table-column>
           <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
@@ -274,8 +274,8 @@
           <el-col :span="12"><p><b>存储(TB)：</b>{{ detailCluster.storage ?? '-' }}</p></el-col>
           <el-col :span="12"><p><b>网络类型：</b>{{ detailCluster.network_type ?? '-' }}</p></el-col>
           <el-col :span="12"><p><b>位置：</b>{{ detailCluster.location ?? '-' }}</p></el-col>
-          <el-col :span="12"><p><b>GPU厂商：</b>{{ detailCluster.gpu_vendors ?? '-' }}</p></el-col>
-          <el-col :span="12"><p><b>调度器类型：</b>{{ detailCluster.scheduler_types ?? '-' }}</p></el-col>
+          <el-col :span="12"><p><b>GPU厂商：</b>{{ toTags(detailCluster.gpu_vendors).join(', ') || '-' }}</p></el-col>
+          <el-col :span="12"><p><b>调度器类型：</b>{{ toTags(detailCluster.scheduler_types).join(', ') || '-' }}</p></el-col>
           <el-col :span="12"><p><b>多集群：</b>{{ detailCluster.multi_cluster_enabled ? '启用' : '未启用' }}</p></el-col>
           <el-col :span="12"><p><b>联邦ID：</b>{{ detailCluster.federation_id ?? '-' }}</p></el-col>
         </el-row>
@@ -333,7 +333,8 @@ import type { Cluster, Partition } from '@/types'
 type ClusterRecord = Cluster & {
   ha_enabled?: boolean
   scheduler_ha_enabled?: boolean
-  access_methods?: string
+  /** 后端可能返回逗号字符串或 JSON 数组，统一兼容 */
+  access_methods?: string | string[]
   auto_expand?: boolean
 }
 
@@ -457,12 +458,12 @@ function openEdit(row: ClusterRecord) {
     description: row.description ?? '',
     nodes: row.nodes ?? 1,
     gpus: row.gpus ?? 0,
-    gpu_vendors: row.gpu_vendors ?? '',
-    scheduler_types: row.scheduler_types ?? '',
+    gpu_vendors: toTags(row.gpu_vendors).join(', '),
+    scheduler_types: toTags(row.scheduler_types).join(', '),
     federation_id: row.federation_id ?? '',
     multi_cluster_enabled: !!row.multi_cluster_enabled,
     auto_expand: !!row.auto_expand,
-    access_methods: row.access_methods ? row.access_methods.split(',').map((s) => s.trim()) : [],
+    access_methods: toTags(row.access_methods),
     ha_enabled: !!row.ha_enabled,
     scheduler_ha_enabled: !!row.scheduler_ha_enabled,
   })
@@ -561,11 +562,23 @@ function clusterPartitions(clusterId: number) {
 }
 
 // ---------- 展示辅助 ----------
-function splitTags(v: string) {
-  return v.split(',').map((s) => s.trim()).filter(Boolean)
+// 后端字段可能为逗号分隔字符串或 JSON 数组；统一归一为 string[]，
+// 避免 `v.split is not a function`（数组上调用 split）的渲染崩溃。
+function toTags(v?: string | string[] | null): string[] {
+  if (Array.isArray(v)) {
+    return v.map((s) => String(s).trim()).filter(Boolean)
+  }
+  if (typeof v === 'string' && v.trim()) {
+    return v.split(',').map((s) => s.trim()).filter(Boolean)
+  }
+  return []
 }
-function accessMethodList(v?: string) {
-  return (v ? v.split(',') : ['web']).map((m) => m.trim().toUpperCase())
+function splitTags(v: string | string[] | null) {
+  return toTags(v)
+}
+function accessMethodList(v?: string | string[] | null) {
+  const list = toTags(v)
+  return (list.length ? list : ['web']).map((m) => m.toUpperCase())
 }
 function statusText(status?: string) {
   const map: Record<string, string> = {
