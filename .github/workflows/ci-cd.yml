@@ -677,8 +677,9 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # Job 8: K8s 清单校验（YAML 语法 + 层级镜像名一致性 + kustomization 引用完整性）
-  # 防止清单损坏或镜像名漂移导致生产部署 ImagePullBackOff。
+  # Job 8: K8s 清单结构校验（YAML 可解析 + 必需 metadata/namespace）
+  # 镜像层级命名 + kustomize 引用完整性（防 ImagePullBackOff / 引用丢失）
+  # 由仓库内 verify-k8s-rules.js 统一把关（本 job 后续步骤运行），此处只做结构校验。
   # ============================================================================
   validate-k8s:
     name: Validate K8s Manifests
@@ -687,11 +688,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate K8s manifests (YAML + image naming + kustomize refs)
+      - name: Validate K8s manifests (YAML structure + required metadata/namespace)
         run: |
           python3 -m pip install --quiet --user pyyaml 2>/dev/null || true
           python3 - <<'PYEOF'
-          import os, re, sys
+          import os, sys
           try:
               import yaml
           except ImportError:
@@ -729,30 +730,9 @@ jobs:
                   if kind != "Namespace" and not doc["metadata"].get("namespace"):
                       errors.append(f"{fn}[{i}] {kind}/{name}: missing namespace")
 
-          # 2) 镜像名一致性：所有 image 引用必须使用 ghcr.io/<owner>/<repo>/<image> 层级命名
-          img_re = re.compile(r"ghcr\.io/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?::[a-zA-Z0-9_.-]+)?")
-          for fn in manifests:
-              content = open(os.path.join(K8S_DIR, fn), encoding="utf-8").read()
-              for line in content.splitlines():
-                  if "image:" in line:
-                      m = re.search(r"ghcr\.io/\S+", line)
-                      if m and not img_re.match(m.group(0)):
-                          errors.append(f"{fn}: non-hierarchical image ref: {m.group(0)}")
-
-          # 3) kustomization 引用的资源文件必须存在且镜像名为层级
-          kust = os.path.join(K8S_DIR, "13-kustomization.yaml")
-          if os.path.exists(kust):
-              try:
-                  kd = yaml.safe_load(open(kust, encoding="utf-8"))
-                  for res in kd.get("resources", []):
-                      rp = os.path.join(K8S_DIR, res)
-                      if not os.path.exists(rp):
-                          errors.append(f"kustomization references missing resource: {res}")
-                  for img in kd.get("images", []):
-                      if not img_re.match(img.get("name", "")):
-                          errors.append(f"kustomization image not hierarchical: {img.get('name')}")
-              except Exception as e:
-                  errors.append(f"kustomization parse error: {e}")
+          # 注：镜像层级命名 + kustomize 引用完整性（原 rules 2&3）已统一交由
+          # 仓库内 verify-k8s-rules.js 把关（本 job 后续步骤运行），此处仅做结构校验，
+          # 避免双源漂移导致"改了一处另一处仍放过"的回归。
 
           if errors:
               print("K8s manifest validation FAILED:")
