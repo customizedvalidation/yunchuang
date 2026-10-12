@@ -763,6 +763,41 @@ jobs:
           print(f"K8s manifest validation PASSED: {total} resources in {len(manifests)} files")
           PYEOF
 
+      # ----------------------------------------------------------------------
+      # 运行期前置静态把关（TEST-ONLY 脚本不落真实凭据，仅 CI 内客户端 dry-run 校验）
+      # 下列脚本在目标集群落地"运行期前置"（PostgreSQL 数据面 + 测试 secret 注入），
+      # 此处用客户端 dry-run 在流水线上静态把关：清单合法、脚本可解析、key 集完整，
+      # 全部不依赖真实集群即可执行（verify-k8s-rules.js 亦为仓库内既有规则校验器）。
+      # ----------------------------------------------------------------------
+      - name: Set up Node.js (for verify-k8s-rules.js)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run verify-k8s-rules.js (image naming + kustomize refs)
+        run: node verify-k8s-rules.js
+
+      - name: Install kubectl client (for scripts dry-run; no cluster/kubeconfig needed)
+        run: |
+          curl -sSfL "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+          chmod +x /usr/local/bin/kubectl
+          kubectl version --client
+
+      - name: Lint deployment scripts (bash -n syntax)
+        run: |
+          bash -n scripts/provision-test-secret.sh
+          bash -n scripts/deploy-cluster.sh
+          echo "bash syntax check PASSED for scripts/*.sh"
+
+      - name: Static gate - provision-test-secret.sh --check-keys
+        run: bash scripts/provision-test-secret.sh --check-keys
+
+      - name: Static gate - provision-test-secret.sh --dry-run (client-side manifest gen)
+        run: bash scripts/provision-test-secret.sh --dry-run
+
+      - name: Static gate - deploy-cluster.sh --dry-run (full kustomize build, client-side)
+        run: bash scripts/deploy-cluster.sh --dry-run
+
   # ============================================================================
   # Job 9: K8s 真实部署（kustomize apply + set image 注入 GIT_SHA）
   # 依赖：镜像构建完成 + 仓库配置 KUBE_CONFIG secret（base64 的 kubeconfig）。
