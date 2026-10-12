@@ -7,12 +7,10 @@
 #
 # ⚠️ 当前阶段说明（务必读完再改开关）
 # ---------------------------------------------------------------------------
-# 后端请求层仍是 **SQLite 方言**（`?N` 占位符 + `last_insert_rowid()`，
-# 见 src/ 内 253 处占位符 / 276 处 SqlitePool），main.rs 在 Postgres 模式下
-# 会 fail-closed 退出。因此本次交付把 Deployment 切回 SQLite + PVC 单副本
-# （见 01-configmap.yaml 的 USE_SQLITE 与 19-backend-pvc.yaml），
-# PostgreSQL 在这里**预先就绪**，完成方言迁移后按 01-configmap.yaml 里的
-# “切到 PostgreSQL”注释三行切回即可，无需再补清单。
+# 后端请求层双驱动方言已完成（?N ⇄ $N、last_insert_rowid ⇄ RETURNING id），
+# main.rs 按 USE_SQLITE/DATABASE_USER/DATABASE_URL 自动选择驱动（见 01-configmap.yaml
+# 的 USE_SQLITE=false）。本 PostgreSQL 工作负载即为后端当前所用的数据库；后端
+# Deployment 已切到 3 副本 + RollingUpdate 多副本 HA（见 05-deployment.yaml）。
 #
 # 单副本限制：本 StatefulSet 只有 1 副本，未做流复制/高可用。生产如需 HA，
 # 请换 CloudNativePG / Zalando operator 或云厂商托管实例，并同步改
