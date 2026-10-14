@@ -112,6 +112,8 @@ kubectl delete -k metaclouds-backend-rust/k8s
 
 ## 六、生产切换 checklist（切勿直接套用测试凭据）
 
+> 详细、可逐步执行的命令见 **`docs/k8s-production-switch-runbook.md`**（含 kustomize 占位覆盖 + env 不热更新两大坑、路径 A/B 决策、PG HA）。本节保留为速查。
+
 1. **替换真实凭据**：不要使用 `--apply` 的测试值。生产推荐以下任一方式，且**绝不**把真实值提交到 Git：
    - External Secrets Operator / Sealed Secrets（Git 仅存加密引用）；
    - 或按 `02-secret.yaml` 注释用 `openssl rand -base64` 生成随机值后手动 `kubectl create secret generic metaclouds-secrets --from-literal=...`；
