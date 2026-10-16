@@ -6,8 +6,13 @@ export default defineConfig(({ mode }) => {
   // 后端代理目标可由 env 覆盖（VITE_API_PROXY_TARGET）。
   // 默认 8000：与 docker-compose.yml 的 backend 端口映射（8000）保持一致；
   // 此前默认 8001，本地 npm run dev 时所有 /api 请求都会 502。
+  //
+  // ⚠️ 默认必须用 127.0.0.1 而不是 localhost：后端以 SERVER_HOST=127.0.0.1
+  // 仅监听 IPv4；localhost 在多数系统优先解析到 IPv6 ::1，导致 Vite 代理
+  // ECONNREFUSED → 所有 /api 请求返回 500、登录失败并触发前端 60s 锁定。
+  // docker 下 nginx 反代 backend:8000（容器 IPv4）无此问题，本地 dev 才踩坑。
   const env = loadEnv(mode, process.cwd(), '')
-  const proxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:8000'
+  const proxyTarget = env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000'
 
   return {
     plugins: [vue()],
@@ -17,6 +22,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      // 强制 IPv4：localhost 在 Windows 常优先解析为 ::1（IPv6），而本机后端只监听
+      // 127.0.0.1（IPv4）。若 dev server 也绑 IPv6、代理目标又写成 localhost，会双重错位。
+      // 这里统一绑 127.0.0.1，浏览器经 localhost→127.0.0.1 可达，代理也走 IPv4。
+      host: '127.0.0.1',
       port: 3000,
       proxy: {
         '/api': {
