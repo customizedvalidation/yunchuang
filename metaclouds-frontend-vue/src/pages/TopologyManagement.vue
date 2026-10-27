@@ -382,7 +382,11 @@ function openEdit(row: NodeTopology) {
   dialogVisible.value = true
 }
 async function submitForm() {
-  await formRef.value?.validate()
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
   try {
     if (editingTopology.value) {
       await topologyApi.update(editingTopology.value.id, { ...form })

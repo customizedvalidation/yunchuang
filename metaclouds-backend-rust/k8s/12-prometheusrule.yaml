@@ -77,7 +77,7 @@ spec:
             description: "节点 {{ $labels.instance }} 挂载点 {{ $labels.mountpoint }} 可用空间 {{ $value | humanize }}% 低于 10%。"
 
         # ------------------------------------------------------------------
-        # 5. Job 队列堆积（pending jobs > 50）
+        # 5. Job 队列堆积（running jobs > 50）
         # ------------------------------------------------------------------
         - alert: JobQueueLength
           expr: metaclouds_running_jobs > 50
@@ -87,7 +87,7 @@ spec:
             category: job
           annotations:
             summary: "作业队列堆积"
-            description: "待处理作业数 {{ $value }} 超过阈值 50，持续 5 分钟。"
+            description: "运行中作业数 {{ $value }} 超过阈值 50，持续 5 分钟。"
 
         # ------------------------------------------------------------------
         # 6. GPU 不可用（可用 GPU 数 = 0）
@@ -202,13 +202,13 @@ spec:
             category: security
           annotations:
             summary: "登录失败次数异常"
-            description: "5 分钟内登录失败率 {{ $value | humanize }} 次/秒，超过阈值 10 次/秒，疑似暴力破解。"
+            description: "5 分钟内登录失败率 {{ $value | humanize }} 次/秒，超过 2 次/秒，疑似暴力破解。"
 
         # ------------------------------------------------------------------
         # 15. 资源配额超限
         # ------------------------------------------------------------------
         - alert: ResourceQuotaExceeded
-          expr: kube_resourcequota{namespace="metaclouds", type="hard"} / kube_resourcequota{namespace="metaclouds", type="used"} > 0.9
+          expr: kube_resourcequota{namespace="metaclouds", type="used"} / kube_resourcequota{namespace="metaclouds", type="hard"} > 0.9
           for: 10m
           labels:
             severity: warning

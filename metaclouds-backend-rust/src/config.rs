@@ -381,6 +381,35 @@ impl Config {
         }
 
         let is_prod = self.environment == "production";
+
+        // 生产环境 JWT_SECRET 必须足够强：拒绝已知占位符/弱值，并要求更长长度。
+        // 开发环境不拦截（本地 .env 用 dev-secret-...），只在启动日志里暴露 environment。
+        if is_prod {
+            let lower = self.jwt_secret.to_ascii_lowercase();
+            const WEIGHTY_BLOCKLIST: &[&str] = &[
+                "change-me",
+                "dev-secret",
+                "default-secret",
+                "your-secret",
+                "replace-me",
+                "must-be",
+                "password",
+                "secretkey",
+                "placeholder",
+                "example",
+            ];
+            if WEIGHTY_BLOCKLIST.iter().any(|b| lower.contains(b)) {
+                return Err(AppError::bad_request(
+                    "JWT_SECRET must not be a placeholder/default value in production; set a long random secret",
+                ));
+            }
+            if self.jwt_secret.len() < 48 {
+                return Err(AppError::bad_request(
+                    "JWT_SECRET must be at least 48 characters long in production environment",
+                ));
+            }
+        }
+
         if is_prod && self.memory_store_enabled {
             return Err(AppError::bad_request(
                 "MEMORY_STORE_ENABLED must be false in production environment",

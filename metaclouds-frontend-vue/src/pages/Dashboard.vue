@@ -45,7 +45,7 @@
               <CountUp :value="card.value" />
               <span class="kpi-suffix">{{ card.suffix }}</span>
             </div>
-            <div class="kpi-footer" v-html="card.footer"></div>
+            <div class="kpi-footer" :class="{ 'is-danger': card.footerDanger }">{{ card.footer }}</div>
           </div>
           <!-- GPU 利用率动态环形指示器 -->
           <svg
@@ -305,7 +305,7 @@ const kpiCards = computed(() => [
     suffix: '%',
     icon: Cloudy,
     bg: 'var(--mc-brand-grad)',
-    footer: `<span class="mc-num">已用 ${gpuUsed.value} / 共 ${gpuTotal.value}</span>`,
+    footer: `已用 ${gpuUsed.value} / 共 ${gpuTotal.value}`,
     to: '/gpus',
     ring: true,
   },
@@ -315,7 +315,7 @@ const kpiCards = computed(() => [
     suffix: ` / ${totalJobs.value}`,
     icon: Timer,
     bg: 'var(--mc-brand-grad)',
-    footer: `排队中 <b class="mc-num">${pendingJobs.value}</b> 个`,
+    footer: `排队中 ${pendingJobs.value} 个`,
     to: '/job',
   },
   {
@@ -324,7 +324,8 @@ const kpiCards = computed(() => [
     suffix: ' 条',
     icon: Bell,
     bg: alertCount.value > 0 ? 'var(--mc-danger-fg)' : 'var(--mc-brand-grad)',
-    footer: alertCount.value > 0 ? '<span style="color:var(--mc-danger-fg)">需要关注</span>' : '运行正常',
+    footer: alertCount.value > 0 ? '需要关注' : '运行正常',
+    footerDanger: alertCount.value > 0,
     to: '/monitoring',
   },
   {
@@ -586,6 +587,7 @@ function alertLevelClass(level?: string) {
 .kpi-value { font-size: 26px; font-weight: 680; letter-spacing: -0.5px; color: var(--mc-text-1); }
 .kpi-suffix { font-size: 14px; font-weight: 400; color: var(--mc-text-3); }
 .kpi-footer { font-size: 12.5px; color: var(--mc-text-3); margin-top: 4px; }
+.kpi-footer.is-danger { color: var(--mc-danger-fg); font-weight: 500; }
 .kpi-go {
   position: absolute;
   right: 10px;

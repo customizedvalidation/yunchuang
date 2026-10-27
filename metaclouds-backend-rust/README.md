@@ -145,7 +145,7 @@ cookie is present; Bearer-token clients are exempt.
 ```powershell
 # from this directory
 cargo build
-cargo run          # listens on :8001
+cargo run          # listens on :8000
 cargo test
 ```
 
@@ -170,12 +170,12 @@ just migrate    # run sqlx migrations
 
 ```powershell
 # login (sets access_token + csrf_token cookies)
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8001/api/v1/auth/login `
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/auth/login `
   -ContentType 'application/json' `
   -Body '{"username":"admin","password":"Admin@123456"}'
 
 # list users with the returned bearer token (CSRF skipped for Bearer clients)
-Invoke-RestMethod -Uri http://127.0.0.1:8001/api/v1/users `
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/v1/users `
   -Headers @{ Authorization = "Bearer <token>" }
 ```
 
@@ -186,7 +186,7 @@ Key variables (full list in `src/config.rs`, ~60 fields 1:1 with Go `config.go`)
 | Var                       | Default                          | Notes                                      |
 |---------------------------|----------------------------------|--------------------------------------------|
 | `SERVER_HOST`             | `0.0.0.0`                        |                                            |
-| `SERVER_PORT`             | `8001`                           | different from Go's `8000`                 |
+| `SERVER_PORT`             | `8000`                           | aligned with Go's `8000`                   |
 | `SERVER_ENV`              | `development`                    | `production` enforces stricter validation  |
 | `DATABASE_URL`            | `sqlite:metaclouds.db?mode=rwc` | file SQLite; tests use `sqlite::memory:`  |
 | `USE_SQLITE`              | `true`                           | `false` → Postgres                          |
@@ -509,16 +509,16 @@ All routes are under `/api/v1`. JWT = `Authorization: Bearer <token>` or
 
 ### Docker Deployment (P3-06)
 
-- **Multi-stage Dockerfile**: `rust:1.81-alpine` builder → `alpine:3.20` runtime
+- **Multi-stage Dockerfile**: `rust:1.96-alpine` builder → `alpine:3.20` runtime
 - Runs as non-root UID 10001
 - `.dockerignore` excludes `target/`, `.env`, `*.db`
 - **Estimated image size**: 25–35 MB (BuildKit cache mount + layer merge + strip; pending CI measurement)
-- `docker-compose.yml`: backend + postgres + redis, port mapping `8001:8000`
+- `docker-compose.yml`: backend + postgres + redis, port mapping `8000:8000`
 - `docker-compose.prod.yml`: production overrides
 
 ### Kubernetes Deployment (P3-06)
 
-- 14 YAML manifests in `k8s/` (00-namespace → 13-kustomization)
+- 19 YAML manifests in `k8s/` (00-namespace → 18-redis)
 - **Deployment**: three probes (liveness/readiness/startup via `/health`), non-root, topology spread
 - **HPA**: autoscaling on CPU/memory
 - **PDB**: pod disruption budget
@@ -640,7 +640,7 @@ dataset:read/write, checkpoint:read/write
   **bcrypt dual-read is implemented**: `verify_password` detects `$2a$/$2b$/$2y$`
   prefixes and verifies via bcrypt, enabling seamless migration of existing users.
 - **Path syntax**: axum 0.8 uses `{id}` instead of Go gin's `:id`.
-- **Port**: Go runs on 8000, Rust runs on 8001.
+- **Port**: Go and Rust both run on 8000.
 - **DB driver**: SQLite is the default for local dev; Postgres is fully supported
   via `USE_SQLITE=false` and the `DatabasePool` enum. PostgreSQL migration dialect lives in
   `migrations/postgres/` (9 files, semantically equivalent to the SQLite set); see
@@ -649,7 +649,7 @@ dataset:read/write, checkpoint:read/write
 
 ## CI
 
-`.github/workflows/ci-rust.yml` runs three jobs on every push/PR to `main`:
+`.github/workflows/ci-cd.yml` runs three jobs on every push/PR to `main`:
 
 1. **lint-test**: `cargo fmt --check` → `cargo clippy --all-targets -- -D warnings` → `cargo test`
 2. **coverage**: `cargo-llvm-cov` (informational, does not block PR)

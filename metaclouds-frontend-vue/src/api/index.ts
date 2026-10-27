@@ -30,8 +30,6 @@ export const authApi = {
   logout: () => http.post<void>('/auth/logout').then((r) => r.data),
   getCsrfToken: () =>
     http.get<{ csrf_token: string }>('/auth/csrf').then((r) => r.data),
-  register: (data: Record<string, unknown>) =>
-    http.post('/auth/register', data).then((r) => r.data),
   refreshToken: () =>
     http.post<RefreshTokenData>('/auth/refresh').then((r) => r.data),
 }

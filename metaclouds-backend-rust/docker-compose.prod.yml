@@ -18,7 +18,7 @@
 services:
   metaclouds-backend:
     # 生产镜像 tag：CI 注入 git SHA，禁止 latest
-    image: ghcr.io/customizedvalidation/yunchuang/backend-rust:${IMAGE_TAG:-latest}
+    image: ghcr.io/customizedvalidation/yunchuang/backend-rust:${IMAGE_TAG:?IMAGE_TAG is required in prod compose}
     build: !reset []
     environment:
       SERVER_ENV: production

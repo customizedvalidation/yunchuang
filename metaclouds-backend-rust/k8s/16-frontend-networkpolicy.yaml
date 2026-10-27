@@ -32,7 +32,7 @@ spec:
               app.kubernetes.io/name: ingress-nginx
       ports:
         - protocol: TCP
-          port: 80
+          port: 8080
   egress:
     # → DNS（kube-dns / CoreDNS，53 UDP + TCP）
     - to:

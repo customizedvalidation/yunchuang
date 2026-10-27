@@ -30,8 +30,11 @@ function isAuthEndpoint(url: string): boolean {
   return AUTH_ENDPOINT_PATTERN.test(url)
 }
 
+/** 后端 API 基础路径（同源代理下使用相对路径） */
+const API_BASE = '/api/v1'
+
 const http: AxiosInstance = axios.create({
-  baseURL: '/api/v1',
+  baseURL: API_BASE,
   timeout: 30000,
   withCredentials: true,
   headers: {
@@ -82,7 +85,7 @@ http.interceptors.response.use(
       localStorage.removeItem('user')
       localStorage.removeItem('auth_expiry')
       // 调用登出清除后端 httpOnly Cookie（幂等）
-      fetch('/api/v1/auth/logout', {
+      fetch(`${API_BASE}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...csrfHeaders() },

@@ -24,6 +24,13 @@ async fn main() -> anyhow::Result<()> {
         "starting metaclouds-backend-rust"
     );
 
+    let production_hardening = config.environment == "production";
+    tracing::info!(
+        environment = %config.environment,
+        production_hardening,
+        "starting metaclouds backend"
+    );
+
     // 按配置选择连接驱动：
     // - 默认（USE_SQLITE=true / sqlite url）：与 Phase 0 行为完全一致。
     // - USE_SQLITE=false 或 DATABASE_URL=postgres(s)://：真正连接 Postgres，

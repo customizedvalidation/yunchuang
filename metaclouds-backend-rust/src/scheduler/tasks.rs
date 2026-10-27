@@ -49,6 +49,7 @@ where
 /// Go 逻辑：查 job=1 → pending 则置 running → 提交 K8s → 监控完成。
 /// 当前阶段落地为骨架日志 + TODO；K8s 提交等业务随 `services::k8s` 接通后填充。
 pub async fn sample_training(ctx: TaskContext) {
+    warn!(task = "sample-training", "scheduler task sample_training is a skeleton no-op (not wired to K8s yet)");
     info!(
         task = "sample-training",
         job_id = 1,
@@ -65,6 +66,7 @@ pub async fn sample_training(ctx: TaskContext) {
 
 /// `sample-inference`：对齐 Go `executeJob(jobID=2, "sample-inference")`。
 pub async fn sample_inference(ctx: TaskContext) {
+    warn!(task = "sample-inference", "scheduler task sample_inference is a skeleton no-op (not wired to K8s yet)");
     info!(
         task = "sample-inference",
         job_id = 2,

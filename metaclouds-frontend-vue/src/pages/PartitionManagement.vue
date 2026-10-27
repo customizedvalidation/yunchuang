@@ -487,7 +487,11 @@ function openEdit(row: Partition) {
   dialogVisible.value = true
 }
 async function submitForm() {
-  await formRef.value?.validate()
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
   try {
     if (editingPartition.value) {
       await partitionApi.update(editingPartition.value.id, { ...form })

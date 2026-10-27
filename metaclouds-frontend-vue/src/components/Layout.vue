@@ -4,14 +4,16 @@
     <div class="mc-app-main">
       <Topbar @menu-click="mobileOpen = true" @refresh="refreshPage" />
       <main class="mc-app-content">
-        <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <!-- 顶层模块 key：同级子路由（/job/list↔/job/queue↔/job/history、
-                 /k8s/nodes↔/k8s/pods↔/k8s/services）共享 key → 切换不重挂载，
-                 保留分页/搜索/轮询状态；跨顶层模块 key 不同 → 仍重挂载。 -->
-            <component :is="Component" :key="layoutKey" />
-          </transition>
-        </router-view>
+        <ErrorBoundary>
+          <router-view v-slot="{ Component }">
+            <transition name="fade" mode="out-in">
+              <!-- 顶层模块 key：同级子路由（/job/list↔/job/queue↔/job/history、
+                   /k8s/nodes↔/k8s/pods↔/k8s/services）共享 key → 切换不重挂载，
+                   保留分页/搜索/轮询状态；跨顶层模块 key 不同 → 仍重挂载。 -->
+              <component :is="Component" :key="layoutKey" />
+            </transition>
+          </router-view>
+        </ErrorBoundary>
       </main>
     </div>
     <div class="mc-app-overlay" @click="mobileOpen = false" />
@@ -23,6 +25,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import Sidebar from './Sidebar.vue'
 import Topbar from './Topbar.vue'
+import ErrorBoundary from './ErrorBoundary.vue'
 
 const route = useRoute()
 const collapsed = ref(false)

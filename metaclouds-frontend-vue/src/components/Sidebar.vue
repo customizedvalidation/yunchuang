@@ -10,7 +10,7 @@
       </div>
     </div>
 
-    <button class="mc-sidebar-collapse-btn" @click="$emit('collapse', !collapsed)" :aria-label="collapsed ? '展开侧边栏' : '折叠侧边栏'">
+    <button type="button" class="mc-sidebar-collapse-btn" @click="$emit('collapse', !collapsed)" :aria-label="collapsed ? '展开侧边栏' : '折叠侧边栏'">
       <el-icon><ArrowLeft v-if="!collapsed" /><ArrowRight v-else /></el-icon>
     </button>
 
@@ -77,7 +77,7 @@
       </template>
     </nav>
 
-    <button class="mc-sidebar-logout" @click="handleLogout">
+    <button type="button" class="mc-sidebar-logout" @click="handleLogout">
       <el-icon><SwitchButton /></el-icon>
       <span>退出登录</span>
     </button>

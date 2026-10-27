@@ -15,7 +15,8 @@ fn valid_prod() -> Config {
     c.allow_public_registration = false;
     c.database_ssl_mode = "require".to_string();
     c.allowed_origins = vec!["https://example.com".to_string()];
-    c.jwt_secret = "s".repeat(32);
+    // 生产环境 JWT_SECRET 需 ≥48 字符且不含占位符黑名单（见 Config::validate）。
+    c.jwt_secret = "s".repeat(48);
     c.jwt_expiration_hours = 24;
     c.rate_limit_enabled = true;
     c.rate_limit_requests = 100;

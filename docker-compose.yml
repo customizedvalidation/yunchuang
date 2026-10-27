@@ -155,11 +155,8 @@ services:
   #     生产请经 Secret / .env 注入强口令，seed 后改密或接 IdP。
   # 待目标环境 docker build 实测验证。
   #
-  # ⚠️ 存储驱动（重要）：请求层 SQL 仍是 SQLite 方言（?N 占位符 /
-  # last_insert_rowid），未移植到 Postgres。main.rs 对此是 fail-closed 的：
-  # USE_SQLITE=false 会连上 PG、跑完迁移后立刻报错退出。因此本联调栈
-  # 显式使用 SQLite 文件库，否则 backend 容器根本起不来。
-  # 生产要切 PG，须先完成「请求层方言移植」里程碑（见 docs 复盘报告 P0）。
+  # ⚠️ 存储驱动（重要）：USE_SQLITE=false 走 Postgres（DATABASE_URL=postgres://...）；
+  # 本地联调默认 USE_SQLITE=true 走 SQLite 文件。
   # ============================================================================
   backend:
     build:
@@ -199,7 +196,7 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD is required, see .env.example}
       - REDIS_DB=0
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required, see .env.example}
-      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-Admin@123456}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:?set DEFAULT_ADMIN_PASSWORD in .env}
       - JWT_EXPIRATION_HOURS=24
       - PROMETHEUS_ENABLED=true
       - PROMETHEUS_PORT=9090
@@ -236,7 +233,7 @@ services:
       dockerfile: Dockerfile
     container_name: metaclouds-frontend
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     depends_on:
       - backend
     networks:

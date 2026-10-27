@@ -626,7 +626,11 @@ function openEdit(row: GPUDevice) {
   dialogVisible.value = true
 }
 async function submitForm() {
-  await formRef.value?.validate()
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
   try {
     if (editingDevice.value) {
       await gpuApi.updateDevice(editingDevice.value.id, { ...form })

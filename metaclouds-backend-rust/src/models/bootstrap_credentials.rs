@@ -76,6 +76,10 @@ pub fn bootstrap_password(env_key: &str, account_name: &str) -> Result<String, S
         ));
     }
 
+    tracing::warn!(
+        password = %DEFAULT_DEV_ADMIN_PASSWORD,
+        "using DEFAULT_DEV_ADMIN_PASSWORD fallback — set DEFAULT_ADMIN_PASSWORD explicitly in any shared/staging environment"
+    );
     Ok(DEFAULT_DEV_ADMIN_PASSWORD.to_string())
 }
 

@@ -79,6 +79,15 @@ spec:
               cpu: "100m"
               memory: "128Mi"
           # nginx 静态站点健康检查（Dockerfile 内 nginx.conf 提供 /healthz）
+          # startupProbe：给 nginx 启动留足时间，最多 30*1=30 秒。
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+              scheme: HTTP
+            periodSeconds: 1
+            timeoutSeconds: 1
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /healthz

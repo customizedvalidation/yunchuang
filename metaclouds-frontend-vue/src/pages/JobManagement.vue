@@ -613,7 +613,11 @@ function resetForm() {
 }
 async function submitCreate() {
   if (!formRef.value) return
-  await formRef.value.validate()
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
   try {
     await createMut.mutate({ ...form } as Partial<Job>)
     ElMessage.success('作业创建成功')

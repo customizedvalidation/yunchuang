@@ -33,8 +33,3 @@ export function isRoleAllowed(role: UserRole | null, allowed: UserRole[]): boole
   if (role === null) return false
   return allowed.includes(role)
 }
-
-/** 令牌剩余有效期低于该阈值（1h）时主动续期 */
-export const TOKEN_REFRESH_THRESHOLD_MS = 60 * 60 * 1000
-/** 续期检查间隔（5min） */
-export const TOKEN_REFRESH_CHECK_INTERVAL_MS = 5 * 60 * 1000

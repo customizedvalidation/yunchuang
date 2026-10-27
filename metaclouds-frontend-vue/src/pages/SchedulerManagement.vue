@@ -397,7 +397,11 @@ function openEdit(row: SchedulerIntegration) {
   dialogVisible.value = true
 }
 async function submitForm() {
-  await formRef.value?.validate()
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
   try {
     if (editingScheduler.value) {
       await schedulerApi.update(editingScheduler.value.id, { ...form })

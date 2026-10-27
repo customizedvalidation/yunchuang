@@ -235,7 +235,7 @@ where
 {
     fn encode_by_ref(&self, buf: &mut Vec<SqliteArgumentValue<'q>>) -> Result<IsNull, BoxDynError> {
         // 序列化为 JSON 字符串后，委托给 String 的 SQLite 编码器。
-        let s = serde_json::to_string(&self.0).expect("Json<T> 序列化失败");
+        let s = serde_json::to_string(&self.0)?;
         <String as Encode<Sqlite>>::encode(s, buf)
     }
 }

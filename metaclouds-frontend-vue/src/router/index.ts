@@ -48,6 +48,10 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const auth = useAuthStore()
+  // 已登录用户访问 /login 直接回到工作台，避免登录页与已会话状态冲突。
+  if (to.path === '/login' && auth.isLoggedIn) {
+    return { path: '/dashboard' }
+  }
   if (to.meta.requiresAuth && !auth.isLoggedIn) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }

@@ -1,7 +1,7 @@
 <template>
   <header class="mc-topbar">
     <div class="mc-topbar-left">
-      <button v-if="isMobile" class="mc-topbar-menu-btn" @click="$emit('menuClick')" aria-label="打开菜单">
+      <button type="button" v-if="isMobile" class="mc-topbar-menu-btn" @click="$emit('menuClick')" aria-label="打开菜单">
         <el-icon><Menu /></el-icon>
       </button>
       <el-breadcrumb separator="/">
@@ -11,7 +11,7 @@
     </div>
     <div class="mc-topbar-right">
       <el-tooltip content="刷新数据" placement="bottom">
-        <button class="mc-topbar-icon-btn" @click="$emit('refresh')" aria-label="刷新">
+        <button type="button" class="mc-topbar-icon-btn" @click="$emit('refresh')" aria-label="刷新">
           <el-icon><Refresh /></el-icon>
         </button>
       </el-tooltip>

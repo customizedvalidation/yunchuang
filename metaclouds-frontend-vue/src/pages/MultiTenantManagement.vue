@@ -429,7 +429,11 @@ function openEdit(row: Tenant) {
 
 async function handleSubmit() {
   if (!formRef.value) return
-  await formRef.value.validate()
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
   saving.value = true
   try {
     const payload = { ...form }
