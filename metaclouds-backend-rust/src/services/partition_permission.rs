@@ -182,3 +182,32 @@ pub async fn check_permission(
 pub(crate) fn partition_usable(status: &str) -> bool {
     status == partition_status::ACTIVE
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rank_ordering() {
+        assert!(rank("admin") > rank("write"));
+        assert!(rank("write") > rank("read"));
+        assert_eq!(rank("unknown"), 0);
+        assert_eq!(rank(""), 0);
+    }
+
+    #[test]
+    fn test_rank_is_transitive() {
+        // read < write < admin，满足权限等级的偏序关系
+        let order = [rank("read"), rank("write"), rank("admin")];
+        for w in order.windows(2) {
+            assert!(w[0] < w[1], "expected {:?} < {:?}", w[0], w[1]);
+        }
+    }
+
+    #[test]
+    fn test_partition_usable() {
+        assert!(partition_usable("active"));
+        assert!(!partition_usable("draining"));
+        assert!(!partition_usable("disabled"));
+    }
+}

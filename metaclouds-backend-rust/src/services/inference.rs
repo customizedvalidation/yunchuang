@@ -164,3 +164,113 @@ pub async fn delete_inference_config(pool: &DatabasePool, id: i64) -> AppResult<
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::orm::PaginationParams;
+
+    async fn setup_pool() -> DatabasePool {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("connect sqlite memory");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        DatabasePool::Sqlite(pool)
+    }
+
+    #[tokio::test]
+    async fn test_crud_happy_path() {
+        let pool = setup_pool().await;
+
+        let created = create_inference_config(
+            &pool,
+            CreateInferenceConfigInput {
+                name: "t5-70b".into(),
+                description: "test model".into(),
+                model_path: "/models/t5".into(),
+                runtime: "vllm".into(),
+                replicas: 2,
+                gpu_per_replica: 1,
+                cpu_per_replica: 4,
+                memory_per_replica_gb: 16,
+                port: 8080,
+                health_check_path: "/health".into(),
+                tenant_id: 1,
+                created_by: 1,
+                status: None,
+            },
+        )
+        .await
+        .expect("create");
+
+        assert_eq!(created.name, "t5-70b");
+        assert_eq!(created.replicas, 2);
+        assert_eq!(created.status, "active");
+
+        let fetched = get_inference_config(&pool, created.id).await.expect("get");
+        assert_eq!(fetched.id, created.id);
+
+        let updated = update_inference_config(
+            &pool,
+            created.id,
+            UpdateInferenceConfigInput {
+                replicas: Some(4),
+                status: Some("scaled".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("update");
+        assert_eq!(updated.replicas, 4);
+        assert_eq!(updated.status, "scaled");
+
+        delete_inference_config(&pool, created.id)
+            .await
+            .expect("delete");
+
+        // 软删除后 get 应 404
+        assert!(get_inference_config(&pool, created.id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_not_found() {
+        let pool = setup_pool().await;
+        let err = get_inference_config(&pool, 99999).await.unwrap_err();
+        assert_eq!(err.code, crate::error::ErrorCode::NotFound);
+    }
+
+    #[tokio::test]
+    async fn test_list_pagination() {
+        let pool = setup_pool().await;
+        for i in 0..3 {
+            create_inference_config(
+                &pool,
+                CreateInferenceConfigInput {
+                    name: format!("model-{i}"),
+                    description: "".into(),
+                    model_path: "/m".into(),
+                    runtime: "vllm".into(),
+                    replicas: 1,
+                    gpu_per_replica: 1,
+                    cpu_per_replica: 1,
+                    memory_per_replica_gb: 4,
+                    port: 8080,
+                    health_check_path: "/health".into(),
+                    tenant_id: 1,
+                    created_by: 1,
+                    status: None,
+                },
+            )
+            .await
+            .expect("seed");
+        }
+        let page = list_inference_configs(&pool, PaginationParams { page: 1, page_size: 2 }, Some(1))
+            .await
+            .expect("list");
+        assert_eq!(page.data.len(), 2);
+        assert_eq!(page.total, 3);
+    }
+}

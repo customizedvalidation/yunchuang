@@ -105,6 +105,20 @@ jobs:
           chmod +x /tmp/gitleaks
           /tmp/gitleaks detect --source . --config gitleaks.toml --no-banner --verbose
 
+      - name: Dependency review (PR 引入的新依赖漏洞)
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          allow-licenses: MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unlicense
+
+      - name: Generate SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: true
+
   # ============================================================================
   # Job 2: 前端测试与构建
   # ============================================================================
