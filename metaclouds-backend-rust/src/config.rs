@@ -137,6 +137,10 @@ pub struct Config {
     // ---- 注册 / Cookie ----
     pub allow_public_registration: bool,
     pub cookie_same_site: String,
+    // ---- 安全：JWT 撤销名单在 Redis 故障时是否 fail-closed ----
+    // false（默认）：缓存抖动不打挂全站，等令牌自然过期；
+    // true：安全优先，Redis 不可用时直接 503，拒绝所有请求。
+    pub revocation_fail_closed: bool,
 }
 
 impl Default for Config {
@@ -227,6 +231,8 @@ impl Default for Config {
             // 注册 / Cookie
             allow_public_registration: false,
             cookie_same_site: "lax".to_string(),
+            // 安全：撤销名单默认 fail-open（可用性优先）
+            revocation_fail_closed: false,
         }
     }
 }
@@ -345,6 +351,9 @@ impl Config {
         // 注册 / Cookie
         cfg.allow_public_registration = env_bool("ALLOW_PUBLIC_REGISTRATION", false);
         cfg.cookie_same_site = env_or("COOKIE_SAME_SITE", "lax");
+
+        // 安全：JWT 撤销名单 Redis 故障时是否 fail-closed
+        cfg.revocation_fail_closed = env_bool("REVOCATION_FAIL_CLOSED", false);
 
         cfg.validate()?;
         Ok(cfg)

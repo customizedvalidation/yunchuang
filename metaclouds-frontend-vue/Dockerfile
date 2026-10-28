@@ -22,7 +22,8 @@ ENV CODEBUDDY_SAFE_DELETE_ENABLED=0
 RUN npm run build
 
 # --- Runtime 阶段 ---
-FROM nginx:alpine
+# 钉具体 minor tag（避免 :alpine 浮动）；digest 由 CI 在 deploy 时注入
+FROM nginx:1.27-alpine
 
 # Vite 默认输出目录 dist/
 COPY --from=builder /app/dist /usr/share/nginx/html

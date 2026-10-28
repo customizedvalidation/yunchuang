@@ -111,14 +111,14 @@ spec:
         - protocol: TCP
           port: 53
     # → K8s API Server（443，作业调度）
-    # 托管集群用 ipBlock 放行 kubernetes service ClusterIP
+    # 托管集群（EKS/GKE/AKS/ACK）的 kube-apiserver 不在用户集群内，
+    # namespaceSelector + podSelector 选 component=kube-apiserver 不命中。
+    # 改为放行 Service CIDR 段的 443（常见值 10.96.0.0/12，按实际集群
+    # --service-cluster-ip-range 调整；自建单控制面集群可直接放行
+    # kubernetes Service 的 ClusterIP）。
     - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              component: kube-apiserver
+        - ipBlock:
+            cidr: 10.96.0.0/12
       ports:
         - protocol: TCP
           port: 443

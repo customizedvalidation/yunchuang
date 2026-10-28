@@ -80,7 +80,10 @@ jobs:
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: .
-          soft_fail: true
+          # 生产分支对 HIGH/CRITICAL 阻断；设计使然的检查集中豁免（见下方注释）。
+          # 新增违规会直接 fail CI，防止 IaC 安全回归合入 main。
+          soft_fail: false
+          quiet: true
           # 集中豁免（设计使然的检查，经评审确认可接受）：
           #  - CKV_K8S_35: secrets 经 env 注入是 K8s Secret 对象（RBAC 保护）+ 官方镜像
           #    entrypoint 契约（postgres/redis），非明文；文件挂载需改镜像契约，收益不匹配
@@ -157,12 +160,13 @@ jobs:
 
       # ----------------------------------------------------------------------
       # 前端安全扫描（npm audit）
-      # npm audit 对 high 级漏洞返回 exit 1；此处显式捕获为 warning，
-      # 避免 continue-on-error 残留 "Process completed with exit code 1"
-      # 的 error annotation（Run #65 噪音来源）。漏洞详情进工作流日志，
-      # 阻断性依赖升级由依赖机器人/人工 PR 另行处理。
+      # critical 级漏洞阻断 CI（exit 1）；high 级仅警告，依赖升级由 dependabot/人工 PR 处理。
       # ----------------------------------------------------------------------
-      - name: npm audit (high severity, non-blocking)
+      - name: npm audit (critical severity, blocking)
+        run: npm audit --audit-level=critical
+
+      - name: npm audit (high severity, non-blocking warning)
+        if: always()
         run: |
           npm audit --audit-level=high || echo "::warning title=npm audit::npm audit found high-severity issues — see logs above; dependency upgrades tracked separately."
 
@@ -325,9 +329,9 @@ jobs:
           echo "Deploying to Development via SSH: ${{ env.DEV_USER }}@${{ env.DEV_HOST }}"
           echo "${{ env.DEV_SSH_KEY }}" > /tmp/deploy_key
           chmod 600 /tmp/deploy_key
-          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 \
+          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
             "${{ env.DEV_USER }}@${{ env.DEV_HOST }}" \
-            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust || true"
+            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust"
           rm -f /tmp/deploy_key
 
       - name: Verify Development deployment
@@ -371,9 +375,9 @@ jobs:
           echo "Deploying to Staging via SSH: ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }}"
           echo "${{ env.STAGING_SSH_KEY }}" > /tmp/deploy_key
           chmod 600 /tmp/deploy_key
-          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 \
+          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
             "${{ env.STAGING_USER }}@${{ env.STAGING_HOST }}" \
-            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust || true"
+            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust"
           rm -f /tmp/deploy_key
 
       - name: Verify Staging deployment
@@ -432,9 +436,9 @@ jobs:
           echo "Deploying to Production via SSH: ${{ env.PROD_USER }}@${{ env.PROD_HOST }}"
           echo "${{ env.PROD_SSH_KEY }}" > /tmp/deploy_key
           chmod 600 /tmp/deploy_key
-          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 \
+          ssh -i /tmp/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
             "${{ env.PROD_USER }}@${{ env.PROD_HOST }}" \
-            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust || true"
+            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust"
           rm -f /tmp/deploy_key
 
       - name: Verify Production deployment
@@ -523,6 +527,11 @@ jobs:
 
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo audit (Rust CVE scan)
+        run: |
+          cargo install cargo-audit --locked --quiet
+          cargo audit
 
       - name: cargo test
         run: cargo test --all-features

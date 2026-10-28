@@ -115,8 +115,9 @@ pub async fn jwt_auth(
     let claims = verify_token(state.config.jwt_secret.as_bytes(), &token)?;
 
     // 撤销名单：显式登出过的 jti 即使未过期也拒绝。
-    // 仅在 Redis 真正可用时启用；Redis 故障/未启用时**失败开放**
-    // （退化为"等令牌自然过期"）——可用性优先，避免一个缓存抖动打挂全站。
+    // Redis 故障时的行为由 REVOCATION_FAIL_CLOSED 决定：
+    //   - false（默认）：失败开放，退化为"等令牌自然过期"，避免缓存抖动打挂全站；
+    //   - true：安全优先，Redis 不可用时返回 503，拒绝所有请求。
     if crate::cache::redis_active() {
         match crate::cache::global_session()
             .is_jti_revoked(&claims.jti)
@@ -128,7 +129,13 @@ pub async fn jwt_auth(
             }
             Ok(false) => {}
             Err(e) => {
-                tracing::warn!(error = %e, "revocation check failed; failing open");
+                if state.config.revocation_fail_closed {
+                    tracing::error!(error = %e, "revocation check failed; failing closed (503)");
+                    return Err(AppError::internal(
+                        "auth revocation store unavailable; retry later",
+                    ));
+                }
+                tracing::warn!(error = %e, "revocation check failed; failing open (REVOCATION_FAIL_CLOSED=false)");
             }
         }
     }

@@ -66,9 +66,10 @@ spec:
           type: RuntimeDefault
       containers:
         - name: redis
-          image: redis:7-alpine
-          # 固定 minor tag，Always 确保补丁更新（CKV_K8S_15）
-          imagePullPolicy: Always
+          # 钉具体 minor tag（避免 :7-alpine 浮动 minor）；imagePullPolicy 改 IfNotPresent
+          # 配合固定 tag，避免每次 Pod 重建都拉浮动层。
+          image: redis:7.4-alpine
+          imagePullPolicy: IfNotPresent
           ports:
             - name: redis
               containerPort: 6379
@@ -79,14 +80,13 @@ spec:
                 secretKeyRef:
                   name: metaclouds-secrets
                   key: redis-password
-          # redis-server 不读 REDIS_PASSWORD 环境变量，须用 --requirepass 显式传入。
-          # 口令来自 Secret，只出现在进程命令行（Pod 内可见），不落 ConfigMap。
-          # `$(REDIS_PASSWORD)` 由 kubelet 在 command/args 中展开。
-          # --appendonly yes：重启后撤销名单不丢（本来是 TTL 数据，丢了也不致命）。
+          # redis-server 不读 REDIS_PASSWORD 环境变量。
+          # 为避免口令暴露在容器 `ps`（--requirepass "$(REDIS_PASSWORD)"），
+          # 由 initContainer 从 Secret 生成 redis.conf（含 requirepass 指令），
+          # redis-server 启动时加载该文件。文件权限 600，容器内仅 redis 用户可读。
           command:
-            - /bin/sh
-            - -c
-            - exec redis-server --appendonly yes --requirepass "$(REDIS_PASSWORD)"
+            - redis-server
+            - /etc/redis/redis.conf
           resources:
             requests:
               cpu: "100m"
@@ -103,20 +103,21 @@ spec:
                 - ALL
           startupProbe:
             exec:
-              command: ["redis-cli", "-a", "$(REDIS_PASSWORD)", "ping"]
+              # TCP 端口可达即认为 ready（不验证 auth，避免探针在 ps 暴露口令）
+              command: ["sh", "-c", "nc -z -w 2 127.0.0.1 6379"]
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 30
           livenessProbe:
             exec:
-              command: ["redis-cli", "-a", "$(REDIS_PASSWORD)", "ping"]
+              command: ["sh", "-c", "nc -z -w 2 127.0.0.1 6379"]
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
           readinessProbe:
             exec:
-              command: ["redis-cli", "-a", "$(REDIS_PASSWORD)", "ping"]
+              command: ["sh", "-c", "nc -z -w 2 127.0.0.1 6379"]
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
@@ -127,8 +128,43 @@ spec:
             # 根文件系统只读后，redis 运行时写路径挂 emptyDir
             - name: tmp
               mountPath: /tmp
+            # redis.conf（initContainer 生成）+ unix socket
+            - name: redis-config
+              mountPath: /etc/redis
+              readOnly: true
+      initContainers:
+        - name: gen-redis-conf
+          image: redis:7.4-alpine
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: metaclouds-secrets
+                  key: redis-password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              umask 077
+              cat > /etc/redis/redis.conf <<EOF
+              bind 0.0.0.0
+              port 6379
+              dir /data
+              appendonly yes
+              requirepass ${REDIS_PASSWORD}
+              unixsocket /etc/redis/redis.sock
+              unixsocketperm 600
+              protected-mode yes
+              EOF
+              chmod 600 /etc/redis/redis.conf
+          volumeMounts:
+            - name: redis-config
+              mountPath: /etc/redis
       volumes:
         - name: tmp
+          emptyDir: {}
+        - name: redis-config
           emptyDir: {}
   volumeClaimTemplates:
     - metadata:

@@ -30,6 +30,16 @@ pub fn is_production() -> bool {
         .unwrap_or(false)
 }
 
+/// 是否运行在本地开发环境（`SERVER_ENV=development` 或未设）。
+/// staging / production 都走严格 CSP，只有 dev 才允许 unsafe-inline。
+pub fn is_development() -> bool {
+    match std::env::var("SERVER_ENV") {
+        Ok(v) if v.eq_ignore_ascii_case("development") => true,
+        Ok(_) => false, // staging / production / 其他非空值
+        Err(_) => true, // 未设 = 本地 dev
+    }
+}
+
 /// 读取认证 Cookie 的 SameSite 属性，对齐 Go `CookieSameSiteMode()`。
 ///
 /// 环境变量 `COOKIE_SAME_SITE` 取值 `none`/`strict`，其余（含空串、非法值）回退 Lax。
@@ -77,6 +87,11 @@ pub async fn security_headers(request: Request, next: Next) -> Response {
             &STRICT_TRANSPORT_SECURITY,
             "max-age=31536000; includeSubDomains",
         );
+    }
+
+    // CSP 严格版在 staging / production 都启用（unsafe-inline 有 XSS 风险）；
+    // 仅本地 dev 允许内联脚本/样式与 CDN，便于前端调试。
+    if !is_development() {
         insert_header(
             &mut response,
             &CONTENT_SECURITY_POLICY,

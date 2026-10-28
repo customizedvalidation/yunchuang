@@ -699,3 +699,11 @@ All jobs use `actions/cache` for the cargo registry and `target/` directory.
 | `rbac_alert_test` | 3     | alert permission constants / read JWT-only / write permission matrix |
 | `priority_scheduler_test` | 16 | BinaryHeap queue / priority ordering / FIFO / cancel / concurrency / worker lifecycle / shutdown |
 | `postgres_smoke_test` | 0 (1 ignored) | Postgres connect — `#[ignore]`, runs in CI |
+
+## Security notes
+
+- **JWT 凭证存储**：访问令牌通过 `HttpOnly; Secure; SameSite=Lax` Cookie 下发，前端 JS 不可读取，防 XSS 窃取。
+- **localStorage 仅存 UI 偏好**：`src/stores/auth.ts` 在 localStorage 保存的 `user` 对象（含 `role`）**仅用于前端菜单/按钮的 UI 过滤**，不是鉴权凭证。所有写操作和敏感数据访问由后端 RBAC 在每次请求时强制校验；前端隐藏某个按钮不构成安全控制。
+- **JWT 撤销名单**：Redis 故障时默认 fail-open（可用性优先，等令牌自然过期）。高安全环境可设 `REVOCATION_FAIL_CLOSED=true` 切换为 fail-closed（Redis 不可用时直接 503）。
+- **CSP**：staging / production 强制无 `unsafe-inline` 的 CSP；仅本地 `SERVER_ENV=development` 允许内联脚本/样式。
+- **生产配置校验**：`JWT_SECRET` 长度 ≥48 且不在弱值黑名单（`change-me`/`dev-secret`/`default-secret` 等）内；compose 强制注入 `POSTGRES_PASSWORD`/`REDIS_PASSWORD`/`IMAGE_TAG`，未设即 fail。
