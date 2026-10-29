@@ -194,7 +194,8 @@ impl Default for Config {
             jaeger_endpoint: "http://localhost:14268/api/traces".to_string(),
             otel_enabled: false,
             otel_endpoint: "http://localhost:4317".to_string(),
-            otel_sample_rate: 1.0,
+            // 生产高 QPS 下默认 0.1 采样，避免爆采集器；开发调试可显式设 1.0。
+            otel_sample_rate: 0.1,
             slow_query_threshold_ms: 500,
             // 配置中心
             config_center_enabled: false,
@@ -306,7 +307,8 @@ impl Config {
         // P3-04 OpenTelemetry OTLP（本机无 collector，默认关闭）。
         cfg.otel_enabled = env_bool("OTEL_ENABLED", false);
         cfg.otel_endpoint = env_or("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317");
-        cfg.otel_sample_rate = env_float("OTEL_SAMPLE_RATE", 1.0);
+        // 生产高 QPS 下默认 0.1 采样，避免爆采集器；开发调试可显式设 OTEL_SAMPLE_RATE=1.0。
+        cfg.otel_sample_rate = env_float("OTEL_SAMPLE_RATE", 0.1);
         cfg.slow_query_threshold_ms = env_int("SLOW_QUERY_THRESHOLD_MS", 500) as u64;
 
         // 配置中心

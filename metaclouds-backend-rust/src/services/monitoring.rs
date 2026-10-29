@@ -33,54 +33,81 @@ async fn safe_count(pool: &DatabasePool, sql: &str) -> i64 {
     })
 }
 
-/// 聚合 13 个业务指标（对齐 Go metrics_business.go）。
+/// 聚合业务指标（对齐 Go metrics_business.go）。
+///
+/// 外层包 10s 进程内 Redis 缓存（key `metaclouds:dashboard:stats`）；
+/// 未命中或 Noop 时回源 [`compute_dashboard_stats`]。GPU 分配/释放成功后会主动失效该 key。
 pub async fn get_dashboard_stats(pool: &DatabasePool) -> AppResult<serde_json::Value> {
-    let total_users = safe_count(pool, "SELECT COUNT(*) FROM users").await;
+    let cache = crate::cache::global_cache();
+    let key = "dashboard:stats";
+    let ttl = Duration::from_secs(10);
+    let compute: std::pin::Pin<
+        Box<dyn std::future::Future<Output = AppResult<Vec<u8>>> + Send + '_>,
+    > = Box::pin(async move {
+        let v = compute_dashboard_stats(pool).await?;
+        serde_json::to_vec(&v).map_err(|e| {
+            crate::error::AppError::with_source(
+                crate::error::ErrorCode::InternalServerError,
+                "dashboard stats json encode",
+                e,
+            )
+        })
+    });
+    let bytes = cache.get_or_set(key, ttl, compute).await?;
+    // 缓存内容损坏时回源重算（不把 500 抛给 dashboard）。
+    match serde_json::from_slice(&bytes) {
+        Ok(v) => Ok(v),
+        Err(_) => compute_dashboard_stats(pool).await,
+    }
+}
+
+/// 真正聚合指标：12 条 COUNT 并发发出，结果按原字段组装。
+async fn compute_dashboard_stats(pool: &DatabasePool) -> AppResult<serde_json::Value> {
+    // 12 条 COUNT 并发执行（SQLite WAL 下由连接池排队，Postgres 并行）。
+    let futs = vec![
+        safe_count(pool, "SELECT COUNT(*) FROM users"),
+        safe_count(pool, "SELECT COUNT(*) FROM tenants WHERE deleted_at IS NULL"),
+        safe_count(pool, "SELECT COUNT(*) FROM clusters WHERE deleted_at IS NULL"),
+        safe_count(pool, "SELECT COUNT(*) FROM resources WHERE deleted_at IS NULL"),
+        safe_count(pool, "SELECT COUNT(*) FROM jobs WHERE deleted_at IS NULL"),
+        safe_count(
+            pool,
+            "SELECT COUNT(*) FROM jobs WHERE deleted_at IS NULL AND status = 'running'",
+        ),
+        safe_count(
+            pool,
+            "SELECT COUNT(*) FROM jobs WHERE deleted_at IS NULL AND status = 'pending'",
+        ),
+        safe_count(pool, "SELECT COUNT(*) FROM gpu_devices WHERE deleted_at IS NULL"),
+        safe_count(
+            pool,
+            "SELECT COUNT(*) FROM gpu_allocations WHERE deleted_at IS NULL",
+        ),
+        safe_count(
+            pool,
+            "SELECT COUNT(*) FROM datasets WHERE deleted_at IS NULL",
+        ),
+        safe_count(pool, "SELECT COUNT(*) FROM alerts WHERE deleted_at IS NULL"),
+        safe_count(
+            pool,
+            "SELECT COUNT(*) FROM alerts WHERE deleted_at IS NULL AND status = 'active'",
+        ),
+    ];
+    let r = futures_util::future::join_all(futs).await;
+    let total_users = r[0];
+    let total_tenants = r[1];
+    let total_clusters = r[2];
+    let total_resources = r[3];
+    let total_jobs = r[4];
+    let running_jobs = r[5];
+    let pending_jobs = r[6];
+    let total_gpus = r[7];
+    let allocated_gpus = r[8];
+    let total_datasets = r[9];
+    let total_alerts = r[10];
+    let active_alerts = r[11];
     // active_users：当前 schema 无登录表，退而求其次用 total_users 近似。
     let active_users = total_users;
-    let total_tenants = safe_count(
-        pool,
-        "SELECT COUNT(*) FROM tenants WHERE deleted_at IS NULL",
-    )
-    .await;
-    let total_clusters = safe_count(
-        pool,
-        "SELECT COUNT(*) FROM clusters WHERE deleted_at IS NULL",
-    )
-    .await;
-    let total_resources = safe_count(
-        pool,
-        "SELECT COUNT(*) FROM resources WHERE deleted_at IS NULL",
-    )
-    .await;
-    let total_jobs = safe_count(pool, "SELECT COUNT(*) FROM jobs WHERE deleted_at IS NULL").await;
-    let running_jobs = safe_count(
-        pool,
-        "SELECT COUNT(*) FROM jobs WHERE deleted_at IS NULL AND status = 'running'",
-    )
-    .await;
-    let total_gpus = safe_count(
-        pool,
-        "SELECT COUNT(*) FROM gpu_devices WHERE deleted_at IS NULL",
-    )
-    .await;
-    let allocated_gpus = safe_count(
-        pool,
-        "SELECT COUNT(*) FROM gpu_allocations WHERE deleted_at IS NULL",
-    )
-    .await;
-    let total_datasets = safe_count(
-        pool,
-        "SELECT COUNT(*) FROM datasets WHERE deleted_at IS NULL",
-    )
-    .await;
-    let total_alerts =
-        safe_count(pool, "SELECT COUNT(*) FROM alerts WHERE deleted_at IS NULL").await;
-    let active_alerts = safe_count(
-        pool,
-        "SELECT COUNT(*) FROM alerts WHERE deleted_at IS NULL AND status = 'active'",
-    )
-    .await;
     let uptime_secs: i64 = start_time().elapsed().as_secs() as i64;
 
     Ok(serde_json::json!({
@@ -91,6 +118,7 @@ pub async fn get_dashboard_stats(pool: &DatabasePool) -> AppResult<serde_json::V
         "total_resources": total_resources,
         "total_jobs": total_jobs,
         "running_jobs": running_jobs,
+        "pending_jobs": pending_jobs,
         "total_gpus": total_gpus,
         "allocated_gpus": allocated_gpus,
         "total_datasets": total_datasets,
@@ -295,11 +323,7 @@ pub async fn evaluate_alert_rules(pool: &DatabasePool) -> AppResult<Vec<serde_js
     let rules = list_alert_rules();
     let mut triggered = Vec::new();
 
-    // 简单评估：基于 active_alerts 与已用 GPU 比例判断。
-    let active_alerts = stats
-        .get("active_alerts")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
+    // 简单评估：基于已用 GPU 比例判断可推导的规则；其余分类等待数据接入。
     let total_gpus = stats
         .get("total_gpus")
         .and_then(|v| v.as_i64())
@@ -331,7 +355,8 @@ pub async fn evaluate_alert_rules(pool: &DatabasePool) -> AppResult<Vec<serde_js
             "cpu" | "memory" | "storage" => false,
             _ => false,
         };
-        if fire || active_alerts > 0 {
+        // 仅当规则自身阈值判定触发才上报；历史实现把"任意 active 告警"误当成全部规则触发。
+        if fire {
             triggered.push(serde_json::json!({
                 "rule_id": rule.id,
                 "rule_name": rule.name,

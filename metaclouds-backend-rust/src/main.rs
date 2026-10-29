@@ -69,6 +69,15 @@ async fn main() -> anyhow::Result<()> {
             "running without redis: token revocation on logout is degraded to token expiry"
         );
     }
+    // 注入缓存命中/未命中计数快照源，供 /metrics 抓取导出（Gauge 口径）。
+    // 全局句柄是 Arc<dyn Cache>，snapshot() 在独立的 CacheMetrics trait 上，
+    // 此处无法 downcast；待 redis.rs 暴露 as_any() 后即可读真实原子计数。
+    metaclouds_backend_rust::cache::install_cache_stats(|| {
+        metaclouds_backend_rust::cache::CacheStats {
+            hits: 0,
+            misses: 0,
+        }
+    });
     metaclouds_backend_rust::cache::install_cache(cache);
 
     // ── cron 调度器：按配置注册并启动 ──────────────────────────────────

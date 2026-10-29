@@ -32,8 +32,8 @@ impl HttpMetrics {
 
         let request_duration_seconds = register_histogram_vec!(
             "http_request_duration_seconds",
-            "HTTP request latency in seconds, labeled by method and path.",
-            &["method", "path"],
+            "HTTP request latency in seconds, labeled by method, path and status code.",
+            &["method", "path", "status"],
             // 与 Go metrics_business.go 完全一致的 buckets。
             vec![0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
         )
@@ -58,7 +58,7 @@ impl HttpMetrics {
             .with_label_values(&[method, path, &status.to_string()])
             .inc();
         self.request_duration_seconds
-            .with_label_values(&[method, path])
+            .with_label_values(&[method, path, &status.to_string()])
             .observe(duration_secs);
     }
 

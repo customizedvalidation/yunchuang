@@ -204,48 +204,87 @@ pub async fn delete_gpu_device(pool: &DatabasePool, id: i64) -> AppResult<()> {
 }
 
 /// 分配 GPU：挑选满足 vendor/显存/fraction 容量的可用设备，创建 allocation 并联动设备状态。
+///
+/// 选机 + 批量算 fraction + INSERT allocation + UPDATE device 全部在同一事务内完成；
+/// Postgres 用 `FOR UPDATE SKIP LOCKED` 锁住候选行，SQLite 库本身串行写。
+/// 选机为 best-fit（剩余 fraction 最小但仍够本作业），设备显存用增量表达式更新。
 pub async fn allocate_gpu(
     pool: &DatabasePool,
     input: AllocateGpuInput,
 ) -> AppResult<GpuAllocationResponse> {
-    // 查找可用设备：status available/allocated，vendor 匹配，显存充足，fraction 未超限。
-    let candidates: Vec<GpuDevice> = crate::with_db!(pool,
-        "SELECT * FROM gpu_devices WHERE deleted_at IS NULL AND (status = 'available' OR status = 'allocated')",
-    |db_s, db_e| {
-        crate::db::query_as_db(db_e, db_s).fetch_all(db_e).await?
-    });
-
-    let mut selected: Option<GpuDevice> = None;
-    for d in candidates {
-        if !input.vendor.is_empty() && d.vendor != input.vendor {
-            continue;
-        }
-        let available_mem = d.allocatable_memory_gb - d.used_memory_gb;
-        if available_mem < input.memory_gb {
-            continue;
-        }
-        // 累计已分配 fraction（active）。
-        let used_fraction: f64 = crate::with_db!(pool,
-            "SELECT COALESCE(SUM(fraction), 0.0) FROM gpu_allocations WHERE device_id = ? AND status = 'active'",
-        |db_s, db_e| {
-            crate::db::query_scalar_db(db_e, db_s).bind(d.id).fetch_one(db_e).await?
-        });
-        if used_fraction + input.fraction > 1.0 + 0.001 {
-            continue;
-        }
-        selected = Some(d);
-        break;
-    }
-
-    let device = selected.ok_or_else(|| {
-        AppError::service_unavailable("no available GPU device matching criteria")
-    })?;
-
     let now = Utc::now();
-    // P1: 写操作事务化——INSERT allocation 与 UPDATE device 必须原子提交，
-    // 消除"写一半失败留下孤儿 allocation"的窗口（SQLite/Postgres 通用事务写法）。
+    // P1: 写操作事务化——候选 SELECT（PG 行锁）、批量 fraction、INSERT allocation、
+    // UPDATE device 全部原子提交，消除 check-then-act 竞态与 N+1 往返。
     let alloc_id: i64 =
         crate::with_tx!(pool, |tx| {
+            // 1) 拉候选设备。PG 分支带 vendor 下推 + FOR UPDATE SKIP LOCKED；
+            //    SQLite 分支不加行锁（库串行写）。
+            let candidates: Vec<GpuDevice> = if pool.is_sqlite() {
+                crate::with_db_tx!(pool, &mut *tx,
+                    "SELECT * FROM gpu_devices WHERE deleted_at IS NULL AND (status = 'available' OR status = 'allocated')",
+                |db_s, db_e| {
+                    crate::db::query_as_db(&mut *db_e, db_s).fetch_all(&mut *db_e).await?
+                })
+            } else {
+                crate::with_db_tx!(pool, &mut *tx,
+                    "SELECT * FROM gpu_devices WHERE deleted_at IS NULL AND (status = 'available' OR status = 'allocated') AND (vendor = ?1 OR ?1 = '') ORDER BY id FOR UPDATE SKIP LOCKED",
+                |db_s, db_e| {
+                    crate::db::query_as_db(&mut *db_e, db_s)
+                        .bind(&input.vendor)
+                        .fetch_all(&mut *db_e).await?
+                })
+            };
+
+            // 2) Rust 侧再过滤 vendor + 显存（PG 已下推 vendor，此处幂等）。
+            let prelim: Vec<&GpuDevice> = candidates.iter()
+                .filter(|d| input.vendor.is_empty() || d.vendor == input.vendor)
+                .filter(|d| d.allocatable_memory_gb - d.used_memory_gb >= input.memory_gb)
+                .collect();
+            let ids: Vec<i64> = prelim.iter().map(|d| d.id).collect();
+
+            // 3) 一条批量查询拿到所有候选设备的 active fraction 之和（消除 N 次 SUM）。
+            let frac_map: HashMap<i64, f64> = if ids.is_empty() {
+                HashMap::new()
+            } else {
+                let placeholders = (1..=ids.len())
+                    .map(|i| format!("?{i}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let sql = format!(
+                    "SELECT device_id, COALESCE(SUM(fraction), 0.0) AS used_fraction \
+                     FROM gpu_allocations \
+                     WHERE status = 'active' AND deleted_at IS NULL AND device_id IN ({placeholders}) \
+                     GROUP BY device_id"
+                );
+                let rows: Vec<(i64, f64)> = crate::with_db_tx!(pool, &mut *tx, &sql, |db_s, db_e| {
+                    let mut q = crate::db::query_as_db(&mut *db_e, db_s);
+                    for id in &ids {
+                        q = q.bind(id);
+                    }
+                    q.fetch_all(&mut *db_e).await?
+                });
+                rows.into_iter().collect()
+            };
+
+            // 4) best-fit：满足 fraction 约束的候选里挑"剩余 fraction 最小但仍够本作业"者。
+            let mut best: Option<&GpuDevice> = None;
+            let mut best_remaining: f64 = f64::MAX;
+            for d in &prelim {
+                let used_frac = frac_map.get(&d.id).copied().unwrap_or(0.0);
+                let remaining = 1.0 - used_frac;
+                if remaining + 0.001 < input.fraction {
+                    continue;
+                }
+                if remaining < best_remaining {
+                    best_remaining = remaining;
+                    best = Some(d);
+                }
+            }
+            let device = best.ok_or_else(|| {
+                AppError::service_unavailable("no available GPU device matching criteria")
+            })?;
+
+            // 5) INSERT allocation。
             let aid = crate::insert_id_tx!(pool, &mut *tx,
             "INSERT INTO gpu_allocations (created_at, updated_at, device_id, job_id, tenant_id, \
              user_id, fraction, memory_gb, status, started_at) \
@@ -261,18 +300,13 @@ pub async fn allocate_gpu(
             .bind(input.memory_gb)
             .bind(now)
         );
-            let new_used = device.used_memory_gb + input.memory_gb;
-            let new_status = if new_used > 0 {
-                dev_status::ALLOCATED
-            } else {
-                dev_status::AVAILABLE
-            };
+
+            // 6) 设备显存用增量表达式（并发安全）；分配后必然非空 → allocated。
             crate::with_db_tx!(pool, &mut *tx,
-            "UPDATE gpu_devices SET used_memory_gb = ?, status = ?, updated_at = ? WHERE id = ?",
+            "UPDATE gpu_devices SET used_memory_gb = used_memory_gb + ?1, status = 'allocated', updated_at = ?2 WHERE id = ?3",
         |db_s, db_e| {
             sqlx::query(db_s)
-                .bind(new_used)
-                .bind(new_status)
+                .bind(input.memory_gb)
                 .bind(now)
                 .bind(device.id)
                 .execute(db_e)
@@ -282,6 +316,11 @@ pub async fn allocate_gpu(
             aid
         });
 
+    // 分配成功后主动失效 dashboard 统计缓存。
+    let _ = crate::cache::global_cache()
+        .delete("dashboard:stats")
+        .await;
+
     let alloc = gpu_allocation::get_by_id(pool, alloc_id)
         .await?
         .ok_or_else(|| AppError::internal("allocation disappeared after insert"))?;
@@ -289,6 +328,9 @@ pub async fn allocate_gpu(
 }
 
 /// 释放 GPU 分配：标记 released，回写设备显存与状态。
+///
+/// 两条写操作（allocation 置 released + device 减显存）包在同一事务；
+/// 设备显存用增量表达式 `MAX(used - n, 0)`，状态由 CASE 一句判定。
 pub async fn release_gpu(pool: &DatabasePool, allocation_id: i64) -> AppResult<()> {
     let alloc = gpu_allocation::get_by_id(pool, allocation_id)
         .await?
@@ -298,44 +340,48 @@ pub async fn release_gpu(pool: &DatabasePool, allocation_id: i64) -> AppResult<(
     }
 
     let now = Utc::now();
-    crate::with_db!(
-        pool,
-        "UPDATE gpu_allocations SET status = 'released', ended_at = ?, updated_at = ? WHERE id = ?",
-        |db_s, db_e| {
-            sqlx::query(db_s)
-                .bind(now)
-                .bind(now)
-                .bind(allocation_id)
-                .execute(db_e)
-                .await?
-                .rows_affected()
-        }
-    );
-
-    // 回写设备显存。
-    let device = gpu_device::get_by_id(pool, alloc.device_id, false).await?;
-    if let Some(d) = device {
-        let new_used = (d.used_memory_gb - alloc.memory_gb).max(0);
-        let new_status = if new_used == 0 {
-            dev_status::AVAILABLE.to_string()
-        } else {
-            d.status.clone()
-        };
-        crate::with_db!(
+    let memory_gb = alloc.memory_gb;
+    let device_id = alloc.device_id;
+    crate::with_tx!(pool, |tx| {
+        // 1) allocation 置 released（仅当仍 active，幂等）。
+        crate::with_db_tx!(
             pool,
-            "UPDATE gpu_devices SET used_memory_gb = ?, status = ?, updated_at = ? WHERE id = ?",
+            &mut *tx,
+            "UPDATE gpu_allocations SET status = 'released', ended_at = ?1, updated_at = ?2 WHERE id = ?3 AND status = 'active'",
             |db_s, db_e| {
                 sqlx::query(db_s)
-                    .bind(new_used)
-                    .bind(&new_status)
                     .bind(now)
-                    .bind(d.id)
+                    .bind(now)
+                    .bind(allocation_id)
                     .execute(db_e)
                     .await?
                     .rows_affected()
             }
         );
-    }
+        // 2) 设备显存增量扣减，状态按剩余量一句判定。
+        crate::with_db_tx!(
+            pool,
+            &mut *tx,
+            "UPDATE gpu_devices SET used_memory_gb = MAX(used_memory_gb - ?1, 0), \
+             status = CASE WHEN used_memory_gb - ?1 <= 0.001 THEN 'available' ELSE 'allocated' END, \
+             updated_at = ?2 WHERE id = ?3",
+            |db_s, db_e| {
+                sqlx::query(db_s)
+                    .bind(memory_gb)
+                    .bind(memory_gb)
+                    .bind(now)
+                    .bind(device_id)
+                    .execute(db_e)
+                    .await?
+                    .rows_affected()
+            }
+        );
+    });
+
+    // 释放成功后主动失效 dashboard 统计缓存。
+    let _ = crate::cache::global_cache()
+        .delete("dashboard:stats")
+        .await;
     Ok(())
 }
 

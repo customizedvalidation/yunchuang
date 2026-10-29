@@ -343,8 +343,18 @@ pub async fn list(
         count_q.fetch_one(db_e).await?
     });
 
-    let list_sql =
-        format!("SELECT * FROM jobs WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?");
+    // 显式列清单（与 Job::FromRow 一一对应，避免 SELECT * 漏列/多列）。
+    // `kind` 经 #[sqlx(rename="type")] 映射到列 `type`。
+    const JOB_COLUMNS: &str = "id, created_at, updated_at, deleted_at, cluster_id, tenant_id, \
+        user_id, name, description, status, type, priority, gpus, cpus, memory, duration, \
+        start_time, end_time, progress, output_path, error_msg, partition_id, scheduler_type, \
+        scheduler_job_id, gpu_fraction, gpu_memory_gb, gpu_vendor, qos, nodes_requested, \
+        node_selector, affinity, tolerations, elastic_enabled, min_gpus, max_gpus, scaling_policy, \
+        checkpoint_enabled, checkpoint_interval_minutes, max_retries, retry_count, \
+        fault_tolerance_level, topology_affinity, topology_anti_affinity, network_requirement";
+    let list_sql = format!(
+        "SELECT {JOB_COLUMNS} FROM jobs WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?"
+    );
     let rows: Vec<Job> = crate::with_db!(pool, &list_sql, |db_s, db_e| {
         let mut list_q = crate::db::query_as_db(db_e, db_s);
         for b in &binds {

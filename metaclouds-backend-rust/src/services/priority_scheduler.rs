@@ -94,6 +94,8 @@ struct JobRecord {
     priority: u8,
     name: String,
     status: JobStatus,
+    /// 入队时刻（提交时记录），用于观测调度等待延迟。
+    enqueued_at: std::time::Instant,
 }
 
 /// 出队元素：仅携带排序所需字段（BinaryHeap 最大堆）。
@@ -251,6 +253,37 @@ impl Shared {
             node_info: NodeInfo::default(),
             shutting_down: false,
         }
+    }
+
+    /// 根据当前 jobs/running 状态刷新 pending（按优先级）与 running 的 Prometheus Gauge。
+    /// 在 submit / cancel / 任务完成等状态变更点调用。
+    fn refresh_queue_metrics(&self) {
+        let m = crate::metrics::scheduler_metrics();
+        let mut by_priority = [0usize; 4];
+        for rec in self.jobs.values() {
+            if rec.status == JobStatus::Pending && rec.priority <= MAX_PRIORITY {
+                by_priority[rec.priority as usize] += 1;
+            }
+        }
+        for (prio, count) in by_priority.iter().enumerate() {
+            m.pending_jobs
+                .with_label_values(&[&prio.to_string()])
+                .set(*count as i64);
+        }
+        m.running_jobs.set(self.running.len() as i64);
+    }
+
+    /// 保守内存回收：jobs 超过阈值时，丢弃早已终态（completed/cancelled/failed）
+    /// 且 id 明显落后于 next_job_id 的记录，避免 HashMap 无限增长。
+    fn maybe_gc_terminal(&mut self) {
+        if self.jobs.len() <= 10_000 {
+            return;
+        }
+        let cutoff = self.next_job_id.saturating_sub(5_000);
+        self.jobs.retain(|id, rec| {
+            !matches!(rec.status, JobStatus::Completed | JobStatus::Cancelled | JobStatus::Failed)
+                || *id >= cutoff
+        });
     }
 }
 
@@ -426,6 +459,7 @@ impl PriorityScheduler {
 // Worker 事件循环
 // ---------------------------------------------------------------------------
 
+#[tracing::instrument(level = "debug", skip_all)]
 async fn worker_loop(
     mut rx: mpsc::Receiver<SchedulerCommand>,
     shared: Arc<Mutex<Shared>>,
@@ -459,12 +493,20 @@ async fn worker_loop(
 
     // 关闭：abort 所有仍在运行的任务（permit 随 task drop 释放）。
     let mut s = shared.lock().await;
+    let aborted = s.running.len();
     for (_, h) in s.running.drain() {
         h.abort();
+    }
+    if aborted > 0 {
+        crate::metrics::scheduler_metrics()
+            .job_aborted_total
+            .with_label_values(&["shutdown"])
+            .inc_by(aborted as u64);
     }
 }
 
 /// 从队列弹出可运行 job 并 spawn，直到无许可或队列为空。
+#[tracing::instrument(level = "debug", skip_all)]
 async fn drain_runnable(
     shared: &Arc<Mutex<Shared>>,
     sem: &Arc<Semaphore>,
@@ -488,18 +530,22 @@ async fn drain_runnable(
         };
         let Some(qj) = queued else { break };
 
-        // 惰性删除：若该 job 已被取消/终态，跳过。
-        let still_pending = {
+        // 惰性删除：若该 job 已被取消/终态，跳过；同时取出入队时刻用于观测延迟。
+        let enqueued_at = {
             let s = shared.lock().await;
             s.jobs
                 .get(&qj.id)
-                .map(|r| r.status == JobStatus::Pending)
-                .unwrap_or(false)
+                .filter(|r| r.status == JobStatus::Pending)
+                .map(|r| r.enqueued_at)
         };
-        if !still_pending {
+        let Some(enqueued_at) = enqueued_at else {
             drop(permit);
             continue;
-        }
+        };
+        // 观测从入队到被弹出调度的等待延迟。
+        crate::metrics::scheduler_metrics()
+            .schedule_latency_seconds
+            .observe(enqueued_at.elapsed().as_secs_f64());
 
         // 标记 running。
         let s2 = shared.clone();
@@ -511,9 +557,12 @@ async fn drain_runnable(
             if let Some(rec) = st.jobs.get_mut(&id) {
                 if rec.status == JobStatus::Running {
                     rec.status = JobStatus::Completed;
+                    crate::metrics::scheduler_metrics().completed_total.inc();
                 }
             }
             st.running.remove(&id);
+            st.refresh_queue_metrics();
+            st.maybe_gc_terminal();
             drop(permit);
             notify2.notify_one();
         });
@@ -523,9 +572,11 @@ async fn drain_runnable(
         if let Some(rec) = st.jobs.get_mut(&id) {
             rec.status = JobStatus::Running;
         }
+        st.refresh_queue_metrics();
     }
 }
 
+#[tracing::instrument(level = "debug", skip_all)]
 async fn handle_command(cmd: SchedulerCommand, shared: &Arc<Mutex<Shared>>) {
     match cmd {
         SchedulerCommand::Submit { req, reply } => {
@@ -541,6 +592,7 @@ async fn handle_command(cmd: SchedulerCommand, shared: &Arc<Mutex<Shared>>) {
                     priority: req.priority,
                     name: req.name,
                     status: JobStatus::Pending,
+                    enqueued_at: std::time::Instant::now(),
                 },
             );
             s.queue.push(QueuedJob {
@@ -548,11 +600,13 @@ async fn handle_command(cmd: SchedulerCommand, shared: &Arc<Mutex<Shared>>) {
                 priority: req.priority,
                 seq,
             });
+            s.refresh_queue_metrics();
             let _ = reply.send(id);
         }
         SchedulerCommand::Cancel { id, reply } => {
             let mut s = shared.lock().await;
             let res = cancel_inner(&mut s, id);
+            s.refresh_queue_metrics();
             let _ = reply.send(res);
         }
         SchedulerCommand::Shutdown { reply } => {
@@ -563,6 +617,7 @@ async fn handle_command(cmd: SchedulerCommand, shared: &Arc<Mutex<Shared>>) {
     }
 }
 
+#[tracing::instrument(level = "debug", skip_all)]
 fn cancel_inner(s: &mut Shared, id: u64) -> Result<(), CancelError> {
     let rec = s.jobs.get_mut(&id).ok_or(CancelError::NotFound)?;
     match rec.status {
@@ -574,6 +629,11 @@ fn cancel_inner(s: &mut Shared, id: u64) -> Result<(), CancelError> {
         JobStatus::Running => {
             if let Some(h) = s.running.remove(&id) {
                 h.abort();
+                // 用户主动取消了正在运行的 job，记一次运行中 abort。
+                crate::metrics::scheduler_metrics()
+                    .job_aborted_total
+                    .with_label_values(&["cancel_user"])
+                    .inc();
             }
             rec.status = JobStatus::Cancelled;
             Ok(())

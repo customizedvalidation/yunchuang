@@ -43,11 +43,34 @@ pub use session::SessionStore;
 /// 未启用 Redis 的部署行为与过去完全一致（优雅降级）。
 static CACHE: OnceLock<Arc<dyn Cache>> = OnceLock::new();
 
+/// 进程级缓存命中/未命中计数快照源。
+///
+/// `global_cache()` 返回的是 `Arc<dyn Cache>`，而 `CacheMetrics::snapshot()`
+/// 在独立 trait 上；`Arc<dyn Cache>` 无法在不修改 redis.rs 的前提下 downcast
+/// 回具体类型。这里在安装缓存时额外注入一个快照闭包，供 `/metrics` 抓取读取
+/// 原子计数。未注入（或 Noop）时返回全 0。
+static CACHE_STATS: OnceLock<Box<dyn Fn() -> CacheStats + Send + Sync>> = OnceLock::new();
+
 /// 安装进程级缓存实现。重复调用只生效第一次。
 pub fn install_cache(cache: Arc<dyn Cache>) {
     if CACHE.set(cache).is_err() {
         tracing::warn!("install_cache called more than once; keeping the first instance");
     }
+}
+
+/// 安装缓存命中/未命中计数快照源。由调用方在持有具体缓存类型时注入。
+pub fn install_cache_stats<F: Fn() -> CacheStats + Send + Sync + 'static>(f: F) {
+    if CACHE_STATS.set(Box::new(f)).is_err() {
+        tracing::warn!("install_cache_stats called more than once; keeping the first instance");
+    }
+}
+
+/// 读取进程级缓存的命中/未命中累计计数快照。未安装时返回全 0。
+pub fn global_cache_stats() -> CacheStats {
+    CACHE_STATS
+        .get()
+        .map(|f| f())
+        .unwrap_or(CacheStats { hits: 0, misses: 0 })
 }
 
 /// 取进程级缓存；未安装时返回 [`NoopCache`]。

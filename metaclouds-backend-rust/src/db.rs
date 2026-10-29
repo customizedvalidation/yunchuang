@@ -30,16 +30,23 @@ use sqlx::SqlitePool;
 use crate::config::Config;
 use crate::error::{AppError, AppResult, ErrorCode};
 
-/// 对齐 Go 的 `SetMaxOpenConns(100)`。
-const MAX_OPEN_CONNS: u32 = 100;
-/// 对齐 Go 的 `SetMaxIdleConns(20)`（sqlx 没有独立 idle 上限，整体 max_connections 对齐之）。
-const MAX_IDLE_CONNS: u32 = 20;
+/// Phase 0 既有的 SQLite 常规连接数。
+const SQLITE_MAX_CONNS: u32 = 5;
 /// 对齐 Go 的 `SetConnMaxLifetime(300s)`。
 const CONN_MAX_LIFETIME_SECS: u64 = 300;
 /// 对齐 Go 的 `SetConnMaxIdleTime(60s)`。
 const CONN_MAX_IDLE_SECS: u64 = 60;
-/// Phase 0 既有的 SQLite 常规连接数。
-const SQLITE_MAX_CONNS: u32 = 5;
+
+/// Postgres 连接池上限（可由 `DB_MAX_CONNS` 覆盖）。
+///
+/// 生产部署按"副本数 × max_connections + 预留 20"配置 `DB_MAX_CONNS`，
+/// 避免单 Pod 启动即占满 PG 的 `max_connections`。
+fn pg_max_connections() -> u32 {
+    std::env::var("DB_MAX_CONNS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(20)
+}
 
 /// 双驱动连接池。
 ///
@@ -333,7 +340,12 @@ async fn connect_sqlite(url: &str) -> AppResult<SqlitePool> {
         .map_err(|e| {
             AppError::with_source(ErrorCode::InternalServerError, "invalid DATABASE_URL", e)
         })?
-        .create_if_missing(true);
+        .create_if_missing(true)
+        // WAL 提升并发读写吞吐；busy_timeout 避免多写者立刻 SQLITE_BUSY 报错。
+        // :memory: 库天然串行，journal_mode 会被忽略但不报错。
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .busy_timeout(Duration::from_secs(5))
+        .foreign_keys(true);
 
     // 内存库在多连接池下彼此不可见（每个连接一份私有内存库），
     // 因此内存模式强制单连接；文件库保持 Phase 0 的 5 连接。
@@ -357,9 +369,13 @@ async fn connect_sqlite(url: &str) -> AppResult<SqlitePool> {
 ///
 /// 对齐 Go `sqlDB.SetMaxOpenConns(100)` 等连接池参数。
 async fn connect_postgres(url: &str) -> AppResult<PgPool> {
+    // 可由 DB_MAX_CONNS 覆盖；min_connections 从 max(1, max/5) 起步，
+    // 避免单 Pod 启动即占 20 条连接（对齐 Go SetMaxOpenConns 的收敛版本）。
+    let max_connections = pg_max_connections();
+    let min_connections = std::cmp::max(1, max_connections / 5);
     sqlx::postgres::PgPoolOptions::new()
-        .max_connections(MAX_OPEN_CONNS)
-        .min_connections(MAX_IDLE_CONNS.min(MAX_OPEN_CONNS))
+        .max_connections(max_connections)
+        .min_connections(min_connections)
         .max_lifetime(Some(Duration::from_secs(CONN_MAX_LIFETIME_SECS)))
         .idle_timeout(Some(Duration::from_secs(CONN_MAX_IDLE_SECS)))
         .acquire_timeout(Duration::from_secs(10))

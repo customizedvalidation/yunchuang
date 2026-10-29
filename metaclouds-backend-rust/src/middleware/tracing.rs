@@ -138,6 +138,9 @@ pub async fn trace_middleware(mut request: Request, next: Next) -> Response {
         path = %path,
         status = tracing::field::Empty,
         duration_ms = tracing::field::Empty,
+        // 由 jwt_auth 中间件在令牌校验成功后 record，贯穿后续所有日志/事件。
+        user_id = tracing::field::Empty,
+        tenant_id = tracing::field::Empty,
     );
 
     let start = Instant::now();

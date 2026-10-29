@@ -34,9 +34,10 @@ pub async fn request_logger(request: Request, next: Next) -> Response {
     let method = request.method().clone();
     let path = request.uri().path().to_string();
     let client_ip = client_ip(&request);
-    // 在消费 request 前，尽力取出请求 ID 与（可能已注入的）用户 ID。
+    // 在消费 request 前，尽力取出请求 ID 与（可能已注入的）用户 ID / 租户 ID。
     let request_id = request.extensions().get::<RequestId>().map(|r| r.0.clone());
     let user_id = request.extensions().get::<Claims>().map(|c| c.user_id);
+    let tenant_id = request.extensions().get::<Claims>().map(|c| c.tenant_id);
 
     let response = next.run(request).await;
 
@@ -50,6 +51,7 @@ pub async fn request_logger(request: Request, next: Next) -> Response {
         duration_ms = duration_ms,
         client_ip = %client_ip,
         user_id = user_id,
+        tenant_id = tenant_id,
         request_id = request_id.as_deref().unwrap_or("-"),
         "request completed"
     );

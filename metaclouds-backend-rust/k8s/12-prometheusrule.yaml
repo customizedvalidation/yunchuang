@@ -77,17 +77,30 @@ spec:
             description: "节点 {{ $labels.instance }} 挂载点 {{ $labels.mountpoint }} 可用空间 {{ $value | humanize }}% 低于 10%。"
 
         # ------------------------------------------------------------------
-        # 5. Job 队列堆积（running jobs > 50）
+        # 5. Job 队列堆积（pending jobs > 100，持续 10 分钟）
         # ------------------------------------------------------------------
         - alert: JobQueueLength
-          expr: metaclouds_running_jobs > 50
-          for: 5m
+          expr: metaclouds_pending_jobs > 100
+          for: 10m
           labels:
             severity: warning
             category: job
           annotations:
             summary: "作业队列堆积"
-            description: "运行中作业数 {{ $value }} 超过阈值 50，持续 5 分钟。"
+            description: "排队中作业数 {{ $value }} 超过阈值 100，持续 10 分钟。"
+
+        # ------------------------------------------------------------------
+        # 5b. Running jobs 过高（容量饱和）
+        # ------------------------------------------------------------------
+        - alert: RunningJobsHigh
+          expr: metaclouds_running_jobs > 200
+          for: 5m
+          labels:
+            severity: warning
+            category: job
+          annotations:
+            summary: "运行中作业数过高"
+            description: "运行中作业数 {{ $value }} 超过阈值 200，持续 5 分钟，疑似容量饱和。"
 
         # ------------------------------------------------------------------
         # 6. GPU 不可用（可用 GPU 数 = 0）

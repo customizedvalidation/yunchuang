@@ -23,6 +23,9 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
     pub username: String,
     pub email: String,
+    /// 列表查询（如 GET /users）不读密码哈希列；缺列时由 `#[sqlx(default)]` 兜底为空串，
+    /// 绝不把 hash 拉进列表行。登录等查询用 SELECT *，hash 正常反序列化。
+    #[sqlx(default)]
     pub password_hash: String,
     pub role: String,
     pub tenant_id: i64,

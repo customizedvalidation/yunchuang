@@ -204,8 +204,9 @@ async function loadBadges() {
   }
 }
 
-// 徽标：挂载即拉取一次，并每 30s 定时刷新（失败不影响页面），卸载清理定时器
-const BADGE_REFRESH_MS = 30_000
+// 徽标：挂载即拉取一次，并每 60s 定时刷新（失败不影响页面），卸载清理定时器。
+// 徽标是辅助信息，60s 足够；高频刷新由各业务页面自身负责（Dashboard/GPU 等页面均有独立轮询）。
+const BADGE_REFRESH_MS = 60_000
 let badgeTimer: number | null = null
 onMounted(() => {
   void loadBadges()

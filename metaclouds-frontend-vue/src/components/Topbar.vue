@@ -36,7 +36,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Menu, Refresh, ArrowDown } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
@@ -50,7 +50,15 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const user = computed(() => auth.user)
-const isMobile = computed(() => window.innerWidth < 1024)
+
+// 响应式视口宽度：window.innerWidth 本身非响应式，需监听 resize 才能在窗口缩放时更新 isMobile
+const windowWidth = ref(window.innerWidth)
+function onResize() {
+  windowWidth.value = window.innerWidth
+}
+onMounted(() => window.addEventListener('resize', onResize))
+onUnmounted(() => window.removeEventListener('resize', onResize))
+const isMobile = computed(() => windowWidth.value < 1024)
 
 const avatarText = computed(() => {
   const name = user.value?.username || 'U'
@@ -111,7 +119,7 @@ function handleCommand(command: string) {
 }
 .mc-topbar-user:hover { background: var(--mc-surface-3); }
 .mc-topbar-avatar {
-  background: linear-gradient(135deg, #1677ff 0%, #0958d9 100%);
+  background: var(--mc-brand-grad, linear-gradient(135deg, #2f6bff, #5b3fd9));
   color: #fff; font-weight: 600; font-size: 14px;
 }
 .mc-topbar-user-info { display: flex; flex-direction: column; line-height: 1.2; }

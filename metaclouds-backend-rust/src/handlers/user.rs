@@ -30,12 +30,17 @@ pub async fn list_users(
     let offset = (page - 1) * page_size;
     let like = q.search.map(|s| format!("%{}%", s));
 
+    // 显式列清单：刻意排除 password_hash（列表不读密码哈希列）。
+    const USER_COLUMNS: &str = "id, created_at, updated_at, username, email, role, tenant_id, \
+        deleted_at, last_login_at";
     let rows: Vec<User> = match &like {
         Some(like) => {
-            let sql = "SELECT * FROM users \
-                       WHERE username LIKE ?1 OR email LIKE ?1 \
-                       ORDER BY id ASC LIMIT ?2 OFFSET ?3";
-            crate::with_db!(&state.pool, sql, |db_s, db_e| {
+            let sql = format!(
+                "SELECT {USER_COLUMNS} FROM users \
+                 WHERE username LIKE ?1 OR email LIKE ?1 \
+                 ORDER BY id ASC LIMIT ?2 OFFSET ?3"
+            );
+            crate::with_db!(&state.pool, &sql, |db_s, db_e| {
                 crate::db::query_as_db(db_e, db_s)
                     .bind(like)
                     .bind(page_size as i64)
@@ -45,8 +50,10 @@ pub async fn list_users(
             })
         }
         None => {
-            let sql = "SELECT * FROM users ORDER BY id ASC LIMIT ?1 OFFSET ?2";
-            crate::with_db!(&state.pool, sql, |db_s, db_e| {
+            let sql = format!(
+                "SELECT {USER_COLUMNS} FROM users ORDER BY id ASC LIMIT ?1 OFFSET ?2"
+            );
+            crate::with_db!(&state.pool, &sql, |db_s, db_e| {
                 crate::db::query_as_db(db_e, db_s)
                     .bind(page_size as i64)
                     .bind(offset as i64)

@@ -178,7 +178,7 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <Can :roles="['admin', 'manager']">
-          <el-button type="primary" @click="submitForm">{{ editingScheduler ? '保存' : '创建' }}</el-button>
+          <el-button type="primary" :loading="submitting" @click="submitForm">{{ editingScheduler ? '保存' : '创建' }}</el-button>
         </Can>
       </template>
     </el-dialog>
@@ -375,6 +375,9 @@ const rules: FormRules = {
   type: [{ required: true, message: '请选择类型', trigger: 'change' }],
 }
 
+// 提交态：防止新建/编辑按钮在请求往返期间被重复点击
+const submitting = ref(false)
+
 function resetForm() {
   Object.assign(form, {
     name: '', type: 'slurm', endpoint: '', auth_type: 'none', auth_config: '', version: '',
@@ -402,6 +405,7 @@ async function submitForm() {
   } catch {
     return
   }
+  submitting.value = true
   try {
     if (editingScheduler.value) {
       await schedulerApi.update(editingScheduler.value.id, { ...form })
@@ -415,6 +419,8 @@ async function submitForm() {
     refreshSchedulers()
   } catch {
     ElMessage.error('操作失败，请检查必填项后重试')
+  } finally {
+    submitting.value = false
   }
 }
 async function handleDelete(id: number) {

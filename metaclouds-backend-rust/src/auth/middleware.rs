@@ -104,6 +104,11 @@ fn extract_token(request: &Request, cookies: &Cookies) -> AppResult<String> {
 
 /// Middleware: extract + verify JWT from `Authorization: Bearer ...` or the
 /// `access_token` cookie, then stash the claims in request extensions.
+#[tracing::instrument(
+    level = "info",
+    skip_all,
+    fields(user_id = tracing::field::Empty, tenant_id = tracing::field::Empty)
+)]
 pub async fn jwt_auth(
     State(state): State<AppState>,
     cookies: Cookies,
@@ -113,6 +118,11 @@ pub async fn jwt_auth(
     let token = extract_token(&request, &cookies)?;
 
     let claims = verify_token(state.config.jwt_secret.as_bytes(), &token)?;
+
+    // 令牌校验通过后，把身份字段 record 到当前 span（即外层 http.request span），
+    // 后续日志/事件即可关联 user_id / tenant_id。
+    tracing::Span::current().record("user_id", claims.user_id);
+    tracing::Span::current().record("tenant_id", claims.tenant_id);
 
     // 撤销名单：显式登出过的 jti 即使未过期也拒绝。
     // Redis 故障时的行为由 REVOCATION_FAIL_CLOSED 决定：

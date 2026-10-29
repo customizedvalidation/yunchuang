@@ -284,7 +284,7 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <Can :roles="['admin', 'manager']">
-          <el-button type="primary" @click="submitForm">{{ editingDevice ? '保存' : '创建' }}</el-button>
+          <el-button type="primary" :loading="submitting" @click="submitForm">{{ editingDevice ? '保存' : '创建' }}</el-button>
         </Can>
       </template>
     </el-dialog>
@@ -328,7 +328,7 @@
       <template #footer>
         <el-button @click="allocateVisible = false">取消</el-button>
         <Can :roles="['admin', 'manager']">
-          <el-button type="primary" @click="submitAllocate">确认分配</el-button>
+          <el-button type="primary" :loading="submitting" @click="submitAllocate">确认分配</el-button>
         </Can>
       </template>
     </el-dialog>
@@ -463,7 +463,7 @@ const devices = useFetch<GPUDevice[]>(() =>
     vendor: vendorFilter.value || undefined,
     status: statusFilter.value || undefined,
     cluster_id: clusterFilter.value,
-    page_size: 1000,
+    page_size: 200,
   }),
 )
 const allocations = useFetch<GPUAllocation[]>(() => gpuApi.allocations({}))
@@ -603,6 +603,9 @@ const rules: FormRules = {
   vendor: [{ required: true, message: '请选择厂商', trigger: 'change' }],
 }
 
+// 提交态：防止新建/编辑与分配按钮在请求往返期间被重复点击
+const submitting = ref(false)
+
 function resetForm() {
   Object.assign(form, {
     node_name: '', vendor: 'nvidia', model: '', index: undefined, total_memory_gb: undefined,
@@ -631,6 +634,7 @@ async function submitForm() {
   } catch {
     return
   }
+  submitting.value = true
   try {
     if (editingDevice.value) {
       await gpuApi.updateDevice(editingDevice.value.id, { ...form })
@@ -644,6 +648,8 @@ async function submitForm() {
     devices.refetch()
   } catch {
     ElMessage.error('操作失败，请检查必填项后重试')
+  } finally {
+    submitting.value = false
   }
 }
 async function handleDelete(id: number) {
@@ -674,6 +680,7 @@ function openAllocate(row: GPUDevice) {
 }
 async function submitAllocate() {
   if (!allocatingDevice.value) return
+  submitting.value = true
   try {
     await gpuApi.allocate({
       device_id: allocatingDevice.value.id,
@@ -691,6 +698,8 @@ async function submitAllocate() {
     allocations.refetch()
   } catch {
     ElMessage.error('分配失败，请稍后重试')
+  } finally {
+    submitting.value = false
   }
 }
 

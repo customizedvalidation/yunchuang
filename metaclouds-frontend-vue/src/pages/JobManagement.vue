@@ -144,171 +144,182 @@
     <!-- 创建作业 Dialog -->
     <el-dialog v-model="createVisible" title="创建作业" width="860px" destroy-on-close @closed="resetForm">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="130px">
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="名称" prop="name">
-              <el-input v-model="form.name" placeholder="例如：llama3-70b-finetune" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="类型" prop="type">
-              <el-select v-model="form.type" placeholder="请选择类型" style="width: 100%">
-                <el-option label="训练" value="training" />
-                <el-option label="推理" value="inference" />
-                <el-option label="批处理" value="batch" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="优先级" prop="priority">
-              <el-select v-model="form.priority" placeholder="请选择优先级" style="width: 100%">
-                <el-option v-for="o in PRIORITY_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="GPU数量" prop="gpus">
-              <el-input-number v-model="form.gpus" :min="1" :max="8" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="CPU数">
-              <el-input-number v-model="form.cpus" :min="1" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="内存(GB)">
-              <el-input-number v-model="form.memory" :min="1" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="GPU分数">
-              <el-select v-model="form.gpu_fraction" placeholder="请选择分数" clearable style="width: 100%">
-                <el-option v-for="o in GPU_FRACTION_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="GPU显存(GB)">
-              <el-input-number v-model="form.gpu_memory_gb" :min="0" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="GPU厂商">
-              <el-select v-model="form.gpu_vendor" placeholder="请选择厂商" clearable style="width: 100%">
-                <el-option v-for="o in GPU_VENDOR_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="分区">
-              <el-select v-model="form.partition_id" placeholder="请选择分区" clearable style="width: 100%">
-                <el-option v-for="p in partitions" :key="p.id" :label="p.name" :value="p.id" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="调度器类型">
-              <el-select v-model="form.scheduler_type" placeholder="请选择调度器" clearable style="width: 100%">
-                <el-option v-for="o in SCHEDULER_TYPE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="QoS">
-              <el-input v-model="form.qos" placeholder="例如：normal" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="请求节点数">
-              <el-input-number v-model="form.nodes_requested" :min="1" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="网络需求">
-              <el-select v-model="form.network_requirement" placeholder="请选择网络需求" clearable style="width: 100%">
-                <el-option v-for="o in NETWORK_REQUIREMENT_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="24">
-            <el-form-item label="节点选择器 (JSON)">
-              <el-input v-model="form.node_selector" type="textarea" :rows="2" placeholder='例如：{"gpu-type":"a100"}' />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="亲和性 (JSON)">
-              <el-input v-model="form.affinity" type="textarea" :rows="2" placeholder="K8s affinity 配置" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="容忍度 (JSON)">
-              <el-input v-model="form.tolerations" type="textarea" :rows="2" placeholder="K8s tolerations 配置" />
-            </el-form-item>
-          </el-col>
-          <!-- 弹性训练 -->
-          <el-col :span="8">
-            <el-form-item label="弹性训练">
-              <el-switch v-model="form.elastic_enabled" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="最小GPU">
-              <el-input-number v-model="form.min_gpus" :min="0" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="最大GPU">
-              <el-input-number v-model="form.max_gpus" :min="0" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="扩缩容策略">
-              <el-input v-model="form.scaling_policy" placeholder="例如：cpu_utilization" />
-            </el-form-item>
-          </el-col>
-          <!-- 容错训练 -->
-          <el-col :span="8">
-            <el-form-item label="Checkpoint">
-              <el-switch v-model="form.checkpoint_enabled" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="Checkpoint间隔(分钟)">
-              <el-input-number v-model="form.checkpoint_interval_minutes" :min="1" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="最大重试次数">
-              <el-input-number v-model="form.max_retries" :min="0" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="容错级别">
-              <el-select v-model="form.fault_tolerance_level" placeholder="请选择容错级别" clearable style="width: 100%">
-                <el-option v-for="o in FAULT_TOLERANCE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <!-- 拓扑感知 -->
-          <el-col :span="8">
-            <el-form-item label="拓扑亲和">
-              <el-select v-model="form.topology_affinity" placeholder="请选择拓扑亲和" clearable style="width: 100%">
-                <el-option v-for="o in TOPOLOGY_AFFINITY_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="拓扑反亲和">
-              <el-switch v-model="form.topology_anti_affinity" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="24">
-            <el-form-item label="描述">
-              <el-input v-model="form.description" type="textarea" :rows="3" placeholder="选填，便于后续追溯" />
-            </el-form-item>
-          </el-col>
-        </el-row>
+        <el-collapse v-model="activeGroups">
+          <el-collapse-item title="基础配置" name="basic">
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-form-item label="名称" prop="name">
+                  <el-input v-model="form.name" placeholder="例如：llama3-70b-finetune" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="类型" prop="type">
+                  <el-select v-model="form.type" placeholder="请选择类型" style="width: 100%">
+                    <el-option label="训练" value="training" />
+                    <el-option label="推理" value="inference" />
+                    <el-option label="批处理" value="batch" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="优先级" prop="priority">
+                  <el-select v-model="form.priority" placeholder="请选择优先级" style="width: 100%">
+                    <el-option v-for="o in PRIORITY_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="GPU数量" prop="gpus">
+                  <el-input-number v-model="form.gpus" :min="1" :max="8" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="CPU数">
+                  <el-input-number v-model="form.cpus" :min="1" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="内存(GB)">
+                  <el-input-number v-model="form.memory" :min="1" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="GPU分数">
+                  <el-select v-model="form.gpu_fraction" placeholder="请选择分数" clearable style="width: 100%">
+                    <el-option v-for="o in GPU_FRACTION_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="GPU显存(GB)">
+                  <el-input-number v-model="form.gpu_memory_gb" :min="0" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="GPU厂商">
+                  <el-select v-model="form.gpu_vendor" placeholder="请选择厂商" clearable style="width: 100%">
+                    <el-option v-for="o in GPU_VENDOR_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="分区">
+                  <el-select v-model="form.partition_id" placeholder="请选择分区" clearable style="width: 100%">
+                    <el-option v-for="p in partitions" :key="p.id" :label="p.name" :value="p.id" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="调度器类型">
+                  <el-select v-model="form.scheduler_type" placeholder="请选择调度器" clearable style="width: 100%">
+                    <el-option v-for="o in SCHEDULER_TYPE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="QoS">
+                  <el-input v-model="form.qos" placeholder="例如：normal" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="请求节点数">
+                  <el-input-number v-model="form.nodes_requested" :min="1" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-collapse-item>
+
+          <el-collapse-item title="弹性与容错训练" name="elastic">
+            <el-row :gutter="16">
+              <el-col :span="8">
+                <el-form-item label="弹性训练">
+                  <el-switch v-model="form.elastic_enabled" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="最小GPU">
+                  <el-input-number v-model="form.min_gpus" :min="0" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="最大GPU">
+                  <el-input-number v-model="form.max_gpus" :min="0" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="扩缩容策略">
+                  <el-input v-model="form.scaling_policy" placeholder="例如：cpu_utilization" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="Checkpoint">
+                  <el-switch v-model="form.checkpoint_enabled" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="Checkpoint间隔(分钟)">
+                  <el-input-number v-model="form.checkpoint_interval_minutes" :min="1" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="最大重试次数">
+                  <el-input-number v-model="form.max_retries" :min="0" style="width: 100%" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="容错级别">
+                  <el-select v-model="form.fault_tolerance_level" placeholder="请选择容错级别" clearable style="width: 100%">
+                    <el-option v-for="o in FAULT_TOLERANCE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-collapse-item>
+
+          <el-collapse-item title="拓扑与高级" name="topology">
+            <el-row :gutter="16">
+              <el-col :span="24">
+                <el-form-item label="节点选择器 (JSON)">
+                  <el-input v-model="form.node_selector" type="textarea" :rows="2" placeholder='例如：{"gpu-type":"a100"}' />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="亲和性 (JSON)">
+                  <el-input v-model="form.affinity" type="textarea" :rows="2" placeholder="K8s affinity 配置" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="容忍度 (JSON)">
+                  <el-input v-model="form.tolerations" type="textarea" :rows="2" placeholder="K8s tolerations 配置" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="网络需求">
+                  <el-select v-model="form.network_requirement" placeholder="请选择网络需求" clearable style="width: 100%">
+                    <el-option v-for="o in NETWORK_REQUIREMENT_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="拓扑亲和">
+                  <el-select v-model="form.topology_affinity" placeholder="请选择拓扑亲和" clearable style="width: 100%">
+                    <el-option v-for="o in TOPOLOGY_AFFINITY_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item label="拓扑反亲和">
+                  <el-switch v-model="form.topology_anti_affinity" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="24">
+                <el-form-item label="描述">
+                  <el-input v-model="form.description" type="textarea" :rows="3" placeholder="选填，便于后续追溯" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-collapse-item>
+        </el-collapse>
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
@@ -568,6 +579,8 @@ function checkpointTagType(s?: string) {
 // ---------- 创建作业 ----------
 const createVisible = ref(false)
 const formRef = ref<FormInstance>()
+// 表单分组折叠：基础配置默认展开，弹性容错 / 拓扑高级默认折叠，避免 30+ 字段平铺
+const activeGroups = ref<string[]>(['basic'])
 const form = reactive({
   name: '',
   type: 'training' as JobType,
@@ -601,6 +614,7 @@ const form = reactive({
 const rules: FormRules = {
   name: [{ required: true, message: '请输入作业名称', trigger: 'blur' }],
   type: [{ required: true, message: '请选择作业类型', trigger: 'change' }],
+  priority: [{ required: true, message: '请选择优先级', trigger: 'change' }],
   gpus: [{ required: true, message: '请输入 GPU 数量', trigger: 'blur' }],
 }
 
@@ -620,7 +634,7 @@ async function submitCreate() {
   }
   try {
     await createMut.mutate({ ...form } as Partial<Job>)
-    ElMessage.success('作业创建成功')
+    ElMessage.success('作业已创建，已加入队列')
     createVisible.value = false
     refresh()
   } catch {

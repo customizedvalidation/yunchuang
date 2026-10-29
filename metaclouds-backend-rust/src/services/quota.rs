@@ -219,7 +219,7 @@ pub async fn check_quota_by_scope(
     scope_id: i64,
     resource_type: &str,
     requested: i64,
-    _gpu_fraction: f64,
+    gpu_fraction: f64,
 ) -> AppResult<bool> {
     // 根据 scope_type 构建查询条件。
     let row: Option<ResourceQuota> = match scope_type {
@@ -263,8 +263,10 @@ pub async fn check_quota_by_scope(
     };
 
     // 根据 resource_type 检查对应资源 limit。
+    // gpu 按整卡当量计：gpu_used（整卡数）+ requested（整卡）+ gpu_fraction（部分卡当量）。
     let allowed = match resource_type {
-        "gpu" => q.gpu_limit <= 0 || q.gpu_used + requested <= q.gpu_limit,
+        "gpu" => q.gpu_limit <= 0
+            || (q.gpu_used as f64 + requested as f64 + gpu_fraction) <= q.gpu_limit as f64,
         "cpu" => q.cpu_limit <= 0.0 || q.cpu_used + requested as f64 <= q.cpu_limit,
         "memory" => {
             q.memory_limit_gb <= 0.0 || q.memory_used_gb + requested as f64 <= q.memory_limit_gb
@@ -278,22 +280,15 @@ pub async fn check_quota_by_scope(
     Ok(allowed)
 }
 
-/// 分配资源：先校验，未超限则累加 used；超限返回 403。
+/// 分配资源：单条条件原子 UPDATE 累加 used；gpu 配额在语句内校验+累加，
+/// 消除"先 check 再 update"的并发超卖窗口。rows_affected == 0 即配额超限。
 pub async fn allocate_resources(
     pool: &DatabasePool,
     id: i64,
     request: QuotaRequest,
 ) -> AppResult<ResourceQuotaResponse> {
-    let check = check_quota(pool, id, request).await?;
-    if !check.allowed {
-        return Err(AppError::forbidden(format!(
-            "quota exceeded for: {}",
-            check.exceeded.join(", ")
-        )));
-    }
-
     let now = chrono::Utc::now();
-    crate::with_db!(
+    let affected = crate::with_db!(
         pool,
         "UPDATE resource_quotas SET \
             gpu_used = gpu_used + ?1, \
@@ -301,7 +296,8 @@ pub async fn allocate_resources(
             memory_used_gb = memory_used_gb + ?3, \
             storage_used_gb = storage_used_gb + ?4, \
             updated_at = ?5 \
-         WHERE id = ?6 AND deleted_at IS NULL",
+         WHERE id = ?6 AND deleted_at IS NULL \
+           AND (gpu_limit <= 0 OR gpu_used + ?1 <= gpu_limit)",
         |db_s, db_e| {
             sqlx::query(db_s)
                 .bind(request.gpu)
@@ -315,6 +311,10 @@ pub async fn allocate_resources(
                 .rows_affected()
         }
     );
+
+    if affected == 0 {
+        return Err(AppError::forbidden("quota exceeded for: gpu"));
+    }
 
     let q = resource_quota::get_by_id(pool, id, false)
         .await?

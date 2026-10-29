@@ -271,14 +271,18 @@ pub async fn get_partition_resources(
     );
     let gpu_used = gpu_used.unwrap_or(0);
 
+    // gpu_used 是 active allocation 的 fraction 之和（整卡当量，1.0=一整卡）；
+    // 用 f64 运算，避免 0.5/0.25 部分卡被整数减法吞掉小数。
     Ok(PartitionResources {
         partition_id: id,
         gpu_count: p.gpu_count,
         gpu_used,
-        gpu_available: (p.gpu_count - gpu_used).max(0),
+        gpu_available: ((p.gpu_count as f64 - gpu_used as f64).max(0.0)) as i64,
         cpu_cores: p.cpu_cores,
+        // TODO: 待接入 cpu/mem allocation 表（当前无 cpu/mem allocation 持久化来源）。
         cpu_used: 0.0,
         memory_gb: p.memory_gb,
+        // TODO: 待接入 cpu/mem allocation 表。
         memory_used_gb: 0.0,
     })
 }

@@ -76,6 +76,25 @@ pub trait Cache: Send + Sync {
     fn delete(&self, key: &str) -> BoxFuture<'_, AppResult<()>>;
     /// 判断 key 是否存在。
     fn exists(&self, key: &str) -> BoxFuture<'_, AppResult<bool>>;
+    /// 读缓存，未命中则执行 `f` 计算并以 `ttl` 回填。
+    ///
+    /// 默认方法，复用上面的 object-safe `get`/`set`；回填失败不影响本次结果。
+    /// 用 `Box<dyn Future>` 包装计算闭包以保持 trait object 安全（`Arc<dyn Cache>`）。
+    fn get_or_set<'a>(
+        &'a self,
+        key: &'a str,
+        ttl: Duration,
+        f: std::pin::Pin<Box<dyn std::future::Future<Output = AppResult<Vec<u8>>> + Send + 'a>>,
+    ) -> BoxFuture<'a, AppResult<Vec<u8>>> {
+        Box::pin(async move {
+            if let Some(v) = self.get(key).await? {
+                return Ok(v);
+            }
+            let v = f.await?;
+            let _ = self.set(key, v.clone(), ttl).await;
+            Ok(v)
+        })
+    }
     /// 是否为空实现（Noop）。用于降级判定与测试断言，默认 false。
     fn is_noop(&self) -> bool {
         false

@@ -11,6 +11,7 @@
 
 pub mod business;
 pub mod http;
+pub mod scheduler;
 
 use std::sync::OnceLock;
 
@@ -27,6 +28,8 @@ use crate::services::monitoring::get_dashboard_stats;
 static BUSINESS: OnceLock<business::BusinessMetrics> = OnceLock::new();
 /// HTTP 指标全局句柄（进程级单次初始化）。
 static HTTP: OnceLock<http::HttpMetrics> = OnceLock::new();
+/// 调度器 / 配额 / GPU 分配指标全局句柄（进程级单次初始化）。
+static SCHEDULER: OnceLock<scheduler::SchedulerMetrics> = OnceLock::new();
 
 /// 获取（或首次初始化）业务指标句柄。
 pub fn business_metrics() -> &'static business::BusinessMetrics {
@@ -36,6 +39,11 @@ pub fn business_metrics() -> &'static business::BusinessMetrics {
 /// 获取（或首次初始化）HTTP 指标句柄。
 pub fn http_metrics() -> &'static http::HttpMetrics {
     HTTP.get_or_init(http::HttpMetrics::new)
+}
+
+/// 获取（或首次初始化）调度器指标句柄。
+pub fn scheduler_metrics() -> &'static scheduler::SchedulerMetrics {
+    SCHEDULER.get_or_init(scheduler::SchedulerMetrics::new)
 }
 
 /// 收集全局注册表中全部指标并编码为 Prometheus 文本格式。
@@ -79,6 +87,18 @@ pub async fn metrics_handler(State(state): State<AppState>) -> AppResult<impl In
     // 避免依赖 P3-02 定时任务（此处保证 /metrics 始终反映当前值）。
     if let Ok(stats) = get_dashboard_stats(&state.pool).await {
         business_metrics().update_from_stats(&stats);
+    }
+
+    // 刷新 Redis 缓存命中/未命中 Gauge（原始原子值，kind="redis"）。
+    {
+        let bs = business_metrics();
+        let cs = crate::cache::global_cache_stats();
+        bs.cache_hits_total
+            .with_label_values(&["redis"])
+            .set(cs.hits as i64);
+        bs.cache_misses_total
+            .with_label_values(&["redis"])
+            .set(cs.misses as i64);
     }
 
     let body = encode_metrics()?;

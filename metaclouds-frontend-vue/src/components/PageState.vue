@@ -11,15 +11,14 @@
     </el-button>
   </div>
   <div v-else-if="isEmpty" class="page-state">
-    <el-icon class="page-state-icon"><Box /></el-icon>
-    <div class="page-state-text">{{ emptyText }}</div>
+    <el-empty :description="emptyText" :image-size="60" />
   </div>
   <slot v-else />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Loading, WarningFilled, Box } from '@element-plus/icons-vue'
+import { Loading, WarningFilled } from '@element-plus/icons-vue'
 
 const props = withDefaults(defineProps<{
   loading?: boolean

@@ -198,13 +198,12 @@ const partitions = computed(() => partitionsF.data.value ?? [])
 const schedulers = computed(() => schedulersF.data.value ?? [])
 const tenants = computed(() => tenantsF.data.value ?? [])
 
-const anyLoading = computed(
-  () => clusters.loading.value || resources.loading.value || jobs.loading.value || alerts.loading.value,
-)
-const anyError = computed(() => {
-  const e = clusters.error.value || resources.error.value || jobs.error.value || alerts.error.value
-  return e || ''
-})
+// 全部 9 个数据源任一 pending 即视为 loading，任一报错即展示错误，
+// 避免 5 个次要数据源（dashboardF/gpuDevicesF/partitionsF/schedulersF/tenantsF）
+// 仍在加载时 anyLoading 已 false、用户看到半成品 0 值。
+const allFetchers = [clusters, resources, jobs, alerts, dashboardF, gpuDevicesF, partitionsF, schedulersF, tenantsF]
+const anyLoading = computed(() => allFetchers.some((f) => f.loading.value))
+const anyError = computed(() => allFetchers.map((f) => f.error.value).find(Boolean) ?? '')
 const hasData = computed(
   () => clustersData.value.length + resourcesData.value.length + jobsData.value.length + alertsData.value.length > 0,
 )
@@ -567,7 +566,7 @@ function alertLevelClass(level?: string) {
 .kpi-card:hover,
 .kpi-card:focus-visible {
   border-color: var(--mc-brand);
-  box-shadow: 0 8px 24px rgba(24, 110, 255, 0.14);
+  box-shadow: 0 8px 24px var(--mc-brand-15, rgba(47, 107, 255, 0.15));
   transform: translateY(-2px);
 }
 .kpi-card:active {

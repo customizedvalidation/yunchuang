@@ -20,7 +20,7 @@ vi.mock('@/api', () => ({
   clusterApi: { list: vi.fn() },
   resourceApi: { list: vi.fn(), gpuResources: vi.fn() },
   jobApi: { list: vi.fn() },
-  monitoringApi: { alerts: vi.fn(), metrics: vi.fn() },
+  monitoringApi: { alerts: vi.fn(), metrics: vi.fn(), dashboard: vi.fn() },
   gpuApi: { devices: vi.fn() },
   partitionApi: { list: vi.fn() },
   schedulerApi: { list: vi.fn() },
@@ -48,6 +48,7 @@ describe('Dashboard 页面', () => {
     vi.mocked(partitionApi.list).mockResolvedValue([])
     vi.mocked(schedulerApi.list).mockResolvedValue([])
     vi.mocked(tenantApi.list).mockResolvedValue([])
+    vi.mocked(monitoringApi.dashboard).mockResolvedValue({})
     const wrapper = mountDashboard()
     expect(wrapper.text()).toContain('算力总览')
   })
@@ -71,6 +72,7 @@ describe('Dashboard 页面', () => {
     vi.mocked(partitionApi.list).mockResolvedValue([])
     vi.mocked(schedulerApi.list).mockResolvedValue([])
     vi.mocked(tenantApi.list).mockResolvedValue([])
+    vi.mocked(monitoringApi.dashboard).mockResolvedValue({})
 
     const wrapper = mountDashboard()
     await flushPromises()
@@ -94,6 +96,7 @@ describe('Dashboard 页面', () => {
     vi.mocked(partitionApi.list).mockResolvedValue([])
     vi.mocked(schedulerApi.list).mockResolvedValue([])
     vi.mocked(tenantApi.list).mockResolvedValue([])
+    vi.mocked(monitoringApi.dashboard).mockResolvedValue({})
     const wrapper = mountDashboard()
     await flushPromises()
     await flushPromises()
@@ -110,6 +113,7 @@ describe('Dashboard 页面', () => {
     vi.mocked(partitionApi.list).mockResolvedValue([])
     vi.mocked(schedulerApi.list).mockResolvedValue([])
     vi.mocked(tenantApi.list).mockResolvedValue([])
+    vi.mocked(monitoringApi.dashboard).mockResolvedValue({})
     const wrapper = mountDashboard()
     await flushPromises()
     await flushPromises()
@@ -141,6 +145,7 @@ describe('Dashboard 页面', () => {
     vi.mocked(partitionApi.list).mockResolvedValue([])
     vi.mocked(schedulerApi.list).mockResolvedValue([])
     vi.mocked(tenantApi.list).mockResolvedValue([])
+    vi.mocked(monitoringApi.dashboard).mockResolvedValue({})
     const wrapper = mountDashboard()
     await flushPromises()
     await flushPromises()

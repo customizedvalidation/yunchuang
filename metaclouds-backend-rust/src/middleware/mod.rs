@@ -54,4 +54,7 @@ where
         .layer(from_fn(rate_limit::rate_limit_middleware))
         // 最后注册者位于最外层：最先拿到请求，分配并透传请求 ID。
         .layer(from_fn(request_id::set_request_id))
+        // 全局 30s 超时 + 响应压缩：包在整层栈最外侧，对所有路由生效。
+        .layer(tower_http::timeout::TimeoutLayer::new(std::time::Duration::from_secs(30)))
+        .layer(tower_http::compression::CompressionLayer::new())
 }
