@@ -70,6 +70,9 @@ pub struct CreateJobRequest {
     /// P2-1 Gang：最小可运行副本数（all-or-nothing 准入），默认 1。
     #[serde(default)]
     pub gang_min_available: Option<i64>,
+    /// P2-2 拓扑感知：node | rack | switch | cluster | 节点名（默认空 = 无约束）。
+    #[serde(default)]
+    pub topology_affinity: Option<String>,
 }
 
 /// `PUT /api/v1/jobs/:id` 请求体（全部可选）。
@@ -82,6 +85,9 @@ pub struct UpdateJobRequest {
     pub progress: Option<i64>,
     pub output_path: Option<String>,
     pub error_msg: Option<String>,
+    /// P2-2 拓扑感知：node | rack | switch | cluster | 节点名。
+    #[serde(default)]
+    pub topology_affinity: Option<String>,
 }
 
 /// `GET /api/v1/jobs` — 分页列表（搜索 + status/type/cluster_id/user_id 过滤）。
@@ -230,6 +236,7 @@ pub async fn create_job(
         cluster_id: body.cluster_id.unwrap_or(0),
         gang_replicas: body.gang_replicas.unwrap_or(1),
         gang_min_available: body.gang_min_available.unwrap_or(1),
+        topology_affinity: body.topology_affinity.unwrap_or_default(),
     };
     let j = job::create_job(&state.pool, input, actor_from_claims(&claims)).await?;
     Ok(WithStatus {
@@ -255,6 +262,7 @@ pub async fn update_job(
         progress: body.progress,
         output_path: body.output_path,
         error_msg: body.error_msg,
+        topology_affinity: body.topology_affinity,
     };
     let j = job::update_job(&state.pool, id, input, actor_from_claims(&claims)).await?;
     Ok(Json(ApiResponse::success(j)))

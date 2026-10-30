@@ -1,6 +1,9 @@
 //! 真实调度闭环（P0-1）：周期性扫描 `jobs` 表中 `pending` 作业，原子认领 → 配额预留
 //! → GPU 分配 → 置 `running` → 模拟执行 → 释放 GPU/配额 → 置 `completed`。
 //!
+//! 增量能力：P1-1 Backfill 回填 / P1-2 多因子评分 / P1-3 弹性配额借用 /
+//! P2-1 Gang all-or-nothing 准入 / **P2-2 拓扑感知放置（消费 `jobs.topology_affinity`）**。
+//!
 //! # 设计动机
 //!
 //! 既有 [`crate::services::priority_scheduler`] 是纯内存态 mock，从未在进程内接线，
@@ -67,6 +70,9 @@ pub struct DispatchConfig {
     /// P2-1 Gang 调度：启用后 Gang 作业按 min_available 副本做 all-or-nothing 原子准入；
     /// 关闭时 Gang 作业按 replicas=1（普通作业）处理。
     pub gang_enabled: bool,
+    /// P2-2 拓扑感知：消费 jobs.topology_affinity，把作业全部 GPU 副本共置到同一节点
+    /// （node/rack/switch 级别）或钉到指定节点（node:<name> / 裸节点名）。默认开启。
+    pub topology_enabled: bool,
 }
 
 impl DispatchConfig {
@@ -88,6 +94,7 @@ impl DispatchConfig {
             fairshare_weight: cfg.dispatch_fairshare_weight,
             size_weight: cfg.dispatch_size_weight,
             gang_enabled: cfg.dispatch_gang_enabled,
+            topology_enabled: cfg.dispatch_topology_enabled,
         }
     }
 }
@@ -395,58 +402,20 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
         None => None,
     };
 
-    // GPU 分配（仅当作业请求 GPU）。逐卡分配，失败则释放已分配部分并回退。
+    // GPU 分配（P2-2 拓扑感知：topology_affinity 约束下共置 / 钉节点放置）。
     // Gang 作业：共分配 min_available 副本 × gpus 张卡，任一张不足即整体回退。
-    if job.gpus > 0 {
-        let total_cards = job.gpus * unit;
-        let mut alloc_ok = true;
-        for _ in 0..total_cards {
-            match gpu::allocate_gpu(
-                pool,
-                gpu::AllocateGpuInput {
-                    job_id: job.id,
-                    tenant_id: job.tenant_id,
-                    user_id: job.user_id,
-                    fraction: if job.gpu_fraction > 0.0 {
-                        job.gpu_fraction
-                    } else {
-                        1.0
-                    },
-                    memory_gb: job.gpu_memory_gb,
-                    vendor: job.gpu_vendor.clone(),
-                },
-            )
-            .await
-            {
-                Ok(_) => {}
-                Err(e) => {
-                    alloc_ok = false;
-                    tracing::debug!(
-                        job_id = job.id,
-                        error = %e,
-                        "gpu allocation failed; revert"
-                    );
-                    crate::metrics::scheduler_metrics()
-                        .gpu_allocation_failed_total
-                        .with_label_values(&["no_capacity"])
-                        .inc();
-                    break;
-                }
-            }
+    if job.gpus > 0 && !allocate_gpus_for_job(pool, job, config, unit).await? {
+        // 释放已分配的 GPU + 本轮配额，回退 pending。
+        let _ = release_gpu_for_job(pool, job.id).await;
+        if let Some(qid) = quota_id {
+            let _ = quota::release_resources(pool, qid, quota_req).await;
         }
-        if !alloc_ok {
-            // 释放已分配的 GPU + 配额，回退 pending。
-            let _ = release_gpu_for_job(pool, job.id).await;
-            if let Some(qid) = quota_id {
-                let _ = quota::release_resources(pool, qid, quota_req).await;
-            }
-            if is_gang {
-                // Gang 准入失败（任一副本 GPU 不足即整体失败）。
-                crate::metrics::scheduler_metrics().gang_blocked_total.inc();
-            }
-            revert_to_pending(pool, job.id).await?;
-            return Ok(false);
+        if is_gang {
+            // Gang 准入失败（任一副本 GPU 不足即整体失败）。
+            crate::metrics::scheduler_metrics().gang_blocked_total.inc();
         }
+        revert_to_pending(pool, job.id).await?;
+        return Ok(false);
     }
 
     // P2-1 Gang：min_available 副本资源全部原子预留成功 → 落实 gang_fulfilled 并计指标。
@@ -479,6 +448,236 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
         }
     });
 
+    Ok(true)
+}
+
+// ---------------------------------------------------------------------------
+// P2-2 拓扑感知放置
+// ---------------------------------------------------------------------------
+
+/// P2-2 由 `jobs.topology_affinity` 解析出的放置模式。
+#[derive(Debug, Clone, PartialEq)]
+enum TopoPlacement {
+    /// 无约束（空串 / cluster / 关闭开关）——既有行为。
+    Unconstrained,
+    /// 共置：全部 GPU 副本（× Gang unit）放在同一节点。
+    /// `node` 为显式语义；`rack` / `switch` 因设备模型无 rack/switch 层级字段，
+    /// 退化为 node 级共置（严格满足约束、放置更紧；不满足即回退 pending 背压，
+    /// 绝不违反亲和）。
+    CoLocate,
+    /// 钉住指定节点（`node:<name>` 前缀或非关键字裸值）。
+    Pinned(String),
+}
+
+/// 解析作业的拓扑放置模式。
+///
+/// 格式判别规则：先 trim；关键字比较大小写不敏感（`Node`/`CLUSTER` 等均识别），
+/// 但钉扎目标**保留原始大小写**（节点名大小写敏感）：
+/// - `""` / `cluster` → 无约束；
+/// - `node` / `rack` / `switch` → 同节点共置；
+/// - `node:<name>` → 剥前缀钉住 `<name>`（前缀形式大小写不敏感：`Node:x` 同样识别，
+///   对 lower 剥前缀后按长度映射回 raw 切片——`to_ascii_lowercase` 仅改 ASCII
+///   大小写、字节长不变，映射安全；目标 `<name>` 仍保留原始大小写）；
+/// - 其余非关键字裸值 → 视为节点名钉住。
+fn topology_placement(job: &Job, config: &DispatchConfig) -> TopoPlacement {
+    if !config.topology_enabled {
+        return TopoPlacement::Unconstrained;
+    }
+    let raw = job.topology_affinity.trim();
+    let lower = raw.to_ascii_lowercase();
+    match lower.as_str() {
+        "" | "cluster" => TopoPlacement::Unconstrained,
+        "node" | "rack" | "switch" => TopoPlacement::CoLocate,
+        _ => {
+            // `node:<name>` 显式钉扎形式（前缀大小写不敏感）；其余裸值视为节点名。
+            let name = if let Some(lower_name) = lower.strip_prefix("node:") {
+                let raw_name = &raw[raw.len() - lower_name.len()..];
+                raw_name.trim()
+            } else {
+                raw
+            };
+            // 形如 "node:"（空名）回退为整串裸值，不产生空钉扎。
+            let name = if name.is_empty() { raw } else { name };
+            TopoPlacement::Pinned(name.to_string())
+        }
+    }
+}
+
+/// 按节点分组预选放置节点（P2-2 共置 / 钉扎的前置检查）。
+///
+/// 统计每个节点上满足作业单卡需求（vendor / 显存 / fraction 容量）的"可用卡数"，
+/// 返回可用卡数 ≥ `total_cards` 的节点中**空闲卡数最小**者（best-fit，减少碎片；
+/// 并列取节点名稳定序）。无满足节点返回 `None`——这是正确背压（作业回退 pending
+/// 下一轮重试），而非"首卡落在卡数不足节点 → 确定性反复回退"的 livelock。
+///
+/// 钉扎模式只统计指定节点；节点不存在 / 卡数不足 → `None`。
+/// 注意：按"每卡一设备"保守计数（fraction < 1 的同卡多份额不计入），宁可少算不超卖。
+async fn select_topology_node(
+    pool: &DatabasePool,
+    job: &Job,
+    placement: &TopoPlacement,
+    total_cards: i64,
+) -> AppResult<Option<String>> {
+    let node_filter: Option<String> = match placement {
+        TopoPlacement::Pinned(n) => Some(n.clone()),
+        _ => None,
+    };
+    let vendor = job.gpu_vendor.trim();
+    let fraction = if job.gpu_fraction > 0.0 {
+        job.gpu_fraction
+    } else {
+        1.0
+    };
+    let memory_gb = job.gpu_memory_gb;
+
+    // 1) 候选设备（与 gpu::allocate_gpu 的候选口径一致：available/allocated）。
+    let devices: Vec<crate::models::gpu_device::GpuDevice> = match &node_filter {
+        Some(node) => {
+            crate::with_db!(
+                pool,
+                "SELECT * FROM gpu_devices \
+                 WHERE deleted_at IS NULL AND (status = 'available' OR status = 'allocated') \
+                   AND node_name = ?",
+                |db_s, db_e| crate::db::query_as_db(db_e, db_s)
+                    .bind(node)
+                    .fetch_all(db_e)
+                    .await?
+            )
+        }
+        None => {
+            crate::with_db!(
+                pool,
+                "SELECT * FROM gpu_devices \
+                 WHERE deleted_at IS NULL AND (status = 'available' OR status = 'allocated')",
+                |db_s, db_e| crate::db::query_as_db(db_e, db_s).fetch_all(db_e).await?
+            )
+        }
+    };
+
+    // 2) 各设备 active fraction 占用（一次聚合，消除 N 次 SUM）。
+    let frac_rows: Vec<(i64, f64)> = crate::with_db!(
+        pool,
+        "SELECT device_id, COALESCE(SUM(fraction), 0.0) FROM gpu_allocations \
+         WHERE status = 'active' AND deleted_at IS NULL GROUP BY device_id",
+        |db_s, db_e| crate::db::query_as_db(db_e, db_s).fetch_all(db_e).await?
+    );
+    let frac_map: std::collections::HashMap<i64, f64> = frac_rows.into_iter().collect();
+
+    // 3) 按节点统计满足单卡需求的可用卡数。
+    let mut per_node: HashMap<String, i64> = HashMap::new();
+    for d in &devices {
+        if !vendor.is_empty() && d.vendor != vendor {
+            continue;
+        }
+        if d.allocatable_memory_gb - d.used_memory_gb < memory_gb {
+            continue;
+        }
+        let used = frac_map.get(&d.id).copied().unwrap_or(0.0);
+        if (1.0 - used) + 0.001 < fraction {
+            continue;
+        }
+        *per_node.entry(d.node_name.clone()).or_insert(0) += 1;
+    }
+
+    // 4) best-fit：卡数足够的节点里选空闲卡数最小者（并列取名字序，保证确定性）。
+    let mut candidates: Vec<(String, i64)> = per_node
+        .into_iter()
+        .filter(|(_, cards)| *cards >= total_cards)
+        .collect();
+    candidates.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    Ok(candidates.into_iter().next().map(|(node, _)| node))
+}
+
+/// GPU 逐卡分配（P2-2 拓扑感知：topology_affinity 约束下共置 / 钉节点放置）。
+///
+/// - **预选节点**（约束生效时）：分配任何卡之前，先按节点分组筛出"空闲卡数 ≥
+///   total_cards"的节点并 best-fit 选一个，再把全部卡钉在该节点逐卡分配——
+///   避免首卡落在卡数不足节点导致的确定性反复回退（livelock）。
+/// - `Pinned(node)`：只在该节点预选 / 分配（节点不存在或卡数不足 → blocked）。
+/// - `CoLocate` 且总卡数 > 1：全集群预选；单卡作业无额外约束（单卡天然满足）。
+/// - 约束关闭时行为与既有路径完全一致（不预选、不钉节点）。
+///
+/// 返回 `true` 成功（约束真实生效时计 `topology_matched_total`）；`false` 失败——
+/// 内部已释放全部部分分配并计 `topology_blocked_total`，由调用方回退 pending。
+async fn allocate_gpus_for_job(
+    pool: &DatabasePool,
+    job: &Job,
+    config: &DispatchConfig,
+    unit: i64,
+) -> AppResult<bool> {
+    let total_cards = job.gpus * unit;
+    let placement = topology_placement(job, config);
+    // 拓扑约束是否真实生效（用于 matched / blocked 指标与预选）。
+    let constraint_active = match &placement {
+        TopoPlacement::Pinned(_) => true,
+        TopoPlacement::CoLocate => total_cards > 1,
+        TopoPlacement::Unconstrained => false,
+    };
+
+    // 预选节点：无满足节点即正确背压（blocked 指标 + 回退），不产生任何部分分配。
+    let pinned_node: Option<String> = if constraint_active {
+        match select_topology_node(pool, job, &placement, total_cards).await? {
+            Some(node) => Some(node),
+            None => {
+                tracing::debug!(
+                    job_id = job.id,
+                    affinity = %job.topology_affinity,
+                    total_cards,
+                    "no node with enough free cards for topology constraint"
+                );
+                crate::metrics::scheduler_metrics().topology_blocked_total.inc();
+                return Ok(false);
+            }
+        }
+    } else {
+        None
+    };
+
+    let node_name = pinned_node.unwrap_or_default();
+    for _ in 0..total_cards {
+        let res = gpu::allocate_gpu(
+            pool,
+            gpu::AllocateGpuInput {
+                job_id: job.id,
+                tenant_id: job.tenant_id,
+                user_id: job.user_id,
+                fraction: if job.gpu_fraction > 0.0 {
+                    job.gpu_fraction
+                } else {
+                    1.0
+                },
+                memory_gb: job.gpu_memory_gb,
+                vendor: job.gpu_vendor.clone(),
+                node_name: node_name.clone(),
+            },
+        )
+        .await;
+        match res {
+            Ok(_) => {}
+            Err(e) => {
+                tracing::debug!(
+                    job_id = job.id,
+                    affinity = %job.topology_affinity,
+                    error = %e,
+                    "gpu allocation failed under topology constraint; revert"
+                );
+                crate::metrics::scheduler_metrics()
+                    .gpu_allocation_failed_total
+                    .with_label_values(&["no_capacity"])
+                    .inc();
+                if constraint_active {
+                    crate::metrics::scheduler_metrics().topology_blocked_total.inc();
+                }
+                // 释放已分配部分，交由调用方回退 pending。
+                let _ = release_gpu_for_job(pool, job.id).await;
+                return Ok(false);
+            }
+        }
+    }
+
+    if constraint_active {
+        crate::metrics::scheduler_metrics().topology_matched_total.inc();
+    }
     Ok(true)
 }
 
@@ -626,7 +825,11 @@ mod tests {
     use crate::db::DatabasePool;
 
     async fn setup_pool() -> DatabasePool {
-        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+        // 内存库必须单连接：多连接下每个连接各自一份私有 :memory: 库，
+        // 迁移与后续查询可能落在不同连接上（偶发 no such table）。
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
             .await
             .expect("connect sqlite memory");
         sqlx::migrate!("./migrations")
@@ -653,6 +856,7 @@ mod tests {
             fairshare_weight: 5.0,
             size_weight: 0.5,
             gang_enabled: true,
+            topology_enabled: true,
         }
     }
 
@@ -718,6 +922,7 @@ mod tests {
                 cluster_id: 1,
                 gang_replicas: 1,
                 gang_min_available: 1,
+                topology_affinity: String::new(),
             },
             crate::services::job::Actor {
                 tenant_id: 1,
@@ -781,6 +986,7 @@ mod tests {
                 cluster_id: 1,
                 gang_replicas: 1,
                 gang_min_available: 1,
+                topology_affinity: String::new(),
             },
             crate::services::job::Actor {
                 tenant_id: 2,
@@ -827,6 +1033,7 @@ mod tests {
                 cluster_id: 1,
                 gang_replicas: 1,
                 gang_min_available: 1,
+                topology_affinity: String::new(),
             },
             crate::services::job::Actor {
                 tenant_id: 1,
@@ -852,6 +1059,7 @@ mod tests {
                 cluster_id: 1,
                 gang_replicas: 1,
                 gang_min_available: 1,
+                topology_affinity: String::new(),
             },
             crate::services::job::Actor {
                 tenant_id: 1,
@@ -968,6 +1176,7 @@ mod tests {
                 cluster_id: 1,
                 gang_replicas: 2,
                 gang_min_available: 2,
+                topology_affinity: String::new(),
             },
             crate::services::job::Actor {
                 tenant_id: 1,
@@ -1048,6 +1257,7 @@ mod tests {
                 cluster_id: 1,
                 gang_replicas: 2,
                 gang_min_available: 2,
+                topology_affinity: String::new(),
             },
             crate::services::job::Actor {
                 tenant_id: 1,
@@ -1123,5 +1333,414 @@ mod tests {
         )
         .expect("count active allocations");
         assert_eq!(active, 0, "all gang gpu allocations must be released after completion");
+    }
+
+    /// 播种租户级 active 配额（简化测试样板）。
+    async fn seed_quota(pool: &DatabasePool, name: &str, gpu_limit: i64) {
+        quota::create_quota(
+            pool,
+            quota::CreateQuotaInput {
+                name: name.into(),
+                description: "".into(),
+                tenant_id: 1,
+                partition_id: None,
+                gpu_limit,
+                cpu_limit: 100.0,
+                memory_limit_gb: 100.0,
+                storage_limit_gb: 100.0,
+                status: Some("active".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("create quota");
+    }
+
+    /// 直接改写作业的 topology_affinity（绕过 API，便于测试钉节点 / 共置语义）。
+    async fn set_topology_affinity(pool: &DatabasePool, job_id: i64, affinity: &str) {
+        let sqlite = pool.as_sqlite().expect("test pool must be sqlite");
+        sqlx::query("UPDATE jobs SET topology_affinity = ? WHERE id = ?")
+            .bind(affinity)
+            .bind(job_id)
+            .execute(sqlite)
+            .await
+            .expect("set topology affinity");
+    }
+
+    /// 轮询等待作业进入期望状态。
+    async fn wait_for_status(pool: &DatabasePool, job_id: i64, status: &str) -> bool {
+        for _ in 0..100 {
+            let j = crate::services::job::get_job_unscoped(pool, job_id)
+                .await
+                .expect("get job");
+            if j.status == status {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+        false
+    }
+
+    /// 查询作业全部 active GPU 分配所在节点名（单列标量）。
+    async fn active_allocation_nodes(pool: &DatabasePool, job_id: i64) -> Vec<String> {
+        crate::with_db!(
+            pool,
+            "SELECT d.node_name FROM gpu_allocations a \
+             JOIN gpu_devices d ON d.id = a.device_id \
+             WHERE a.job_id = ? AND a.status = 'active' AND a.deleted_at IS NULL",
+            |db_s, db_e| crate::db::query_scalar_db(db_e, db_s)
+                .bind(job_id)
+                .fetch_all(db_e)
+                .await
+        )
+        .expect("query allocation nodes")
+    }
+
+    /// 场景①：双节点各 1 卡 + 级别 `node` 作业请求 2 卡 → 同节点卡数不足必须保持
+    /// pending（blocked 指标、无残留分配）；补足第 2 卡后成功且两卡共置 node-1。
+    #[tokio::test]
+    async fn test_topology_colocate_requires_enough_cards_on_single_node() {
+        let pool = setup_pool().await;
+
+        // 双节点各 1 卡 + 配额。
+        seed_gpu_device(&pool, "node-1", 0).await;
+        seed_gpu_device(&pool, "node-2", 0).await;
+        seed_quota(&pool, "topo-q", 8).await;
+
+        // gpus=2 + topology_affinity="node"：两卡必须共置同一节点。
+        let created = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "topo-job".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 0,
+                gpus: 2,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: "node".into(),
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create job");
+
+        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+
+        // 每节点仅 1 卡：共置不可满足 → 整体回退 pending，无残留分配，配额不残留。
+        let j = crate::services::job::get_job_unscoped(&pool, created.id)
+            .await
+            .expect("get job");
+        assert_eq!(
+            j.status,
+            job::status::PENDING,
+            "colocate job must stay pending when no single node has enough cards"
+        );
+        assert!(
+            active_allocation_nodes(&pool, created.id).await.is_empty(),
+            "blocked colocate job must not leave active allocations"
+        );
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 0, "blocked colocate job must release reserved quota");
+        let blocked = crate::metrics::scheduler_metrics().topology_blocked_total.get();
+        assert!(blocked >= 1, "topology_blocked_total should be incremented, got {blocked}");
+
+        // 给 node-1 补第 2 卡 → 共置可满足，两卡都落在 node-1。
+        seed_gpu_device(&pool, "node-1", 1).await;
+        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+
+        let nodes = active_allocation_nodes(&pool, created.id).await;
+        assert_eq!(nodes.len(), 2, "must allocate 2 cards");
+        assert!(
+            nodes.iter().all(|n| n == "node-1"),
+            "all replicas must be co-located on node-1, got {nodes:?}"
+        );
+
+        // 约束满足 → matched 指标至少 +1；随后模拟执行完成、资源正常释放。
+        let matched = crate::metrics::scheduler_metrics().topology_matched_total.get();
+        assert!(matched >= 1, "topology_matched_total should be incremented, got {matched}");
+        assert!(
+            wait_for_status(&pool, created.id, job::status::COMPLETED).await,
+            "topology job should complete normally"
+        );
+        assert!(
+            active_allocation_nodes(&pool, created.id).await.is_empty(),
+            "allocations must be released after completion"
+        );
+    }
+
+    /// livelock 回归：node-1（低 id）仅 1 卡、node-2 有 2 卡，级别 node 的作业请求
+    /// 2 卡。旧"首卡自由 best-fit → 钉其节点"实现会确定性落在 node-1 并反复回退；
+    /// 预选节点实现必须直接成功落在 node-2。
+    #[tokio::test]
+    async fn test_topology_colocate_preselects_node_with_enough_cards() {
+        let pool = setup_pool().await;
+
+        // node-1 先播种（低 id），仅 1 卡；node-2 有 2 卡。
+        seed_gpu_device(&pool, "node-1", 0).await;
+        seed_gpu_device(&pool, "node-2", 0).await;
+        seed_gpu_device(&pool, "node-2", 1).await;
+        seed_quota(&pool, "livelock-q", 8).await;
+
+        let created = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "livelock".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 0,
+                gpus: 2,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: "node".into(),
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create job");
+
+        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+
+        // 必须直接成功（不反复回退）：两卡共置 node-2。
+        let j = crate::services::job::get_job_unscoped(&pool, created.id)
+            .await
+            .expect("get job");
+        assert_eq!(
+            j.status,
+            job::status::RUNNING,
+            "pre-selection must dispatch onto node-2 instead of livelocking on node-1"
+        );
+        let nodes = active_allocation_nodes(&pool, created.id).await;
+        assert_eq!(nodes.len(), 2, "must allocate 2 cards");
+        assert!(
+            nodes.iter().all(|n| n == "node-2"),
+            "all replicas must land on node-2 (the only node with enough cards), got {nodes:?}"
+        );
+        let matched = crate::metrics::scheduler_metrics().topology_matched_total.get();
+        assert!(matched >= 1, "topology_matched_total should be incremented, got {matched}");
+
+        // 完成后资源正常释放。
+        assert!(
+            wait_for_status(&pool, created.id, job::status::COMPLETED).await,
+            "topology job should complete normally"
+        );
+        assert!(
+            active_allocation_nodes(&pool, created.id).await.is_empty(),
+            "allocations must be released after completion"
+        );
+    }
+
+    /// 场景②：显式节点钉扎（`node:不存在` → pending + blocked；裸节点名 → 成功落位）。
+    #[tokio::test]
+    async fn test_topology_named_node_pin_blocks_and_then_places() {
+        let pool = setup_pool().await;
+
+        // 仅 node-1 有设备；作业钉到不存在的 node-9 → 必须 pending（不违反亲和）。
+        seed_gpu_device(&pool, "node-1", 0).await;
+        seed_quota(&pool, "pin-q", 4).await;
+
+        let created = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "pin-job".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 0,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: "node:node-9".into(),
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create job");
+
+        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+
+        // 钉到不存在节点：保持 pending，无 active 分配，配额不残留，blocked 计数。
+        let j = crate::services::job::get_job_unscoped(&pool, created.id)
+            .await
+            .expect("get job");
+        assert_eq!(
+            j.status,
+            job::status::PENDING,
+            "job pinned to nonexistent node must stay pending"
+        );
+        assert!(
+            active_allocation_nodes(&pool, created.id).await.is_empty(),
+            "blocked pinned job must not leave active allocations"
+        );
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 0, "blocked pinned job must release reserved quota");
+        let blocked = crate::metrics::scheduler_metrics().topology_blocked_total.get();
+        assert!(blocked >= 1, "topology_blocked_total should be incremented, got {blocked}");
+
+        // 改钉到裸节点名 node-1（非关键字值视为节点名）→ 成功且分配落在 node-1。
+        set_topology_affinity(&pool, created.id, "node-1").await;
+        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+
+        let nodes = active_allocation_nodes(&pool, created.id).await;
+        assert_eq!(nodes, vec!["node-1".to_string()], "pinned allocation must be on node-1");
+        assert!(
+            wait_for_status(&pool, created.id, job::status::COMPLETED).await,
+            "pinned job should complete normally"
+        );
+    }
+
+    /// 前缀钉扎形式大小写不敏感："Node:node-1" 必须剥前缀钉住 node-1，
+    /// 而不是整串被当裸节点名导致 blocked。
+    #[tokio::test]
+    async fn test_topology_pinned_prefix_case_insensitive() {
+        let pool = setup_pool().await;
+
+        seed_gpu_device(&pool, "node-1", 0).await;
+        seed_quota(&pool, "case-q", 4).await;
+
+        let created = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "case-job".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 0,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: "Node:node-1".into(),
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create job");
+
+        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+
+        // "Node:node-1" 应被识别为钉扎 node-1（节点存在）→ 直接派发成功。
+        let j = crate::services::job::get_job_unscoped(&pool, created.id)
+            .await
+            .expect("get job");
+        assert_eq!(
+            j.status,
+            job::status::RUNNING,
+            "uppercase prefix Node:node-1 must be treated as a pin to node-1, not a bare name"
+        );
+        let nodes = active_allocation_nodes(&pool, created.id).await;
+        assert_eq!(
+            nodes,
+            vec!["node-1".to_string()],
+            "pinned allocation (case-insensitive prefix) must be on node-1"
+        );
+        assert!(
+            wait_for_status(&pool, created.id, job::status::COMPLETED).await,
+            "pinned job should complete normally"
+        );
+    }
+
+    /// 加分场景：Gang × 拓扑组合——2 副本 × 1 GPU 的 all-or-nothing 准入还必须共置同节点。
+    #[tokio::test]
+    async fn test_gang_with_topology_affinity_places_all_replicas_on_one_node() {
+        let pool = setup_pool().await;
+
+        // node-1 两张卡（满足 2 副本共置）、node-2 一张卡（干扰项，不得使用）。
+        seed_gpu_device(&pool, "node-1", 0).await;
+        seed_gpu_device(&pool, "node-1", 1).await;
+        seed_gpu_device(&pool, "node-2", 0).await;
+        seed_quota(&pool, "gang-topo-q", 8).await;
+
+        // Gang 作业：2 副本 × 1 GPU + topology_affinity="node"。
+        let created = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "gang-topo".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 2,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 2,
+                gang_min_available: 2,
+                topology_affinity: "node".into(),
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create gang+topo job");
+
+        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+
+        // 准入成功：gang_fulfilled=2，两卡必须共置 node-1。
+        let j = crate::services::job::get_job_unscoped(&pool, created.id)
+            .await
+            .expect("get gang+topo job");
+        assert_eq!(j.status, job::status::RUNNING, "gang+topo job should be admitted");
+        assert_eq!(j.gang_fulfilled, 2, "gang_fulfilled must equal min_available");
+
+        let nodes = active_allocation_nodes(&pool, created.id).await;
+        assert_eq!(nodes.len(), 2, "must allocate min_available × gpus = 2 cards");
+        assert!(
+            nodes.iter().all(|n| n == "node-1"),
+            "gang replicas must be co-located on node-1, got {nodes:?}"
+        );
+
+        // 完成后资源全量释放（2 卡 + 配额）。
+        assert!(
+            wait_for_status(&pool, created.id, job::status::COMPLETED).await,
+            "gang+topo job should complete normally"
+        );
+        assert!(
+            active_allocation_nodes(&pool, created.id).await.is_empty(),
+            "all gang gpu allocations must be released after completion"
+        );
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 0, "quota must be fully released after completion");
     }
 }

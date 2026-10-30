@@ -39,6 +39,8 @@ pub struct CreateJobInput {
     pub gang_replicas: i64,
     /// P2-1 Gang：最小可运行副本数，默认 1。
     pub gang_min_available: i64,
+    /// P2-2 拓扑感知：node | rack | switch | cluster | 节点名；空串 = 无约束。
+    pub topology_affinity: String,
 }
 
 /// 更新作业入参（对应 Go `UpdateJobRequest`；全部可选）。
@@ -51,6 +53,8 @@ pub struct UpdateJobInput {
     pub progress: Option<i64>,
     pub output_path: Option<String>,
     pub error_msg: Option<String>,
+    /// P2-2 拓扑感知（node | rack | switch | cluster | 节点名）。
+    pub topology_affinity: Option<String>,
 }
 
 /// 创建作业：初始化状态 pending，priority 夹紧到 [0,3]。
@@ -95,6 +99,7 @@ pub async fn create_job(
             duration: input.duration,
             gang_replicas,
             gang_min_available,
+            topology_affinity: input.topology_affinity,
         },
     )
     .await?;
@@ -214,6 +219,7 @@ pub async fn update_job(
             progress = COALESCE(?, progress), \
             output_path = COALESCE(?, output_path), \
             error_msg = COALESCE(?, error_msg), \
+            topology_affinity = COALESCE(?, topology_affinity), \
             start_time = CASE WHEN ? = 'running' AND start_time IS NULL THEN ? ELSE start_time END, \
             end_time = CASE WHEN ? IN ('completed','failed','cancelled') AND end_time IS NULL THEN ? ELSE end_time END, \
             updated_at = ? \
@@ -225,6 +231,7 @@ pub async fn update_job(
     .bind(input.progress)
     .bind(&input.output_path)
     .bind(&input.error_msg)
+    .bind(&input.topology_affinity)
     .bind(input.status.as_deref().unwrap_or(""))
     .bind(now)
     .bind(input.status.as_deref().unwrap_or(""))

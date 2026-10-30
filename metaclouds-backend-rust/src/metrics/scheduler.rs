@@ -45,6 +45,10 @@ pub struct SchedulerMetrics {
     pub gang_admitted_total: IntCounter,
     /// Gang 作业因 min_available 副本资源不足被整体阻塞（回退 pending）的次数（P2-1）。
     pub gang_blocked_total: IntCounter,
+    /// 在拓扑亲和约束（jobs.topology_affinity）下成功放置（共置/钉节点）的作业数（P2-2）。
+    pub topology_matched_total: IntCounter,
+    /// 因拓扑亲和约束无法满足（无满足节点/钉住节点不存在或卡数不足）而回退 pending 的次数（P2-2）。
+    pub topology_blocked_total: IntCounter,
 }
 
 impl SchedulerMetrics {
@@ -134,6 +138,18 @@ impl SchedulerMetrics {
         )
         .expect("register metaclouds_scheduler_gang_blocked_total");
 
+        let topology_matched_total = register_int_counter!(
+            "metaclouds_scheduler_topology_matched_total",
+            "Total number of jobs whose GPU replicas were placed under a satisfied topology_affinity constraint."
+        )
+        .expect("register metaclouds_scheduler_topology_matched_total");
+
+        let topology_blocked_total = register_int_counter!(
+            "metaclouds_scheduler_topology_blocked_total",
+            "Total number of jobs reverted to pending because their topology_affinity constraint could not be satisfied."
+        )
+        .expect("register metaclouds_scheduler_topology_blocked_total");
+
         Self {
             pending_jobs,
             running_jobs,
@@ -148,6 +164,8 @@ impl SchedulerMetrics {
             borrowed_quota_total,
             gang_admitted_total,
             gang_blocked_total,
+            topology_matched_total,
+            topology_blocked_total,
         }
     }
 }

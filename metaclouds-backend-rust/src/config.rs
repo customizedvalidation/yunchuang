@@ -115,6 +115,9 @@ pub struct Config {
     /// P2-1 Gang 调度：启用后 Gang 作业（gang_replicas > 1）按 min_available 副本做
     /// all-or-nothing 原子准入；关闭时 Gang 作业按 replicas=1（普通作业）处理。
     pub dispatch_gang_enabled: bool,
+    /// P2-2 拓扑感知：消费 jobs.topology_affinity，把作业的全部 GPU 副本共置到
+    /// 同一节点（node/rack/switch 级别）或钉到指定节点（node:<name> / 裸节点名）。默认开启。
+    pub dispatch_topology_enabled: bool,
 
     // ---- 链路追踪 ----
     pub tracing_enabled: bool,
@@ -240,6 +243,8 @@ impl Default for Config {
             dispatch_fairshare_weight: 5.0,
             dispatch_size_weight: 0.5,
             dispatch_gang_enabled: true,
+            // P2 高级调度
+            dispatch_topology_enabled: true,
             // 链路追踪
             tracing_enabled: false,
             tracing_service_name: "metaclouds-backend".to_string(),
@@ -370,6 +375,9 @@ impl Config {
         cfg.dispatch_fairshare_weight = env_float("DISPATCH_FAIRSHARE_WEIGHT", 5.0);
         cfg.dispatch_size_weight = env_float("DISPATCH_SIZE_WEIGHT", 0.5);
         cfg.dispatch_gang_enabled = env_bool("DISPATCH_GANG_ENABLED", true);
+
+        // 调度闭环 · 高级调度（P2）
+        cfg.dispatch_topology_enabled = env_bool("DISPATCH_TOPOLOGY_ENABLED", true);
 
         // 链路追踪
         cfg.tracing_enabled = env_bool("TRACING_ENABLED", false);

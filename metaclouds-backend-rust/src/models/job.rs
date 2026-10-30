@@ -235,6 +235,8 @@ pub struct NewJob {
     // P2-1 Gang 调度（副本总数 / 最小可运行副本数）。
     pub gang_replicas: i64,
     pub gang_min_available: i64,
+    // P2-2 拓扑感知：node | rack | switch | cluster | 显式节点名（空串 = 无约束）。
+    pub topology_affinity: String,
 }
 
 /// INSERT 作业（自动时间戳，初始状态 pending）。
@@ -244,8 +246,8 @@ pub async fn create(pool: &DatabasePool, input: NewJob) -> AppResult<Job> {
         pool,
         "INSERT INTO jobs (created_at, updated_at, cluster_id, tenant_id, user_id, name, \
          description, status, type, priority, gpus, cpus, memory, duration, progress, \
-         gang_replicas, gang_min_available, gang_fulfilled) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)",
+         gang_replicas, gang_min_available, gang_fulfilled, topology_affinity) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, ?)",
         |q| q
             .bind(now)
             .bind(now)
@@ -262,6 +264,7 @@ pub async fn create(pool: &DatabasePool, input: NewJob) -> AppResult<Job> {
             .bind(input.duration)
             .bind(input.gang_replicas)
             .bind(input.gang_min_available)
+            .bind(&input.topology_affinity)
     );
 
     let id = res;

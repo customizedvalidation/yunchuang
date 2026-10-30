@@ -118,6 +118,9 @@ pub struct AllocateGpuRequest {
     pub memory_gb: Option<i64>,
     #[serde(default)]
     pub vendor: Option<String>,
+    /// P2-2 拓扑感知：可选的目标节点（gpu_devices.node_name）；不传不限制节点。
+    #[serde(default)]
+    pub node_name: Option<String>,
 }
 
 /// `GET /api/v1/gpus` — 设备列表（对齐 Go：data 为裸数组）。
@@ -256,6 +259,7 @@ pub async fn allocate_gpu(
         fraction: body.fraction.unwrap_or(1.0),
         memory_gb: body.memory_gb.unwrap_or(0),
         vendor: body.vendor.unwrap_or_default(),
+        node_name: body.node_name.unwrap_or_default(),
     };
     let a = gpu::allocate_gpu(&state.pool, input).await?;
     Ok(WithStatus {

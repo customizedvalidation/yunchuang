@@ -68,6 +68,9 @@ pub struct AllocateGpuInput {
     pub fraction: f64,
     pub memory_gb: i64,
     pub vendor: String,
+    /// P2-2 拓扑感知：非空时只在该节点（gpu_devices.node_name）上分配。
+    /// 空串表示不限制节点（既有行为）。调度器用它实现 topology_affinity 共置。
+    pub node_name: String,
 }
 
 /// 创建 GPU 设备。
@@ -235,9 +238,11 @@ pub async fn allocate_gpu(
                 })
             };
 
-            // 2) Rust 侧再过滤 vendor + 显存（PG 已下推 vendor，此处幂等）。
+            // 2) Rust 侧再过滤 vendor + 显存 + 节点（PG 已下推 vendor，此处幂等）。
+            //    node_name 非空时仅允许该节点上的设备（P2-2 拓扑感知放置约束）。
             let prelim: Vec<&GpuDevice> = candidates.iter()
                 .filter(|d| input.vendor.is_empty() || d.vendor == input.vendor)
+                .filter(|d| input.node_name.is_empty() || d.node_name == input.node_name)
                 .filter(|d| d.allocatable_memory_gb - d.used_memory_gb >= input.memory_gb)
                 .collect();
             let ids: Vec<i64> = prelim.iter().map(|d| d.id).collect();
