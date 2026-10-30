@@ -103,3 +103,6 @@ priority_scheduler_coverage.out
 priority_scheduler_coverage/
 *.profraw
 llvm-cov/
+
+# ===== Stray Windows reserved-name log artifact (git-bash 报错残留) =====
+nul

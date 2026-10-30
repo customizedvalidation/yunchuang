@@ -116,6 +116,20 @@ async fn main() -> anyhow::Result<()> {
         pool,
         config: Arc::new(config.clone()),
     };
+
+    // ── 真实调度闭环（P0）：消费 pending 作业，配额+GPU 预留后派发执行 ─────────
+    let dispatch_handle = if config.dispatch_enabled {
+        Some(
+            metaclouds_backend_rust::services::dispatch::start_dispatch_loop(
+                state.pool.clone(),
+                metaclouds_backend_rust::services::dispatch::DispatchConfig::from_config(&config),
+            ),
+        )
+    } else {
+        tracing::info!("dispatch loop disabled via config (DISPATCH_ENABLED=false)");
+        None
+    };
+
     let app = metaclouds_backend_rust::routes::build_router(state);
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr()).await?;
@@ -140,6 +154,11 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 tracing::info!("cron scheduler stopped");
             }
+        }
+        // 停止真实调度闭环（P0）。
+        if let Some(h) = &dispatch_handle {
+            h.abort();
+            tracing::info!("dispatch loop stopped");
         }
     })
     .await?;

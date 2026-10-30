@@ -81,6 +81,20 @@ pub struct Config {
     pub scheduler_enabled: bool,
     pub scheduler_interval_seconds: i64,
 
+    // ---- 调度闭环（P0 真实调度器）----
+    /// 是否启动真实调度闭环（消费 pending 作业并派发执行）。默认开启。
+    pub dispatch_enabled: bool,
+    /// 调度轮询间隔（毫秒）。
+    pub dispatch_interval_ms: u64,
+    /// 模拟执行时长（毫秒）：P0 阶段 K8s 真实提交未接入，用短时睡眠模拟一次运行。
+    pub dispatch_simulated_run_ms: u64,
+    /// 单轮最多认领的 pending 作业数。
+    pub dispatch_batch_size: usize,
+    /// 同时处于 running 的最大作业数（并发上限，背压）。
+    pub dispatch_max_concurrent: usize,
+    /// 崩溃恢复宽限（秒）：running 且无 GPU 分配的孤儿作业超过该时长才回退 pending。
+    pub dispatch_reconcile_grace_seconds: i64,
+
     // ---- 链路追踪 ----
     pub tracing_enabled: bool,
     pub tracing_service_name: String,
@@ -188,6 +202,13 @@ impl Default for Config {
             // 调度
             scheduler_enabled: true,
             scheduler_interval_seconds: 10,
+            // 调度闭环（P0）
+            dispatch_enabled: true,
+            dispatch_interval_ms: 2000,
+            dispatch_simulated_run_ms: 2000,
+            dispatch_batch_size: 50,
+            dispatch_max_concurrent: 10,
+            dispatch_reconcile_grace_seconds: 300,
             // 链路追踪
             tracing_enabled: false,
             tracing_service_name: "metaclouds-backend".to_string(),
@@ -299,6 +320,14 @@ impl Config {
         // 调度
         cfg.scheduler_enabled = env_bool("SCHEDULER_ENABLED", true);
         cfg.scheduler_interval_seconds = env_int("SCHEDULER_INTERVAL_SECONDS", 10);
+
+        // 调度闭环（P0）
+        cfg.dispatch_enabled = env_bool("DISPATCH_ENABLED", true);
+        cfg.dispatch_interval_ms = env_int("DISPATCH_INTERVAL_MS", 2000) as u64;
+        cfg.dispatch_simulated_run_ms = env_int("DISPATCH_SIMULATED_RUN_MS", 2000) as u64;
+        cfg.dispatch_batch_size = env_int("DISPATCH_BATCH_SIZE", 50) as usize;
+        cfg.dispatch_max_concurrent = env_int("DISPATCH_MAX_CONCURRENT", 10) as usize;
+        cfg.dispatch_reconcile_grace_seconds = env_int("DISPATCH_RECONCILE_GRACE_SECONDS", 300);
 
         // 链路追踪
         cfg.tracing_enabled = env_bool("TRACING_ENABLED", false);

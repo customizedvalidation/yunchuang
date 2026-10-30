@@ -21,6 +21,7 @@ pub mod partition;
 pub mod partition_permission;
 pub mod priority_scheduler;
 pub mod quota;
+pub mod dispatch;
 pub mod resource;
 pub mod scheduler;
 pub mod security;
