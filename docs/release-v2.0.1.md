@@ -3,7 +3,8 @@
 - **发布日期**：2026-10-26
 - **版本类型**：补丁版本（Bug Fix）
 - **对应提交**：`5dc6c03` — `fix(frontend): 本地 dev 代理锁定 127.0.0.1:8000 并绑 IPv4，修复 /api 代理 500 致登录被锁`
-- **Git Tag**：`v2.0.1`（指向 `5dc6c03`）
+- **Git Tag**：`v2.0.1`（指向 `32de626`，含前端版本号 bump 2.0.1；核心修复对应提交 `5dc6c03`）
+- **GitHub Release**：https://github.com/customizedvalidation/yunchuang/releases/tag/v2.0.1
 
 ---
 
