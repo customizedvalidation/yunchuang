@@ -88,7 +88,9 @@ Metaclouds 当前处于"**有数据模型、有配额/GPU 分配原语，但无�
 
 > 原则：每阶段独立实现、独立验证，不破坏现有功能。
 
-### ✅ P0 — 调度闭环（已落地并验证通过，57 lib tests 全绿）
+### ✅ P0 — 调度闭环（已落地、验证通过并 commit `ca6c32c`）
+
+> 57 lib tests 全绿，零 schema 变更、前端 API 契约不变、保留既有 mock 模块。
 - **P0-2 配额闭环（超卖窗口修复）** — `src/services/quota.rs`
   - `allocate_resources` 的原子条件 UPDATE 由"仅 GPU"扩展为 **gpu/cpu/memory/storage 四类资源全部条件校验**，消除 cpu/mem/storage 的并发超卖窗口（SQLite 串行写 + PG 行级条件更新兜底）。
   - 新增 `find_quota_for_scope(pool, tenant_id, partition_id)`：优先精确分区配额、回退租户级配额；无 active 配额视为无限（对齐 `check_quota_by_scope` 语义）。
@@ -101,10 +103,26 @@ Metaclouds 当前处于"**有数据模型、有配额/GPU 分配原语，但无�
   - 配置项：`DISPATCH_ENABLED` / `DISPATCH_INTERVAL_MS`(2000) / `DISPATCH_SIMULATED_RUN_MS`(2000) / `DISPATCH_BATCH_SIZE`(50) / `DISPATCH_MAX_CONCURRENT`(10) / `DISPATCH_RECONCILE_GRACE_SECONDS`(300)。
   - 新增单测 `test_dispatch_pending_job_completes_and_releases`（端到端：派发→completed→GPU/配额释放）与 `test_dispatch_without_quota_or_gpu_still_runs_cpu_only`。
 
-### ⏳ P1 — 利用率与公平（待排期）
-- P1-1 Backfill 回填调度。
-- P1-2 多因子加权优先级 + 用量半衰期衰减。
-- P1-3 弹性配额借用（nominalQuota + borrow/lend）。
+### ✅ P1 — 利用率与公平（已完成，2026-10-30）
+
+- **P1-1 Backfill 回填调度** — `src/services/dispatch.rs` `dispatch_tick`
+  - 两阶段派发：优先级主路径（`budget` 个按评分/优先级排序尝试）＋ Backfill 阶段（剩余候选按**规模升序**排序，在不阻塞高优先级作业前提下利用空闲并发槽与资源余量派发小作业）。
+  - 指标 `metaclouds_scheduler_backfilled_total`；开关 `DISPATCH_BACKFILL_ENABLED` + `DISPATCH_BACKFILL_WINDOW` 默认开启。
+- **P1-2 多因子加权优先级 + 半衰期衰减** — `dispatch_scores`
+  - `score = w_priority·priority + age_bonus + fairshare_bonus − w_size·size`：
+    - `age_bonus = w_age·(1 − 0.5^(age_hours / half_life))`（等待越久边际加成越小，防无限积压/饿死）；
+    - `fairshare_bonus = w_fairshare·(1 − tenant_usage_ratio)`（越空闲的租户越优先）；
+    - `size_penalty = w_size·size`（大作业降分，利于小作业回填装箱）。
+  - 开关 `DISPATCH_SCORING_ENABLED` + 各权重/半衰期配置项（默认开启）。
+- **P1-3 弹性配额借用（nominalQuota + borrow/lend）** — `src/services/quota.rs` `allocate_resources_with_borrow` + `migrations/011_*`
+  - `resource_quotas` 新增 `borrow_enabled` + `borrow_limit_gpu/cpu/memory_gb/storage_gb`（双驱动迁移 011）。
+  - 当租户自身限额不足且开启借用时，允许从**集群空闲容量**（`Σ(limit−used)`）借用，约束：① 单租户预计借用量 ≤ `borrow_limit_*`；② 请求量 ≤ 集群空闲余量（防集群级超卖）。
+  - 事务内完成；Postgres 用 `FOR UPDATE` 锁 cohort 全部 active 配额行使余量权威，SQLite 串行写天然安全；指标 `metaclouds_quota_borrowed_total`。
+  - HTTP CRUD 通过 `CreateQuotaRequest`/`UpdateQuotaRequest` 的**可选** borrow 字段暴露（向后兼容）。
+
+- **验证记录（2026-10-30）**：全量 `cargo test --lib` **61 passed / 0 failed**（新增 quota 借用 3 例 + backfill 1 例），`cargo clippy -- -D warnings` 零告警。
+  - 调试发现：测试若传 `priority: 5` 会被 `create_job` 夹紧归 0（对齐 Go 的 [0,3] 越界归 0 行为），导致评分排序与预期相反——backfill 测试已改用合法优先级 3。
+  - 顺手清理预存告警：`TimeoutLayer::new` → `with_status_code(StatusCode::REQUEST_TIMEOUT, 30s)`（行为不变）。
 
 ### ⏳ P2 — 高级调度（待排期）
 - P2-1 Gang 调度（all-or-nothing 准入）。

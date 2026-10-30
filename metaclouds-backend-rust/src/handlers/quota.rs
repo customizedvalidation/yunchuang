@@ -49,6 +49,17 @@ pub struct CreateQuotaRequest {
     pub storage_limit_gb: Option<f64>,
     #[serde(default)]
     pub status: Option<String>,
+    // P1-3 弹性借用（可选；缺省关闭）
+    #[serde(default)]
+    pub borrow_enabled: Option<bool>,
+    #[serde(default)]
+    pub borrow_limit_gpu: Option<i64>,
+    #[serde(default)]
+    pub borrow_limit_cpu: Option<f64>,
+    #[serde(default)]
+    pub borrow_limit_memory_gb: Option<f64>,
+    #[serde(default)]
+    pub borrow_limit_storage_gb: Option<f64>,
 }
 
 /// `PUT /api/v1/quotas/:id` 请求体（全部可选）。
@@ -61,6 +72,17 @@ pub struct UpdateQuotaRequest {
     pub memory_limit_gb: Option<f64>,
     pub storage_limit_gb: Option<f64>,
     pub status: Option<String>,
+    // P1-3 弹性借用（可选覆盖）
+    #[serde(default)]
+    pub borrow_enabled: Option<bool>,
+    #[serde(default)]
+    pub borrow_limit_gpu: Option<i64>,
+    #[serde(default)]
+    pub borrow_limit_cpu: Option<f64>,
+    #[serde(default)]
+    pub borrow_limit_memory_gb: Option<f64>,
+    #[serde(default)]
+    pub borrow_limit_storage_gb: Option<f64>,
 }
 
 /// `GET /api/v1/quotas/usage` 查询参数：按维度返回实时用量。
@@ -285,6 +307,11 @@ pub async fn create_quota(
         memory_limit_gb: body.memory_limit_gb.unwrap_or(0.0),
         storage_limit_gb: body.storage_limit_gb.unwrap_or(0.0),
         status: body.status,
+        borrow_enabled: body.borrow_enabled.unwrap_or(false),
+        borrow_limit_gpu: body.borrow_limit_gpu.unwrap_or(0),
+        borrow_limit_cpu: body.borrow_limit_cpu.unwrap_or(0.0),
+        borrow_limit_memory_gb: body.borrow_limit_memory_gb.unwrap_or(0.0),
+        borrow_limit_storage_gb: body.borrow_limit_storage_gb.unwrap_or(0.0),
     };
     let q = quota_service::create_quota(&state.pool, input).await?;
     Ok(WithStatus {
@@ -309,6 +336,11 @@ pub async fn update_quota(
         memory_limit_gb: body.memory_limit_gb,
         storage_limit_gb: body.storage_limit_gb,
         status: body.status,
+        borrow_enabled: body.borrow_enabled,
+        borrow_limit_gpu: body.borrow_limit_gpu,
+        borrow_limit_cpu: body.borrow_limit_cpu,
+        borrow_limit_memory_gb: body.borrow_limit_memory_gb,
+        borrow_limit_storage_gb: body.borrow_limit_storage_gb,
     };
     let q = quota_service::update_quota(&state.pool, id, input).await?;
     Ok(Json(ApiResponse::success(q)))

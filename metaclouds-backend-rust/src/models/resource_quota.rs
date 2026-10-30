@@ -42,6 +42,17 @@ pub struct ResourceQuota {
     pub storage_limit_gb: f64,
     pub storage_used_gb: f64,
     pub status: String,
+    // ---- 弹性借用（P1-3，对齐 Kueue Cohort nominalQuota + borrow/lend）----
+    /// 是否允许在自身限额之外，从集群空闲容量（其他租户未用额度）借用。
+    pub borrow_enabled: i64,
+    /// 最多可借用的 GPU 整卡数。
+    pub borrow_limit_gpu: i64,
+    /// 最多可借用的 CPU 核数。
+    pub borrow_limit_cpu: f64,
+    /// 最多可借用的内存（GB）。
+    pub borrow_limit_memory_gb: f64,
+    /// 最多可借用的存储（GB）。
+    pub borrow_limit_storage_gb: f64,
 }
 
 impl HasTimestamps for ResourceQuota {
@@ -81,6 +92,11 @@ pub struct ResourceQuotaResponse {
     pub storage_limit_gb: f64,
     pub storage_used_gb: f64,
     pub status: String,
+    pub borrow_enabled: i64,
+    pub borrow_limit_gpu: i64,
+    pub borrow_limit_cpu: f64,
+    pub borrow_limit_memory_gb: f64,
+    pub borrow_limit_storage_gb: f64,
 }
 
 impl From<ResourceQuota> for ResourceQuotaResponse {
@@ -102,6 +118,11 @@ impl From<ResourceQuota> for ResourceQuotaResponse {
             storage_limit_gb: q.storage_limit_gb,
             storage_used_gb: q.storage_used_gb,
             status: q.status,
+            borrow_enabled: q.borrow_enabled,
+            borrow_limit_gpu: q.borrow_limit_gpu,
+            borrow_limit_cpu: q.borrow_limit_cpu,
+            borrow_limit_memory_gb: q.borrow_limit_memory_gb,
+            borrow_limit_storage_gb: q.borrow_limit_storage_gb,
         }
     }
 }
@@ -117,6 +138,11 @@ pub struct NewQuota {
     pub memory_limit_gb: f64,
     pub storage_limit_gb: f64,
     pub status: String,
+    pub borrow_enabled: i64,
+    pub borrow_limit_gpu: i64,
+    pub borrow_limit_cpu: f64,
+    pub borrow_limit_memory_gb: f64,
+    pub borrow_limit_storage_gb: f64,
 }
 
 /// INSERT 配额（自动时间戳；used 字段初始化为 0）。
@@ -126,8 +152,9 @@ pub async fn create(pool: &DatabasePool, input: NewQuota) -> AppResult<ResourceQ
         pool,
         "INSERT INTO resource_quotas (created_at, updated_at, name, description, tenant_id, \
          partition_id, gpu_limit, gpu_used, cpu_limit, cpu_used, memory_limit_gb, memory_used_gb, \
-         storage_limit_gb, storage_used_gb, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, 0, ?9, 0, ?10, 0, ?11)",
+         storage_limit_gb, storage_used_gb, status, borrow_enabled, borrow_limit_gpu, \
+         borrow_limit_cpu, borrow_limit_memory_gb, borrow_limit_storage_gb) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, 0, ?9, 0, ?10, 0, ?11, ?12, ?13, ?14, ?15, ?16)",
         |q| q
             .bind(now)
             .bind(now)
@@ -140,6 +167,11 @@ pub async fn create(pool: &DatabasePool, input: NewQuota) -> AppResult<ResourceQ
             .bind(input.memory_limit_gb)
             .bind(input.storage_limit_gb)
             .bind(&input.status)
+            .bind(input.borrow_enabled)
+            .bind(input.borrow_limit_gpu)
+            .bind(input.borrow_limit_cpu)
+            .bind(input.borrow_limit_memory_gb)
+            .bind(input.borrow_limit_storage_gb)
     );
 
     let id = res;

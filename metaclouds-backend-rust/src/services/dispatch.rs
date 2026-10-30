@@ -19,6 +19,8 @@
 //! - **执行体为模拟**：K8s 真实提交未接入，用 `simulated_run_ms` 短时睡眠模拟一次运行，
 //!   便于观测闭环；真实执行接入后仅需替换 `complete_running_job` 前的等待段。
 
+use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
@@ -45,6 +47,23 @@ pub struct DispatchConfig {
     pub max_concurrent: usize,
     /// 孤儿 running 作业回退宽限（秒）。
     pub reconcile_grace_seconds: i64,
+    // ---- P1 利用率与公平 ----
+    /// P1-1 Backfill 回填：利用空闲容量派发小作业。
+    pub backfill_enabled: bool,
+    /// Backfill 额外扫描候选数。
+    pub backfill_window: usize,
+    /// P1-2 启用以多因子动态评分替代静态优先级排序。
+    pub scoring_enabled: bool,
+    /// 静态优先级权重。
+    pub priority_weight: f64,
+    /// 等待时间奖励权重。
+    pub age_weight: f64,
+    /// 等待时间半衰期（小时）。
+    pub age_half_life_hours: f64,
+    /// 公平份额奖励权重。
+    pub fairshare_weight: f64,
+    /// 作业规模惩罚权重。
+    pub size_weight: f64,
 }
 
 impl DispatchConfig {
@@ -57,6 +76,14 @@ impl DispatchConfig {
             batch_size: cfg.dispatch_batch_size,
             max_concurrent: cfg.dispatch_max_concurrent,
             reconcile_grace_seconds: cfg.dispatch_reconcile_grace_seconds,
+            backfill_enabled: cfg.dispatch_backfill_enabled,
+            backfill_window: cfg.dispatch_backfill_window,
+            scoring_enabled: cfg.dispatch_scoring_enabled,
+            priority_weight: cfg.dispatch_priority_weight,
+            age_weight: cfg.dispatch_age_weight,
+            age_half_life_hours: cfg.dispatch_age_half_life_hours,
+            fairshare_weight: cfg.dispatch_fairshare_weight,
+            size_weight: cfg.dispatch_size_weight,
         }
     }
 }
@@ -90,6 +117,14 @@ pub fn start_dispatch_loop(pool: DatabasePool, config: DispatchConfig) -> JoinHa
 }
 
 /// 单轮调度：受并发上限约束地认领并派发 pending 作业。
+///
+/// 两阶段：
+/// 1. **优先级主路径**：按动态评分（P1-2，默认开启）或静态优先级排序，取前 `budget` 个尝试派发。
+/// 2. **Backfill 回填**（P1-1，默认开启）：剩余候选按"规模升序"排序（小作业优先），
+///    在不阻塞高优先级作业的前提下，利用空闲并发槽与资源余量派发能塞进去的小作业，
+///    提升集群利用率。被计入 `backfilled_total` 指标。
+///
+/// 通过本地 `dispatched` 计数严格约束单轮实际 running 数不超过 `max_concurrent`。
 async fn dispatch_tick(pool: &DatabasePool, config: &DispatchConfig) -> AppResult<()> {
     // 1) 当前 running 数量（控制并发上限）。
     let running: i64 = crate::with_db!(
@@ -103,43 +138,174 @@ async fn dispatch_tick(pool: &DatabasePool, config: &DispatchConfig) -> AppResul
     if running >= config.max_concurrent {
         return Ok(());
     }
-    let budget = (config.max_concurrent - running).min(config.batch_size).max(1);
+    let remaining_capacity = config.max_concurrent - running;
 
-    // 2) 拉取 pending 作业，按优先级（高→低）、提交时间（早→晚）排序。
-    let jobs: Vec<Job> = crate::with_db!(
+    // 2) 拉取候选 pending 作业（主路径 budget + backfill 额外窗口）。
+    let fetch_limit = (remaining_capacity
+        + if config.backfill_enabled {
+            config.backfill_window
+        } else {
+            0
+        }) as i64;
+    let candidates: Vec<Job> = crate::with_db!(
         pool,
         "SELECT * FROM jobs WHERE status = 'pending' AND deleted_at IS NULL \
-         ORDER BY priority DESC, id ASC LIMIT ?",
+         ORDER BY id ASC LIMIT ?",
         |db_s, db_e| {
-            let limit: i64 = budget as i64;
             crate::db::query_as_db(db_e, db_s)
-                .bind(limit)
+                .bind(fetch_limit)
                 .fetch_all(db_e)
                 .await?
         }
     );
-    if jobs.is_empty() {
+    if candidates.is_empty() {
         return Ok(());
     }
 
-    for job in jobs {
-        if let Err(e) = try_dispatch_one(pool, &job, config).await {
-            tracing::warn!(
-                job_id = job.id,
-                error = %e,
-                "dispatch of job failed; will retry next tick"
-            );
+    let now = Utc::now();
+    // 租户用量比例（fairshare 输入），按候选涉及的租户一次性计算并缓存。
+    let tenant_ratio = tenant_usage_ratios(pool, &candidates).await?;
+    // 动态评分（P1-2）。
+    let scores = dispatch_scores(&candidates, &tenant_ratio, config, now);
+
+    // 3) 主路径：按评分（或静态优先级）降序排序。
+    let mut ordered: Vec<&Job> = candidates.iter().collect();
+    if config.scoring_enabled {
+        ordered.sort_by(|a, b| {
+            scores
+                .get(&b.id)
+                .copied()
+                .unwrap_or(0.0)
+                .partial_cmp(&scores.get(&a.id).copied().unwrap_or(0.0))
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+    } else {
+        ordered.sort_by(|a, b| b.priority.cmp(&a.priority).then_with(|| a.id.cmp(&b.id)));
+    }
+    let budget = remaining_capacity.min(config.batch_size).max(1);
+
+    let mut dispatched = 0usize;
+    for job in ordered.iter().take(budget) {
+        if dispatched >= remaining_capacity {
+            break;
+        }
+        if try_dispatch_one(pool, job, config).await? {
+            dispatched += 1;
         }
     }
+
+    // 4) Backfill：剩余候选按规模升序（小作业优先）尝试派发，利用空闲槽。
+    if config.backfill_enabled {
+        let mut backfill: Vec<&Job> = ordered.into_iter().skip(budget).collect();
+        backfill.sort_by(|a, b| {
+            job_size(a)
+                .partial_cmp(&job_size(b))
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.created_at.cmp(&b.created_at))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        for job in backfill {
+            if dispatched >= remaining_capacity {
+                break;
+            }
+            if try_dispatch_one(pool, job, config).await? {
+                dispatched += 1;
+                crate::metrics::scheduler_metrics().backfilled_total.inc();
+            }
+        }
+    }
+
     Ok(())
 }
 
-/// 尝试派发单个作业：原子认领 → 配额预留 → GPU 分配 → 置 running → 挂接模拟完成任务。
+/// 作业规模归一化（用于 Backfill 优先派发小作业 + 评分惩罚）。
+fn job_size(job: &Job) -> f64 {
+    job.gpus as f64 + job.cpus as f64 / 8.0 + job.memory as f64 / 64.0
+}
+
+/// 计算各租户的配额用量比例（used / limit，clamp 到 [0,1]）；无配额（无限额）视为 0。
+async fn tenant_usage_ratios(
+    pool: &DatabasePool,
+    candidates: &[Job],
+) -> AppResult<HashMap<i64, f64>> {
+    let mut ratios = HashMap::new();
+    for job in candidates {
+        if ratios.contains_key(&job.tenant_id) {
+            continue;
+        }
+        let partition = if job.partition_id > 0 {
+            Some(job.partition_id)
+        } else {
+            None
+        };
+        let ratio = match quota::find_quota_for_scope(pool, job.tenant_id, partition).await? {
+            Some(q) => {
+                let r = |used: f64, limit: f64| {
+                    if limit <= 0.0 {
+                        0.0
+                    } else {
+                        (used / limit).clamp(0.0, 1.0)
+                    }
+                };
+                // 取四类资源中用量最高者作为该租户整体"拥挤度"。
+                let gpu = r(q.gpu_used as f64, q.gpu_limit as f64);
+                let cpu = r(q.cpu_used, q.cpu_limit);
+                let mem = r(q.memory_used_gb, q.memory_limit_gb);
+                let sto = r(q.storage_used_gb, q.storage_limit_gb);
+                gpu.max(cpu).max(mem).max(sto)
+            }
+            None => 0.0,
+        };
+        ratios.insert(job.tenant_id, ratio);
+    }
+    Ok(ratios)
+}
+
+/// P1-2 多因子动态调度评分。
 ///
-/// 资源不足等可重试失败会回退为 `pending` 并返回 `Ok(())`（未派发）；真正的硬错误
-/// （如 DB 故障）返回 `Err`。认领成功后、所有资源预留成功前，作业短暂处于 `running`
-/// 半状态——若此窗口内进程崩溃，[`reconcile`] 会安全回退/重挂接。
-async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfig) -> AppResult<()> {
+/// score = 优先级权重·priority
+///       + 等待时间奖励（半衰期收敛：等待越久边际加成越小，防止无限积压 / 饿死）
+///       + 公平份额奖励（租户越空闲得分越高）
+///       - 规模惩罚（大作业降分，利于小作业回填装箱）。
+fn dispatch_scores(
+    candidates: &[Job],
+    tenant_ratio: &HashMap<i64, f64>,
+    config: &DispatchConfig,
+    now: chrono::DateTime<Utc>,
+) -> HashMap<i64, f64> {
+    let mut scores = HashMap::new();
+    for job in candidates {
+        let priority_term = config.priority_weight * job.priority as f64;
+
+        let age_hours = (now - job.created_at).num_seconds().max(0) as f64 / 3600.0;
+        // 半衰期：age_bonus 随等待时间逼近 age_weight，边际增量每 half_life 减半。
+        let age_bonus = if config.age_half_life_hours > 0.0 {
+            config.age_weight
+                * (1.0 - 0.5f64.powf(age_hours / config.age_half_life_hours))
+        } else {
+            config.age_weight * age_hours
+        };
+
+        let ratio = tenant_ratio.get(&job.tenant_id).copied().unwrap_or(0.0);
+        let fairshare_bonus = config.fairshare_weight * (1.0 - ratio);
+
+        let size_penalty = config.size_weight * job_size(job);
+
+        let score = priority_term + age_bonus + fairshare_bonus - size_penalty;
+        scores.insert(job.id, score);
+    }
+    scores
+}
+
+/// 尝试派发单个作业：原子认领 → 配额预留（含弹性借用）→ GPU 分配 → 置 running →
+/// 挂接模拟完成任务。
+///
+/// 返回 `true` 表示已成功认领并预留资源、作业进入 running；返回 `false` 表示本轮未派发
+/// （已被他人认领、或资源不足已回退 pending，下一轮重试）。真正的硬错误（如 DB 故障）
+/// 返回 `Err`。认领成功后、所有资源预留成功前，作业短暂处于 `running` 半状态——若此窗口
+/// 内进程崩溃，[`reconcile`] 会安全回退/重挂接。
+async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfig) -> AppResult<bool> {
     // 原子认领 pending→running，仅当仍是 pending。
     let now = Utc::now();
     let claimed = crate::with_db!(
@@ -157,7 +323,7 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
         }
     );
     if claimed == 0 {
-        return Ok(()); // 已被其他 worker 认领或不再是 pending
+        return Ok(false); // 已被其他 worker 认领或不再是 pending
     }
 
     // 观测入队到调度的等待延迟（秒）。
@@ -179,7 +345,7 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
         None
     };
     let quota_id = match quota::find_quota_for_scope(pool, job.tenant_id, partition).await? {
-        Some(q) => match quota::allocate_resources(pool, q.id, quota_req).await {
+        Some(q) => match quota::allocate_resources_with_borrow(pool, q.id, quota_req).await {
             Ok(_) => Some(q.id),
             Err(e) => {
                 tracing::debug!(
@@ -193,7 +359,7 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
                     .with_label_values(&[&job.tenant_id.to_string(), "combined"])
                     .inc();
                 revert_to_pending(pool, job.id).await?;
-                return Ok(());
+                return Ok(false);
             }
         },
         None => None,
@@ -243,7 +409,7 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
                 let _ = quota::release_resources(pool, qid, quota_req).await;
             }
             revert_to_pending(pool, job.id).await?;
-            return Ok(());
+            return Ok(false);
         }
     }
 
@@ -258,7 +424,7 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
         }
     });
 
-    Ok(())
+    Ok(true)
 }
 
 /// 回退作业为 pending（清除 start_time），仅当当前仍为 running。
@@ -420,6 +586,14 @@ mod tests {
             batch_size: 10,
             max_concurrent: 10,
             reconcile_grace_seconds: 300,
+            backfill_enabled: true,
+            backfill_window: 50,
+            scoring_enabled: true,
+            priority_weight: 10.0,
+            age_weight: 1.0,
+            age_half_life_hours: 24.0,
+            fairshare_weight: 5.0,
+            size_weight: 0.5,
         }
     }
 
@@ -465,6 +639,7 @@ mod tests {
                 memory_limit_gb: 100.0,
                 storage_limit_gb: 100.0,
                 status: Some("active".into()),
+                ..Default::default()
             },
         )
         .await
@@ -568,5 +743,94 @@ mod tests {
             completed,
             "cpu-only job with no quota/gpu should still be dispatched and completed"
         );
+    }
+
+    #[tokio::test]
+    async fn test_backfill_dispatches_small_job_when_big_job_blocked() {
+        let pool = setup_pool().await;
+        // 大作业：高优先级（合法范围 [0,3]，越界会被 create_job 归 0）、请求 GPU，
+        // 但集群无任何 GPU 设备 → 必然无法调度（回退 pending）。
+        let big = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "big".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 3,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create big job");
+
+        // 小作业：低优先级、纯 CPU（无 GPU、无配额）→ 应被 backfill 派发完成。
+        let small = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "small".into(),
+                description: "".into(),
+                kind: "batch".into(),
+                priority: 0,
+                gpus: 0,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create small job");
+
+        // 主路径 batch_size=1 只取评分最高的 big；small 走 backfill。
+        let mut cfg = dispatch_config();
+        cfg.batch_size = 1;
+        cfg.backfill_enabled = true;
+        cfg.scoring_enabled = true;
+        cfg.max_concurrent = 10;
+        dispatch_tick(&pool, &cfg).await.expect("dispatch tick");
+
+        let mut small_done = false;
+        for _ in 0..100 {
+            let j = crate::services::job::get_job_unscoped(&pool, small.id)
+                .await
+                .expect("get small");
+            if j.status == job::status::COMPLETED {
+                small_done = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+        assert!(
+            small_done,
+            "small job should be backfilled and completed"
+        );
+
+        // 大作业因无 GPU 资源而保持 pending（回退），未被错误完成。
+        let big_j = crate::services::job::get_job_unscoped(&pool, big.id)
+            .await
+            .expect("get big");
+        assert_eq!(
+            big_j.status,
+            job::status::PENDING,
+            "big job must remain pending (no GPU capacity)"
+        );
+
+        // backfill 指标应至少 +1。
+        let bf = crate::metrics::scheduler_metrics().backfilled_total.get();
+        assert!(bf >= 1, "backfilled_total should be incremented, got {bf}");
     }
 }

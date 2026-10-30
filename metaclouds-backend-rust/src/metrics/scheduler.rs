@@ -37,6 +37,10 @@ pub struct SchedulerMetrics {
     pub quota_rejected_total: IntCounterVec,
     /// GPU 分配失败次数，label `reason` = `no_capacity` | `quota_exceeded` | `error`。
     pub gpu_allocation_failed_total: IntCounterVec,
+    /// Backfill 回填派发的作业数（在不阻塞高优先级作业的前提下，利用空闲容量派发的小作业）。
+    pub backfilled_total: IntCounter,
+    /// 因配额不足但成功从集群空闲容量借用的分配次数（P1-3 弹性配额）。
+    pub borrowed_quota_total: IntCounter,
 }
 
 impl SchedulerMetrics {
@@ -102,6 +106,18 @@ impl SchedulerMetrics {
         )
         .expect("register metaclouds_gpu_allocation_failed_total");
 
+        let backfilled_total = register_int_counter!(
+            "metaclouds_scheduler_backfilled_total",
+            "Total number of jobs dispatched via backfill (idle-capacity fill, not blocking priority)."
+        )
+        .expect("register metaclouds_scheduler_backfilled_total");
+
+        let borrowed_quota_total = register_int_counter!(
+            "metaclouds_quota_borrowed_total",
+            "Total number of allocations that borrowed cluster idle capacity beyond tenant nominal quota."
+        )
+        .expect("register metaclouds_quota_borrowed_total");
+
         Self {
             pending_jobs,
             running_jobs,
@@ -112,6 +128,8 @@ impl SchedulerMetrics {
             schedule_latency_seconds,
             quota_rejected_total,
             gpu_allocation_failed_total,
+            backfilled_total,
+            borrowed_quota_total,
         }
     }
 }

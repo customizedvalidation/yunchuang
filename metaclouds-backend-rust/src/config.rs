@@ -95,6 +95,24 @@ pub struct Config {
     /// 崩溃恢复宽限（秒）：running 且无 GPU 分配的孤儿作业超过该时长才回退 pending。
     pub dispatch_reconcile_grace_seconds: i64,
 
+    // ---- 调度闭环 · 利用率与公平（P1）----
+    /// P1-1 Backfill 回填：在优先级主路径之外，利用空闲容量派发能塞进剩余资源的小作业。
+    pub dispatch_backfill_enabled: bool,
+    /// Backfill 每轮额外扫描的 pending 候选数（仅 backfill 阶段使用）。
+    pub dispatch_backfill_window: usize,
+    /// P1-2 多因子动态评分：启用后用 score 排序替代静态 priority 排序。
+    pub dispatch_scoring_enabled: bool,
+    /// score 中静态优先级的权重。
+    pub dispatch_priority_weight: f64,
+    /// score 中"等待时间"奖励的权重（配合半衰期收敛）。
+    pub dispatch_age_weight: f64,
+    /// 等待时间奖励的半衰期（小时）：等待越久边际加成越小，防止无限积压。
+    pub dispatch_age_half_life_hours: f64,
+    /// score 中"公平份额"奖励的权重：租户自身用量越低得分越高。
+    pub dispatch_fairshare_weight: f64,
+    /// score 中"作业规模"惩罚的权重：大作业降分，利于小作业回填装箱。
+    pub dispatch_size_weight: f64,
+
     // ---- 链路追踪 ----
     pub tracing_enabled: bool,
     pub tracing_service_name: String,
@@ -209,6 +227,15 @@ impl Default for Config {
             dispatch_batch_size: 50,
             dispatch_max_concurrent: 10,
             dispatch_reconcile_grace_seconds: 300,
+            // P1 利用率与公平
+            dispatch_backfill_enabled: true,
+            dispatch_backfill_window: 50,
+            dispatch_scoring_enabled: true,
+            dispatch_priority_weight: 10.0,
+            dispatch_age_weight: 1.0,
+            dispatch_age_half_life_hours: 24.0,
+            dispatch_fairshare_weight: 5.0,
+            dispatch_size_weight: 0.5,
             // 链路追踪
             tracing_enabled: false,
             tracing_service_name: "metaclouds-backend".to_string(),
@@ -328,6 +355,16 @@ impl Config {
         cfg.dispatch_batch_size = env_int("DISPATCH_BATCH_SIZE", 50) as usize;
         cfg.dispatch_max_concurrent = env_int("DISPATCH_MAX_CONCURRENT", 10) as usize;
         cfg.dispatch_reconcile_grace_seconds = env_int("DISPATCH_RECONCILE_GRACE_SECONDS", 300);
+
+        // 调度闭环 · 利用率与公平（P1）
+        cfg.dispatch_backfill_enabled = env_bool("DISPATCH_BACKFILL_ENABLED", true);
+        cfg.dispatch_backfill_window = env_int("DISPATCH_BACKFILL_WINDOW", 50) as usize;
+        cfg.dispatch_scoring_enabled = env_bool("DISPATCH_SCORING_ENABLED", true);
+        cfg.dispatch_priority_weight = env_float("DISPATCH_PRIORITY_WEIGHT", 10.0);
+        cfg.dispatch_age_weight = env_float("DISPATCH_AGE_WEIGHT", 1.0);
+        cfg.dispatch_age_half_life_hours = env_float("DISPATCH_AGE_HALF_LIFE_HOURS", 24.0);
+        cfg.dispatch_fairshare_weight = env_float("DISPATCH_FAIRSHARE_WEIGHT", 5.0);
+        cfg.dispatch_size_weight = env_float("DISPATCH_SIZE_WEIGHT", 0.5);
 
         // 链路追踪
         cfg.tracing_enabled = env_bool("TRACING_ENABLED", false);

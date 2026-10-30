@@ -10,6 +10,7 @@
 //! request_id → tracing → request_logger → timing → security_headers → error_handler → panic_recover → handler
 //! ```
 
+use axum::http::StatusCode;
 use axum::middleware::from_fn;
 use axum::Router;
 
@@ -55,6 +56,10 @@ where
         // 最后注册者位于最外层：最先拿到请求，分配并透传请求 ID。
         .layer(from_fn(request_id::set_request_id))
         // 全局 30s 超时 + 响应压缩：包在整层栈最外侧，对所有路由生效。
-        .layer(tower_http::timeout::TimeoutLayer::new(std::time::Duration::from_secs(30)))
+        // 超时返回 408（与 tower_http 默认行为一致），显式化以使用非弃用 API。
+        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            std::time::Duration::from_secs(30),
+        ))
         .layer(tower_http::compression::CompressionLayer::new())
 }
