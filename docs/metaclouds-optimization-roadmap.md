@@ -124,12 +124,20 @@ Metaclouds 当前处于"**有数据模型、有配额/GPU 分配原语，但无�
   - 调试发现：测试若传 `priority: 5` 会被 `create_job` 夹紧归 0（对齐 Go 的 [0,3] 越界归 0 行为），导致评分排序与预期相反——backfill 测试已改用合法优先级 3。
   - 顺手清理预存告警：`TimeoutLayer::new` → `with_status_code(StatusCode::REQUEST_TIMEOUT, 30s)`（行为不变）。
 
-### ⏳ P2 — 高级调度（待排期）
-- P2-1 Gang 调度（all-or-nothing 准入）。
+### 🔧 P2 — 高级调度（对标 Volcano/Run:ai/Borg）
+
+- **P2-1 Gang 调度（all-or-nothing 准入）** — ✅ 已完成（2026-10-30，commit `7d23ee6`，QA 独立验证 PASS）
+  - `jobs` 新增 `gang_replicas/gang_min_available/gang_fulfilled`（双驱动迁移 012，全默认值零破坏）；`gang_replicas>1` 时按 min_available 副本资源量原子 all-or-nothing 预留（配额含借用 + GPU 逐卡分配整体成功或整体回退）。
+  - `gang_unit()` 统一放大配额请求/GPU 张数/job_size（backfill 排序与评分惩罚）；完成时按 `gang_fulfilled.max(1)` 等量释放防配额泄漏（非 Gang 回退 1 副本，行为不变）。
+  - 指标 `metaclouds_scheduler_gang_admitted_total/blocked_total`；开关 `DISPATCH_GANG_ENABLED`（默认 true，关闭按 replicas=1）。
+  - 验证：63 passed / 0 failed（+2 Gang 单测），clippy -D warnings 零告警；QA 复核回退整体性、非 Gang 释放回归、PG 迁移同构、边界值（min>replicas/0/负数宽松回退）均通过。
 - P2-2 拓扑感知（消费 `jobs.topology_affinity`）。
 - P2-3 抢占体系（REQUEUE + 豁免窗口）。
 - P2-4 GPU 时间片切分 + 申请/实耗双账本超卖回收。
 - P2-5 计费/showback + DCGM 利用率采集 + goodput 指标。
+
+### P2 backlog（QA 复核发现的非阻塞观察项）
+- `reconcile` 孤儿 running 作业（无 active GPU 分配且超宽限期）直接回退 pending 时**不释放已预留的 CPU/内存配额**——P0 既有行为，持 GPU 作业不受影响，建议后续补齐配额释放。
 
 ### 关键决策与约束
 - 既有 `priority_scheduler.rs`（645 行 mock）**保持不动**，新闭环独立成模块，确保零回归、前端 API 契约不受影响。
