@@ -88,6 +88,10 @@ pub struct Job {
     pub topology_affinity: String,
     pub topology_anti_affinity: bool,
     pub network_requirement: String,
+    // P2-1 Gang 调度：副本总数（1=非 Gang）/ 最小可运行副本数 / 已落实最小副本数。
+    pub gang_replicas: i64,
+    pub gang_min_available: i64,
+    pub gang_fulfilled: i64,
 }
 
 impl HasTimestamps for Job {
@@ -155,6 +159,10 @@ pub struct JobResponse {
     pub topology_affinity: String,
     pub topology_anti_affinity: bool,
     pub network_requirement: String,
+    // P2-1 Gang 调度
+    pub gang_replicas: i64,
+    pub gang_min_available: i64,
+    pub gang_fulfilled: i64,
 }
 
 impl From<Job> for JobResponse {
@@ -203,6 +211,9 @@ impl From<Job> for JobResponse {
             topology_affinity: j.topology_affinity,
             topology_anti_affinity: j.topology_anti_affinity,
             network_requirement: j.network_requirement,
+            gang_replicas: j.gang_replicas,
+            gang_min_available: j.gang_min_available,
+            gang_fulfilled: j.gang_fulfilled,
         }
     }
 }
@@ -221,6 +232,9 @@ pub struct NewJob {
     pub cpus: i64,
     pub memory: i64,
     pub duration: i64,
+    // P2-1 Gang 调度（副本总数 / 最小可运行副本数）。
+    pub gang_replicas: i64,
+    pub gang_min_available: i64,
 }
 
 /// INSERT 作业（自动时间戳，初始状态 pending）。
@@ -229,8 +243,9 @@ pub async fn create(pool: &DatabasePool, input: NewJob) -> AppResult<Job> {
     let res = crate::insert_id!(
         pool,
         "INSERT INTO jobs (created_at, updated_at, cluster_id, tenant_id, user_id, name, \
-         description, status, type, priority, gpus, cpus, memory, duration, progress) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 0)",
+         description, status, type, priority, gpus, cpus, memory, duration, progress, \
+         gang_replicas, gang_min_available, gang_fulfilled) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 0, ?, ?, 0)",
         |q| q
             .bind(now)
             .bind(now)
@@ -245,6 +260,8 @@ pub async fn create(pool: &DatabasePool, input: NewJob) -> AppResult<Job> {
             .bind(input.cpus)
             .bind(input.memory)
             .bind(input.duration)
+            .bind(input.gang_replicas)
+            .bind(input.gang_min_available)
     );
 
     let id = res;
@@ -351,7 +368,8 @@ pub async fn list(
         scheduler_job_id, gpu_fraction, gpu_memory_gb, gpu_vendor, qos, nodes_requested, \
         node_selector, affinity, tolerations, elastic_enabled, min_gpus, max_gpus, scaling_policy, \
         checkpoint_enabled, checkpoint_interval_minutes, max_retries, retry_count, \
-        fault_tolerance_level, topology_affinity, topology_anti_affinity, network_requirement";
+        fault_tolerance_level, topology_affinity, topology_anti_affinity, network_requirement, \
+        gang_replicas, gang_min_available, gang_fulfilled";
     let list_sql = format!(
         "SELECT {JOB_COLUMNS} FROM jobs WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?"
     );

@@ -64,6 +64,12 @@ pub struct CreateJobRequest {
     pub duration: Option<i64>,
     #[serde(default)]
     pub cluster_id: Option<i64>,
+    /// P2-1 Gang：副本总数（1 = 非 Gang），默认 1。
+    #[serde(default)]
+    pub gang_replicas: Option<i64>,
+    /// P2-1 Gang：最小可运行副本数（all-or-nothing 准入），默认 1。
+    #[serde(default)]
+    pub gang_min_available: Option<i64>,
 }
 
 /// `PUT /api/v1/jobs/:id` 请求体（全部可选）。
@@ -222,6 +228,8 @@ pub async fn create_job(
         memory: body.memory.unwrap_or(0),
         duration: body.duration.unwrap_or(0),
         cluster_id: body.cluster_id.unwrap_or(0),
+        gang_replicas: body.gang_replicas.unwrap_or(1),
+        gang_min_available: body.gang_min_available.unwrap_or(1),
     };
     let j = job::create_job(&state.pool, input, actor_from_claims(&claims)).await?;
     Ok(WithStatus {

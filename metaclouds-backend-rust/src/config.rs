@@ -112,6 +112,9 @@ pub struct Config {
     pub dispatch_fairshare_weight: f64,
     /// score 中"作业规模"惩罚的权重：大作业降分，利于小作业回填装箱。
     pub dispatch_size_weight: f64,
+    /// P2-1 Gang 调度：启用后 Gang 作业（gang_replicas > 1）按 min_available 副本做
+    /// all-or-nothing 原子准入；关闭时 Gang 作业按 replicas=1（普通作业）处理。
+    pub dispatch_gang_enabled: bool,
 
     // ---- 链路追踪 ----
     pub tracing_enabled: bool,
@@ -236,6 +239,7 @@ impl Default for Config {
             dispatch_age_half_life_hours: 24.0,
             dispatch_fairshare_weight: 5.0,
             dispatch_size_weight: 0.5,
+            dispatch_gang_enabled: true,
             // 链路追踪
             tracing_enabled: false,
             tracing_service_name: "metaclouds-backend".to_string(),
@@ -365,6 +369,7 @@ impl Config {
         cfg.dispatch_age_half_life_hours = env_float("DISPATCH_AGE_HALF_LIFE_HOURS", 24.0);
         cfg.dispatch_fairshare_weight = env_float("DISPATCH_FAIRSHARE_WEIGHT", 5.0);
         cfg.dispatch_size_weight = env_float("DISPATCH_SIZE_WEIGHT", 0.5);
+        cfg.dispatch_gang_enabled = env_bool("DISPATCH_GANG_ENABLED", true);
 
         // 链路追踪
         cfg.tracing_enabled = env_bool("TRACING_ENABLED", false);

@@ -64,6 +64,9 @@ pub struct DispatchConfig {
     pub fairshare_weight: f64,
     /// 作业规模惩罚权重。
     pub size_weight: f64,
+    /// P2-1 Gang 调度：启用后 Gang 作业按 min_available 副本做 all-or-nothing 原子准入；
+    /// 关闭时 Gang 作业按 replicas=1（普通作业）处理。
+    pub gang_enabled: bool,
 }
 
 impl DispatchConfig {
@@ -84,6 +87,7 @@ impl DispatchConfig {
             age_half_life_hours: cfg.dispatch_age_half_life_hours,
             fairshare_weight: cfg.dispatch_fairshare_weight,
             size_weight: cfg.dispatch_size_weight,
+            gang_enabled: cfg.dispatch_gang_enabled,
         }
     }
 }
@@ -199,8 +203,8 @@ async fn dispatch_tick(pool: &DatabasePool, config: &DispatchConfig) -> AppResul
     if config.backfill_enabled {
         let mut backfill: Vec<&Job> = ordered.into_iter().skip(budget).collect();
         backfill.sort_by(|a, b| {
-            job_size(a)
-                .partial_cmp(&job_size(b))
+            job_size(a, gang_unit(a, config))
+                .partial_cmp(&job_size(b, gang_unit(b, config)))
                 .unwrap_or(Ordering::Equal)
                 .then_with(|| a.created_at.cmp(&b.created_at))
                 .then_with(|| a.id.cmp(&b.id))
@@ -219,9 +223,26 @@ async fn dispatch_tick(pool: &DatabasePool, config: &DispatchConfig) -> AppResul
     Ok(())
 }
 
+/// P2-1 Gang 调度的准入副本数（unit）。
+///
+/// - Gang 关闭，或作业非 Gang（`gang_replicas <= 1`）→ 1（按普通单副本作业处理）。
+/// - Gang 开启且 `gang_replicas > 1` → `gang_min_available.max(1)`：
+///   调度按该副本数的资源量做 all-or-nothing 原子预留（对标 Volcano PodGroup
+///   minMember / Borg gang 语义）。
+fn gang_unit(job: &Job, config: &DispatchConfig) -> i64 {
+    if config.gang_enabled && job.gang_replicas > 1 {
+        job.gang_min_available.max(1)
+    } else {
+        1
+    }
+}
+
 /// 作业规模归一化（用于 Backfill 优先派发小作业 + 评分惩罚）。
-fn job_size(job: &Job) -> f64 {
-    job.gpus as f64 + job.cpus as f64 / 8.0 + job.memory as f64 / 64.0
+///
+/// Gang 作业按准入副本数 `unit` 放大，保证大资源 Gang 作业正确参与排序/惩罚。
+fn job_size(job: &Job, unit: i64) -> f64 {
+    let u = unit.max(1) as f64;
+    u * (job.gpus as f64 + job.cpus as f64 / 8.0 + job.memory as f64 / 64.0)
 }
 
 /// 计算各租户的配额用量比例（used / limit，clamp 到 [0,1]）；无配额（无限额）视为 0。
@@ -290,7 +311,7 @@ fn dispatch_scores(
         let ratio = tenant_ratio.get(&job.tenant_id).copied().unwrap_or(0.0);
         let fairshare_bonus = config.fairshare_weight * (1.0 - ratio);
 
-        let size_penalty = config.size_weight * job_size(job);
+        let size_penalty = config.size_weight * job_size(job, gang_unit(job, config));
 
         let score = priority_term + age_bonus + fairshare_bonus - size_penalty;
         scores.insert(job.id, score);
@@ -306,6 +327,10 @@ fn dispatch_scores(
 /// 返回 `Err`。认领成功后、所有资源预留成功前，作业短暂处于 `running` 半状态——若此窗口
 /// 内进程崩溃，[`reconcile`] 会安全回退/重挂接。
 async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfig) -> AppResult<bool> {
+    // P2-1 Gang：准入副本数（非 Gang 或开关关闭时为 1，行为与既有路径完全一致）。
+    let unit = gang_unit(job, config);
+    let is_gang = unit > 1;
+
     // 原子认领 pending→running，仅当仍是 pending。
     let now = Utc::now();
     let claimed = crate::with_db!(
@@ -333,10 +358,11 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
         .observe(age);
 
     // 配额预留（若租户存在 active 配额；无配额视为无限）。
+    // Gang 作业：请求量 = min_available 副本 × 各资源（all-or-nothing 原子预留）。
     let quota_req = QuotaRequest {
-        gpu: job.gpus,
-        cpu: job.cpus as f64,
-        memory_gb: job.memory as f64,
+        gpu: job.gpus * unit,
+        cpu: job.cpus as f64 * unit as f64,
+        memory_gb: job.memory as f64 * unit as f64,
         storage_gb: 0.0,
     };
     let partition = if job.partition_id > 0 {
@@ -358,6 +384,10 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
                     .quota_rejected_total
                     .with_label_values(&[&job.tenant_id.to_string(), "combined"])
                     .inc();
+                if is_gang {
+                    // Gang 准入失败（任一副本资源不足即整体失败）。
+                    crate::metrics::scheduler_metrics().gang_blocked_total.inc();
+                }
                 revert_to_pending(pool, job.id).await?;
                 return Ok(false);
             }
@@ -366,9 +396,11 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
     };
 
     // GPU 分配（仅当作业请求 GPU）。逐卡分配，失败则释放已分配部分并回退。
+    // Gang 作业：共分配 min_available 副本 × gpus 张卡，任一张不足即整体回退。
     if job.gpus > 0 {
+        let total_cards = job.gpus * unit;
         let mut alloc_ok = true;
-        for _ in 0..job.gpus {
+        for _ in 0..total_cards {
             match gpu::allocate_gpu(
                 pool,
                 gpu::AllocateGpuInput {
@@ -408,9 +440,32 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
             if let Some(qid) = quota_id {
                 let _ = quota::release_resources(pool, qid, quota_req).await;
             }
+            if is_gang {
+                // Gang 准入失败（任一副本 GPU 不足即整体失败）。
+                crate::metrics::scheduler_metrics().gang_blocked_total.inc();
+            }
             revert_to_pending(pool, job.id).await?;
             return Ok(false);
         }
+    }
+
+    // P2-1 Gang：min_available 副本资源全部原子预留成功 → 落实 gang_fulfilled 并计指标。
+    if is_gang {
+        crate::with_db!(
+            pool,
+            "UPDATE jobs SET gang_fulfilled = ?, updated_at = ? \
+             WHERE id = ? AND deleted_at IS NULL",
+            |db_s, db_e| {
+                sqlx::query(db_s)
+                    .bind(unit)
+                    .bind(Utc::now())
+                    .bind(job.id)
+                    .execute(db_e)
+                    .await?
+                    .rows_affected()
+            }
+        );
+        crate::metrics::scheduler_metrics().gang_admitted_total.inc();
     }
 
     // 全部预留成功 → 挂接模拟执行任务。
@@ -479,10 +534,13 @@ async fn complete_running_job(pool: &DatabasePool, job_id: i64) -> AppResult<()>
         None
     };
     if let Some(q) = quota::find_quota_for_scope(pool, job.tenant_id, partition).await? {
+        // P2-1 Gang：释放量必须与预留量一致——Gang 准入时按 min_available 副本
+        // 预留（落库在 gang_fulfilled），非 Gang 作业 gang_fulfilled=0 → 按 1 副本释放。
+        let unit = job.gang_fulfilled.max(1);
         let req = QuotaRequest {
-            gpu: job.gpus,
-            cpu: job.cpus as f64,
-            memory_gb: job.memory as f64,
+            gpu: job.gpus * unit,
+            cpu: job.cpus as f64 * unit as f64,
+            memory_gb: job.memory as f64 * unit as f64,
             storage_gb: 0.0,
         };
         let _ = quota::release_resources(pool, q.id, req).await;
@@ -594,6 +652,7 @@ mod tests {
             age_half_life_hours: 24.0,
             fairshare_weight: 5.0,
             size_weight: 0.5,
+            gang_enabled: true,
         }
     }
 
@@ -657,6 +716,8 @@ mod tests {
                 memory: 0,
                 duration: 0,
                 cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
             },
             crate::services::job::Actor {
                 tenant_id: 1,
@@ -718,6 +779,8 @@ mod tests {
                 memory: 0,
                 duration: 0,
                 cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
             },
             crate::services::job::Actor {
                 tenant_id: 2,
@@ -762,6 +825,8 @@ mod tests {
                 memory: 0,
                 duration: 0,
                 cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
             },
             crate::services::job::Actor {
                 tenant_id: 1,
@@ -785,6 +850,8 @@ mod tests {
                 memory: 0,
                 duration: 0,
                 cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
             },
             crate::services::job::Actor {
                 tenant_id: 1,
@@ -832,5 +899,229 @@ mod tests {
         // backfill 指标应至少 +1。
         let bf = crate::metrics::scheduler_metrics().backfilled_total.get();
         assert!(bf >= 1, "backfilled_total should be incremented, got {bf}");
+    }
+
+    /// 播种一张 available 的 GPU 设备（简化测试样板）。
+    async fn seed_gpu_device(pool: &DatabasePool, node: &str, index: i64) {
+        gpu::create_gpu_device(
+            pool,
+            gpu::CreateGpuDeviceInput {
+                cluster_id: 1,
+                node_name: node.into(),
+                vendor: "nvidia".into(),
+                model: "A100".into(),
+                index,
+                total_memory_gb: 80,
+                allocatable_memory_gb: 80,
+                used_memory_gb: 0,
+                mig_enabled: false,
+                mig_profiles: "[]".into(),
+                driver_version: "".into(),
+                cuda_version: "".into(),
+                status: Some("available".into()),
+                utilization: 0.0,
+                temperature: 0,
+                power_draw: 0,
+                details: "".into(),
+            },
+        )
+        .await
+        .expect("create gpu device");
+    }
+
+    #[tokio::test]
+    async fn test_gang_job_blocked_when_resources_insufficient() {
+        let pool = setup_pool().await;
+
+        // 仅播种 1 张 GPU 设备 + 租户配额。
+        seed_gpu_device(&pool, "node-1", 0).await;
+        quota::create_quota(
+            &pool,
+            quota::CreateQuotaInput {
+                name: "gang-q".into(),
+                description: "".into(),
+                tenant_id: 1,
+                partition_id: None,
+                gpu_limit: 4,
+                cpu_limit: 100.0,
+                memory_limit_gb: 100.0,
+                storage_limit_gb: 100.0,
+                status: Some("active".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("create quota");
+
+        // Gang 作业：2 副本 × 1 GPU = 需 2 张卡 min_available，但集群只有 1 张 → 整体阻塞。
+        let created = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "gang-blocked".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 2,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 2,
+                gang_min_available: 2,
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create gang job");
+
+        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+
+        // 作业必须仍为 pending（all-or-nothing：任一副本资源不足即整体回退）。
+        let j = crate::services::job::get_job_unscoped(&pool, created.id)
+            .await
+            .expect("get gang job");
+        assert_eq!(
+            j.status,
+            job::status::PENDING,
+            "gang job must remain pending when min_available replicas cannot be reserved"
+        );
+        assert_eq!(j.gang_fulfilled, 0, "blocked gang job must not record gang_fulfilled");
+
+        // 回退后不得残留 active GPU 分配（整体回退清理）。
+        let active: i64 = crate::with_db!(
+            &pool,
+            "SELECT COUNT(*) FROM gpu_allocations WHERE job_id = ? AND status = 'active' AND deleted_at IS NULL",
+            |db_s, db_e| crate::db::query_scalar_db(db_e, db_s)
+                .bind(created.id)
+                .fetch_one(db_e)
+                .await
+        )
+        .expect("count active allocations");
+        assert_eq!(active, 0, "blocked gang job must release partially allocated gpus");
+
+        // gang_blocked_total 应至少 +1。
+        let blocked = crate::metrics::scheduler_metrics().gang_blocked_total.get();
+        assert!(blocked >= 1, "gang_blocked_total should be incremented, got {blocked}");
+    }
+
+    #[tokio::test]
+    async fn test_gang_job_admitted_when_min_available_satisfied() {
+        let pool = setup_pool().await;
+
+        // 播种 2 张 GPU 设备 + 足量配额 → 2 副本 × 1 GPU = 2 张卡可满足。
+        seed_gpu_device(&pool, "node-1", 0).await;
+        seed_gpu_device(&pool, "node-1", 1).await;
+        quota::create_quota(
+            &pool,
+            quota::CreateQuotaInput {
+                name: "gang-q".into(),
+                description: "".into(),
+                tenant_id: 1,
+                partition_id: None,
+                gpu_limit: 8,
+                cpu_limit: 100.0,
+                memory_limit_gb: 100.0,
+                storage_limit_gb: 100.0,
+                status: Some("active".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("create quota");
+
+        // Gang 作业：gang_replicas=2、gang_min_available=2、每副本 1 GPU + 2 CPU + 8G 内存。
+        let created = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "gang-admitted".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 2,
+                gpus: 1,
+                cpus: 2,
+                memory: 8,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 2,
+                gang_min_available: 2,
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create gang job");
+
+        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+
+        // 派发后（模拟执行睡眠窗口内）作业应 running，且资源按 2 副本原子预留：
+        // gang_fulfilled=2、配额 gpu_used=2/cpu_used=4/mem=16、active GPU 分配=2 张。
+        let j = crate::services::job::get_job_unscoped(&pool, created.id)
+            .await
+            .expect("get gang job");
+        assert_eq!(j.status, job::status::RUNNING, "gang job should be running after admission");
+        assert_eq!(j.gang_fulfilled, 2, "gang_fulfilled must equal min_available on admission");
+
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 2, "quota gpu_used must account for 2 replicas");
+        assert!((q.cpu_used - 4.0).abs() < 1e-9, "quota cpu_used must account for 2 replicas");
+        assert!(
+            (q.memory_used_gb - 16.0).abs() < 1e-9,
+            "quota memory_used_gb must account for 2 replicas"
+        );
+
+        let active: i64 = crate::with_db!(
+            &pool,
+            "SELECT COUNT(*) FROM gpu_allocations WHERE job_id = ? AND status = 'active' AND deleted_at IS NULL",
+            |db_s, db_e| crate::db::query_scalar_db(db_e, db_s)
+                .bind(created.id)
+                .fetch_one(db_e)
+                .await
+        )
+        .expect("count active allocations");
+        assert_eq!(active, 2, "must allocate min_available × gpus = 2 cards");
+
+        // gang_admitted_total 应至少 +1。
+        let admitted = crate::metrics::scheduler_metrics().gang_admitted_total.get();
+        assert!(admitted >= 1, "gang_admitted_total should be incremented, got {admitted}");
+
+        // 随后模拟执行完成：资源应按 2 副本等量释放（配额归零、无残留分配）。
+        let mut completed = false;
+        for _ in 0..100 {
+            let j = crate::services::job::get_job_unscoped(&pool, created.id)
+                .await
+                .expect("get job");
+            if j.status == job::status::COMPLETED {
+                completed = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+        assert!(completed, "gang job should reach completed after dispatch");
+
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 0, "quota must be fully released after completion (2 replicas)");
+        let active: i64 = crate::with_db!(
+            &pool,
+            "SELECT COUNT(*) FROM gpu_allocations WHERE job_id = ? AND status = 'active' AND deleted_at IS NULL",
+            |db_s, db_e| crate::db::query_scalar_db(db_e, db_s)
+                .bind(created.id)
+                .fetch_one(db_e)
+                .await
+        )
+        .expect("count active allocations");
+        assert_eq!(active, 0, "all gang gpu allocations must be released after completion");
     }
 }

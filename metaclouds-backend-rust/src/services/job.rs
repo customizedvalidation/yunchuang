@@ -35,6 +35,10 @@ pub struct CreateJobInput {
     pub memory: i64,
     pub duration: i64,
     pub cluster_id: i64,
+    /// P2-1 Gang：副本总数，默认 1（= 非 Gang）。
+    pub gang_replicas: i64,
+    /// P2-1 Gang：最小可运行副本数，默认 1。
+    pub gang_min_available: i64,
 }
 
 /// 更新作业入参（对应 Go `UpdateJobRequest`；全部可选）。
@@ -62,6 +66,19 @@ pub async fn create_job(
         0
     };
 
+    // P2-1 Gang：宽松校验，非法值回退默认 1（不报错）。
+    //   gang_replicas >= 1；1 <= gang_min_available <= gang_replicas。
+    let gang_replicas = if input.gang_replicas >= 1 {
+        input.gang_replicas
+    } else {
+        1
+    };
+    let gang_min_available = if (1..=gang_replicas).contains(&input.gang_min_available) {
+        input.gang_min_available
+    } else {
+        1
+    };
+
     let job = job::create(
         pool,
         NewJob {
@@ -76,6 +93,8 @@ pub async fn create_job(
             cpus: input.cpus,
             memory: input.memory,
             duration: input.duration,
+            gang_replicas,
+            gang_min_available,
         },
     )
     .await?;

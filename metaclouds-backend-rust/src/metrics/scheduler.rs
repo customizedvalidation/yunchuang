@@ -41,6 +41,10 @@ pub struct SchedulerMetrics {
     pub backfilled_total: IntCounter,
     /// 因配额不足但成功从集群空闲容量借用的分配次数（P1-3 弹性配额）。
     pub borrowed_quota_total: IntCounter,
+    /// Gang 作业成功通过 all-or-nothing 最小副本准入的次数（P2-1 Gang 调度）。
+    pub gang_admitted_total: IntCounter,
+    /// Gang 作业因 min_available 副本资源不足被整体阻塞（回退 pending）的次数（P2-1）。
+    pub gang_blocked_total: IntCounter,
 }
 
 impl SchedulerMetrics {
@@ -118,6 +122,18 @@ impl SchedulerMetrics {
         )
         .expect("register metaclouds_quota_borrowed_total");
 
+        let gang_admitted_total = register_int_counter!(
+            "metaclouds_scheduler_gang_admitted_total",
+            "Total number of gang jobs admitted via all-or-nothing min_available atomic reservation."
+        )
+        .expect("register metaclouds_scheduler_gang_admitted_total");
+
+        let gang_blocked_total = register_int_counter!(
+            "metaclouds_scheduler_gang_blocked_total",
+            "Total number of gang jobs blocked (reverted to pending) because min_available replicas' resources were insufficient."
+        )
+        .expect("register metaclouds_scheduler_gang_blocked_total");
+
         Self {
             pending_jobs,
             running_jobs,
@@ -130,6 +146,8 @@ impl SchedulerMetrics {
             gpu_allocation_failed_total,
             backfilled_total,
             borrowed_quota_total,
+            gang_admitted_total,
+            gang_blocked_total,
         }
     }
 }
