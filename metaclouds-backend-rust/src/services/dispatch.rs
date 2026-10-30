@@ -73,6 +73,11 @@ pub struct DispatchConfig {
     /// P2-2 拓扑感知：消费 jobs.topology_affinity，把作业全部 GPU 副本共置到同一节点
     /// （node/rack/switch 级别）或钉到指定节点（node:<name> / 裸节点名）。默认开启。
     pub topology_enabled: bool,
+    /// P2-4 GPU 时间片：设备 fraction 容量上限（Σ active fraction ≤ 该值）。
+    /// 1.0 = 不超卖（与既有行为完全一致）；>1.0 允许同卡多份额共享。配置 <1.0 视为 1.0。
+    pub gpu_timeslice_max: f64,
+    /// P2-4 实耗采样：模拟利用率，actual = 申请量 × 该值。
+    pub simulated_utilization: f64,
 }
 
 impl DispatchConfig {
@@ -95,6 +100,8 @@ impl DispatchConfig {
             size_weight: cfg.dispatch_size_weight,
             gang_enabled: cfg.dispatch_gang_enabled,
             topology_enabled: cfg.dispatch_topology_enabled,
+            gpu_timeslice_max: cfg.dispatch_gpu_timeslice_max.max(1.0),
+            simulated_utilization: cfg.dispatch_simulated_utilization.clamp(0.0, 1.0),
         }
     }
 }
@@ -366,6 +373,13 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
 
     // 配额预留（若租户存在 active 配额；无配额视为无限）。
     // Gang 作业：请求量 = min_available 副本 × 各资源（all-or-nothing 原子预留）。
+    // P2-4：GPU 卡等效需求 = 申请卡数 × 实际份额（fraction<1 的作业按份额折算），
+    // 供回收准入与可回收量同口径比较；ledger 仍按申请卡数累加。
+    let eff_fraction = if job.gpu_fraction > 0.0 {
+        job.gpu_fraction
+    } else {
+        1.0
+    };
     let quota_req = QuotaRequest {
         gpu: job.gpus * unit,
         cpu: job.cpus as f64 * unit as f64,
@@ -378,29 +392,59 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
         None
     };
     let quota_id = match quota::find_quota_for_scope(pool, job.tenant_id, partition).await? {
-        Some(q) => match quota::allocate_resources_with_borrow(pool, q.id, quota_req).await {
-            Ok(_) => Some(q.id),
-            Err(e) => {
-                tracing::debug!(
-                    job_id = job.id,
-                    tenant_id = job.tenant_id,
-                    error = %e,
-                    "quota insufficient; revert to pending"
-                );
-                crate::metrics::scheduler_metrics()
-                    .quota_rejected_total
-                    .with_label_values(&[&job.tenant_id.to_string(), "combined"])
-                    .inc();
-                if is_gang {
-                    // Gang 准入失败（任一副本资源不足即整体失败）。
-                    crate::metrics::scheduler_metrics().gang_blocked_total.inc();
+        Some(q) => {
+            match quota::allocate_resources_with_borrow(
+                pool,
+                q.id,
+                quota_req,
+                quota_req.gpu as f64 * eff_fraction,
+            )
+            .await
+            {
+                Ok(_) => Some(q.id),
+                Err(e) => {
+                    tracing::debug!(
+                        job_id = job.id,
+                        tenant_id = job.tenant_id,
+                        error = %e,
+                        "quota insufficient; revert to pending"
+                    );
+                    crate::metrics::scheduler_metrics()
+                        .quota_rejected_total
+                        .with_label_values(&[&job.tenant_id.to_string(), "combined"])
+                        .inc();
+                    if is_gang {
+                        // Gang 准入失败（任一副本资源不足即整体失败）。
+                        crate::metrics::scheduler_metrics().gang_blocked_total.inc();
+                    }
+                    revert_to_pending(pool, job.id).await?;
+                    return Ok(false);
                 }
-                revert_to_pending(pool, job.id).await?;
-                return Ok(false);
             }
-        },
+        }
         None => None,
     };
+
+    // P2-4 C 修复：配额预留成功后**立即**落实 gang_fulfilled = unit，消除
+    // 「配额已按 unit 预留、gang_fulfilled 仍为 0」的崩溃窗口——该窗口内崩溃时
+    // reconcile 只能按 1 副本释放，泄漏 (unit−1) 倍配额。GPU 失败回退路径的释放量
+    // 本就按 unit 倍的 quota_req，且 revert_to_pending 会清零 gang_fulfilled，不受影响。
+    if is_gang {
+        crate::with_db!(
+            pool,
+            "UPDATE jobs SET gang_fulfilled = ?, updated_at = ? \
+             WHERE id = ? AND deleted_at IS NULL",
+            |db_s, db_e| {
+                sqlx::query(db_s)
+                    .bind(unit)
+                    .bind(Utc::now())
+                    .bind(job.id)
+                    .execute(db_e)
+                    .await?
+                    .rows_affected()
+            }
+        );
+    }
 
     // GPU 分配（P2-2 拓扑感知：topology_affinity 约束下共置 / 钉节点放置）。
     // Gang 作业：共分配 min_available 副本 × gpus 张卡，任一张不足即整体回退。
@@ -418,26 +462,13 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
         return Ok(false);
     }
 
-    // P2-1 Gang：min_available 副本资源全部原子预留成功 → 落实 gang_fulfilled 并计指标。
+    // P2-1 Gang：min_available 副本资源全部原子预留成功 → 计准入指标
+    // （gang_fulfilled 已在配额预留后提前落库，见上）。
     if is_gang {
-        crate::with_db!(
-            pool,
-            "UPDATE jobs SET gang_fulfilled = ?, updated_at = ? \
-             WHERE id = ? AND deleted_at IS NULL",
-            |db_s, db_e| {
-                sqlx::query(db_s)
-                    .bind(unit)
-                    .bind(Utc::now())
-                    .bind(job.id)
-                    .execute(db_e)
-                    .await?
-                    .rows_affected()
-            }
-        );
         crate::metrics::scheduler_metrics().gang_admitted_total.inc();
     }
 
-    // 全部预留成功 → 挂接模拟执行任务。
+    // 全部预留成功 → 挂接模拟执行任务 + 实耗采样任务（P2-4 双账本）。
     let pool2 = pool.clone();
     let job_id = job.id;
     let sim_ms = config.simulated_run_ms;
@@ -448,7 +479,56 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
         }
     });
 
+    // P2-4 B 实耗采样：模拟运行到一半时点，把"申请 × simulated_utilization"落到
+    // *_actual 列。仅当作业仍为 running 时生效（已 completed/回退则条件不满足，无害）。
+    let pool3 = pool.clone();
+    let sample_job_id = job.id;
+    let utilization = config.simulated_utilization;
+    let sample = UsageSample {
+        gpu_fraction_actual: eff_fraction * utilization,
+        cpu_actual: job.cpus as f64 * unit as f64 * utilization,
+        memory_gb_actual: job.memory as f64 * unit as f64 * utilization,
+    };
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(sim_ms / 2)).await;
+        if let Err(e) = sample_job_usage(&pool3, sample_job_id, &sample).await {
+            tracing::warn!(job_id = sample_job_id, error = %e, "usage sampler failed");
+        }
+    });
+
     Ok(true)
+}
+
+/// P2-4 实耗采样值（申请量 × 模拟利用率）。
+struct UsageSample {
+    gpu_fraction_actual: f64,
+    cpu_actual: f64,
+    memory_gb_actual: f64,
+}
+
+/// 落实一次实耗采样：仅当作业仍为 running 时写 *_actual 与 usage_sampled_at。
+async fn sample_job_usage(
+    pool: &DatabasePool,
+    job_id: i64,
+    sample: &UsageSample,
+) -> AppResult<()> {
+    crate::with_db!(
+        pool,
+        "UPDATE jobs SET gpu_fraction_actual = ?, cpu_actual = ?, memory_gb_actual = ?, \
+         usage_sampled_at = ? WHERE id = ? AND status = 'running' AND deleted_at IS NULL",
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(sample.gpu_fraction_actual)
+                .bind(sample.cpu_actual)
+                .bind(sample.memory_gb_actual)
+                .bind(Utc::now())
+                .bind(job_id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +597,7 @@ async fn select_topology_node(
     job: &Job,
     placement: &TopoPlacement,
     total_cards: i64,
+    timeslice_max: f64,
 ) -> AppResult<Option<String>> {
     let node_filter: Option<String> = match placement {
         TopoPlacement::Pinned(n) => Some(n.clone()),
@@ -563,7 +644,9 @@ async fn select_topology_node(
     );
     let frac_map: std::collections::HashMap<i64, f64> = frac_rows.into_iter().collect();
 
-    // 3) 按节点统计满足单卡需求的可用卡数。
+    // 3) 按节点统计满足单卡需求的可用卡数（P2-4：fraction 容量与 allocate_gpu
+    //    同口径，上限 timeslice_max，保证预选结论与实际分配一致）。
+    let slice_cap = timeslice_max.max(1.0);
     let mut per_node: HashMap<String, i64> = HashMap::new();
     for d in &devices {
         if !vendor.is_empty() && d.vendor != vendor {
@@ -573,7 +656,7 @@ async fn select_topology_node(
             continue;
         }
         let used = frac_map.get(&d.id).copied().unwrap_or(0.0);
-        if (1.0 - used) + 0.001 < fraction {
+        if used + fraction > slice_cap + 0.001 {
             continue;
         }
         *per_node.entry(d.node_name.clone()).or_insert(0) += 1;
@@ -616,7 +699,9 @@ async fn allocate_gpus_for_job(
 
     // 预选节点：无满足节点即正确背压（blocked 指标 + 回退），不产生任何部分分配。
     let pinned_node: Option<String> = if constraint_active {
-        match select_topology_node(pool, job, &placement, total_cards).await? {
+        match select_topology_node(pool, job, &placement, total_cards, config.gpu_timeslice_max)
+            .await?
+        {
             Some(node) => Some(node),
             None => {
                 tracing::debug!(
@@ -650,6 +735,7 @@ async fn allocate_gpus_for_job(
                 vendor: job.gpu_vendor.clone(),
                 node_name: node_name.clone(),
             },
+            config.gpu_timeslice_max,
         )
         .await;
         match res {
@@ -681,11 +767,14 @@ async fn allocate_gpus_for_job(
     Ok(true)
 }
 
-/// 回退作业为 pending（清除 start_time），仅当当前仍为 running。
+/// 回退作业为 pending（清除 start_time 与 gang_fulfilled），仅当当前仍为 running。
+///
+/// P2-4 C：同步清零 gang_fulfilled，保持不变量「gang_fulfilled > 0 ⇔ 作业 running
+/// 且按 unit 倍持有配额」——所有回退路径在此前已完成配额释放，清零后重派发会重写。
 async fn revert_to_pending(pool: &DatabasePool, job_id: i64) -> AppResult<()> {
     crate::with_db!(
         pool,
-        "UPDATE jobs SET status = 'pending', start_time = NULL, updated_at = ? \
+        "UPDATE jobs SET status = 'pending', start_time = NULL, gang_fulfilled = 0, updated_at = ? \
          WHERE id = ? AND status = 'running' AND deleted_at IS NULL",
         |db_s, db_e| {
             sqlx::query(db_s)
@@ -696,6 +785,42 @@ async fn revert_to_pending(pool: &DatabasePool, job_id: i64) -> AppResult<()> {
                 .rows_affected()
         }
     );
+    Ok(())
+}
+
+/// P2-4 C：释放量副本数。
+///
+/// Gang 作业按 `max(gang_fulfilled, gang_min_available, 1)` 释放——崩溃窗口（配额已按
+/// unit 预留、gang_fulfilled 因进程终止未及落库/读取到旧值）也能等量释放，消除
+/// (unit−1) 倍配额泄漏。非 Gang 作业恒为 1（行为与既有路径一致）。
+fn release_unit(job: &Job) -> i64 {
+    if job.gang_replicas > 1 {
+        job.gang_fulfilled.max(job.gang_min_available).max(1)
+    } else {
+        1
+    }
+}
+
+/// 释放某作业预留的全部配额（按 release_unit 副本数等量扣减）。
+///
+/// 由完成路径（complete_running_job）与 reconcile 孤儿回退路径共用，确保释放逻辑
+/// 单一来源、释放量与预留量一致。
+async fn release_quota_for_job(pool: &DatabasePool, job: &Job) -> AppResult<()> {
+    let partition = if job.partition_id > 0 {
+        Some(job.partition_id)
+    } else {
+        None
+    };
+    if let Some(q) = quota::find_quota_for_scope(pool, job.tenant_id, partition).await? {
+        let unit = release_unit(job);
+        let req = QuotaRequest {
+            gpu: job.gpus * unit,
+            cpu: job.cpus as f64 * unit as f64,
+            memory_gb: job.memory as f64 * unit as f64,
+            storage_gb: 0.0,
+        };
+        let _ = quota::release_resources(pool, q.id, req).await;
+    }
     Ok(())
 }
 
@@ -726,24 +851,8 @@ async fn complete_running_job(pool: &DatabasePool, job_id: i64) -> AppResult<()>
         .await?
         .ok_or_else(|| crate::error::AppError::internal("job disappeared during completion"))?;
 
-    // 释放配额（若租户有 active 配额）。
-    let partition = if job.partition_id > 0 {
-        Some(job.partition_id)
-    } else {
-        None
-    };
-    if let Some(q) = quota::find_quota_for_scope(pool, job.tenant_id, partition).await? {
-        // P2-1 Gang：释放量必须与预留量一致——Gang 准入时按 min_available 副本
-        // 预留（落库在 gang_fulfilled），非 Gang 作业 gang_fulfilled=0 → 按 1 副本释放。
-        let unit = job.gang_fulfilled.max(1);
-        let req = QuotaRequest {
-            gpu: job.gpus * unit,
-            cpu: job.cpus as f64 * unit as f64,
-            memory_gb: job.memory as f64 * unit as f64,
-            storage_gb: 0.0,
-        };
-        let _ = quota::release_resources(pool, q.id, req).await;
-    }
+    // 释放配额（若租户有 active 配额；释放量按 release_unit 与预留量等量）。
+    release_quota_for_job(pool, &job).await?;
 
     // 释放 GPU。
     release_gpu_for_job(pool, job_id).await?;
@@ -810,8 +919,11 @@ async fn reconcile(pool: &DatabasePool, config: &DispatchConfig) -> AppResult<()
             if stale {
                 tracing::info!(
                     job_id = job.id,
-                    "reconcile: orphaned running job without gpu allocation -> revert to pending"
+                    "reconcile: orphaned running job without gpu allocation -> release quota, revert to pending"
                 );
+                // P2-4 C：孤儿回退前先等量释放其预留的配额（含 Gang unit 倍），
+                // 消除孤儿 running 作业的配额泄漏；随后回退（并清零 gang_fulfilled）。
+                release_quota_for_job(pool, &job).await?;
                 revert_to_pending(pool, job.id).await?;
             }
         }
@@ -857,6 +969,8 @@ mod tests {
             size_weight: 0.5,
             gang_enabled: true,
             topology_enabled: true,
+            gpu_timeslice_max: 1.0,
+            simulated_utilization: 0.75,
         }
     }
 
@@ -1367,6 +1481,31 @@ mod tests {
             .expect("set topology affinity");
     }
 
+    /// 直接改写作业的 gpu_fraction（0 < f ≤ 1；绕过 API——P2-4 时间片测试用）。
+    async fn set_gpu_fraction(pool: &DatabasePool, job_id: i64, fraction: f64) {
+        let sqlite = pool.as_sqlite().expect("test pool must be sqlite");
+        sqlx::query("UPDATE jobs SET gpu_fraction = ? WHERE id = ?")
+            .bind(fraction)
+            .bind(job_id)
+            .execute(sqlite)
+            .await
+            .expect("set gpu fraction");
+    }
+
+    /// 轮询等待作业完成实耗采样（usage_sampled_at 非空）。
+    async fn wait_for_sampling(pool: &DatabasePool, job_id: i64) -> bool {
+        for _ in 0..200 {
+            let j = crate::services::job::get_job_unscoped(pool, job_id)
+                .await
+                .expect("get job");
+            if j.usage_sampled_at.is_some() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
+
     /// 轮询等待作业进入期望状态。
     async fn wait_for_status(pool: &DatabasePool, job_id: i64, status: &str) -> bool {
         for _ in 0..100 {
@@ -1742,5 +1881,340 @@ mod tests {
             .expect("find quota")
             .expect("some quota");
         assert_eq!(q.gpu_used, 0, "quota must be fully released after completion");
+    }
+
+    /// 查询作业历史（含已释放）GPU 分配所在设备 id（共享判定不受完成竞态影响）。
+    async fn allocation_device_ids_any_status(pool: &DatabasePool, job_id: i64) -> Vec<i64> {
+        crate::with_db!(
+            pool,
+            "SELECT DISTINCT device_id FROM gpu_allocations \
+             WHERE job_id = ? AND deleted_at IS NULL",
+            |db_s, db_e| crate::db::query_scalar_db(db_e, db_s)
+                .bind(job_id)
+                .fetch_all(db_e)
+                .await
+        )
+        .expect("query allocation device ids (any status)")
+    }
+
+    /// P2-4 A 时间片：默认 timeslice_max=1.0 不超卖（0.6+0.6 被拒）；
+    /// 调到 1.2 后两作业共享同卡成功。
+    #[tokio::test]
+    async fn test_gpu_timeslice_oversubscription_gated_by_config() {
+        let pool = setup_pool().await;
+
+        seed_gpu_device(&pool, "node-1", 0).await;
+        seed_quota(&pool, "ts-q", 8).await;
+
+        // 两个 fraction=0.6 的作业：默认容量 1.0 下第二个必须被拒。
+        let job1 = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "ts-a".into(),
+                description: "".into(),
+                kind: "inference".into(),
+                priority: 1,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: String::new(),
+            },
+            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+        )
+        .await
+        .expect("create job1");
+        set_gpu_fraction(&pool, job1.id, 0.6).await;
+
+        let job2 = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "ts-b".into(),
+                description: "".into(),
+                kind: "inference".into(),
+                priority: 0,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: String::new(),
+            },
+            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+        )
+        .await
+        .expect("create job2");
+        set_gpu_fraction(&pool, job2.id, 0.6).await;
+
+        // 第一轮：job1（高优先级）先派发占 0.6；job2 的 0.6+0.6=1.2 > 1.0 → 回退 pending。
+        // 拉长模拟执行窗口，保证后续断言在完成前完成（避免完成竞态）。
+        let mut cfg = dispatch_config();
+        cfg.simulated_run_ms = 500;
+        dispatch_tick(&pool, &cfg).await.expect("dispatch tick");
+        let j1 = crate::services::job::get_job_unscoped(&pool, job1.id).await.expect("get j1");
+        assert_eq!(j1.status, job::status::RUNNING, "first fractional job must be admitted");
+        let j2 = crate::services::job::get_job_unscoped(&pool, job2.id).await.expect("get j2");
+        assert_eq!(
+            j2.status,
+            job::status::PENDING,
+            "0.6 + 0.6 must exceed default timeslice_max=1.0 and stay pending"
+        );
+
+        // 第二轮：timeslice_max=1.2 → 1.2 ≤ 1.201，两作业共享同一张卡。
+        let mut cfg2 = cfg.clone();
+        cfg2.gpu_timeslice_max = 1.2;
+        dispatch_tick(&pool, &cfg2).await.expect("dispatch tick 2");
+        let j2 = crate::services::job::get_job_unscoped(&pool, job2.id).await.expect("get j2");
+        assert_eq!(j2.status, job::status::RUNNING, "job2 must be admitted with timeslice_max=1.2");
+
+        let d1 = allocation_device_ids_any_status(&pool, job1.id).await;
+        let d2 = allocation_device_ids_any_status(&pool, job2.id).await;
+        assert_eq!(d1.len(), 1, "job1 holds exactly one fractional allocation");
+        assert_eq!(d2, d1, "both jobs must share the same physical device");
+
+        let ts = crate::metrics::scheduler_metrics().timeslice_allocations_total.get();
+        assert!(ts >= 2, "timeslice_allocations_total should count fractional allocations, got {ts}");
+
+        // 共享设备 gauge：同卡两份额 → ≥ 1。
+        let shared = crate::metrics::scheduler_metrics().shared_gpu_devices.get();
+        assert!(shared >= 1, "shared_gpu_devices should report the shared device, got {shared}");
+
+        // 完成后配额等量释放、分配全释放。
+        assert!(wait_for_status(&pool, job1.id, job::status::COMPLETED).await, "job1 completes");
+        assert!(wait_for_status(&pool, job2.id, job::status::COMPLETED).await, "job2 completes");
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 0, "quota must be fully released after both complete");
+    }
+
+    /// P2-4 B 实耗采样：派发后 running 作业在模拟运行中点被采样，
+    /// *_actual = 申请 × simulated_utilization，usage_sampled_at 非空。
+    #[tokio::test]
+    async fn test_usage_sampler_records_actual_dual_ledger() {
+        let pool = setup_pool().await;
+
+        seed_gpu_device(&pool, "node-1", 0).await;
+        seed_quota(&pool, "sampler-q", 4).await;
+
+        let created = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "sampled".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 1,
+                gpus: 1,
+                cpus: 4,
+                memory: 8,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: String::new(),
+            },
+            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+        )
+        .await
+        .expect("create job");
+
+        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+
+        // 等待采样（模拟运行 50ms，采样点在 ~25ms；completed 后条件不满足故先采样）。
+        assert!(wait_for_sampling(&pool, created.id).await, "job must be sampled while running");
+        let j = crate::services::job::get_job_unscoped(&pool, created.id).await.expect("get job");
+        let frac_a = j.gpu_fraction_actual.expect("gpu_fraction_actual sampled");
+        let cpu_a = j.cpu_actual.expect("cpu_actual sampled");
+        let mem_a = j.memory_gb_actual.expect("memory_gb_actual sampled");
+        assert!((frac_a - 0.75).abs() < 1e-9, "gpu_fraction_actual = 1.0 × 0.75, got {frac_a}");
+        assert!((cpu_a - 3.0).abs() < 1e-9, "cpu_actual = 4 × 0.75, got {cpu_a}");
+        assert!((mem_a - 6.0).abs() < 1e-9, "memory_gb_actual = 8 × 0.75, got {mem_a}");
+        assert!(j.usage_sampled_at.is_some(), "usage_sampled_at must be set");
+
+        // 完成后采样值保留（历史账本），资源正常释放。
+        assert!(wait_for_status(&pool, created.id, job::status::COMPLETED).await, "completes");
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 0, "quota released after completion");
+    }
+
+    /// P2-4 B 回收准入：租户配额 1 GPU，running 作业（fraction 0.75，采样后实际
+    /// 0.5625 卡）留下 0.4375 卡可回收；新 0.25 fraction 作业的缺口 0.25 ≤ 可回收量
+    /// → 走回收准入（而非拒绝/借用），reclaimed_admission_total ≥ 1。
+    #[tokio::test]
+    async fn test_reclaim_admission_allows_fractional_job_within_reclaimable() {
+        let pool = setup_pool().await;
+
+        seed_gpu_device(&pool, "node-1", 0).await;
+        quota::create_quota(
+            &pool,
+            quota::CreateQuotaInput {
+                name: "reclaim-q".into(),
+                description: "".into(),
+                tenant_id: 1,
+                partition_id: None,
+                gpu_limit: 1,
+                cpu_limit: 100.0,
+                memory_limit_gb: 100.0,
+                storage_limit_gb: 100.0,
+                status: Some("active".into()),
+                borrow_enabled: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("create quota");
+
+        // 作业 A：fraction 0.75 占设备（留 0.25 卡份额余量给 B），申请 1 卡占满配额。
+        let job_a = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "recl-a".into(),
+                description: "".into(),
+                kind: "inference".into(),
+                priority: 1,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: String::new(),
+            },
+            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+        )
+        .await
+        .expect("create job a");
+        set_gpu_fraction(&pool, job_a.id, 0.75).await;
+        // 拉长模拟执行窗口，保证 B 的派发与断言在 A 完成前完成。
+        let mut cfg = dispatch_config();
+        cfg.simulated_run_ms = 500;
+        dispatch_tick(&pool, &cfg).await.expect("dispatch tick a");
+        assert!(wait_for_sampling(&pool, job_a.id).await, "job a sampled");
+
+        // 作业 B：fraction 0.25。申请账本口径下 0 + 1 > 1（自身限额不足），
+        // 但卡等效需求 0.25 ≤ 可回收量 0.4375 → 回收准入。
+        let job_b = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "recl-b".into(),
+                description: "".into(),
+                kind: "inference".into(),
+                priority: 0,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: String::new(),
+            },
+            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+        )
+        .await
+        .expect("create job b");
+        set_gpu_fraction(&pool, job_b.id, 0.25).await;
+        dispatch_tick(&pool, &cfg).await.expect("dispatch tick b");
+
+        let jb = crate::services::job::get_job_unscoped(&pool, job_b.id).await.expect("get b");
+        assert_eq!(
+            jb.status,
+            job::status::RUNNING,
+            "fractional job must be admitted via reclaim (shortfall within reclaimable)"
+        );
+        let reclaimed =
+            crate::metrics::scheduler_metrics().quota_reclaimed_admission_total.get();
+        assert!(reclaimed >= 1, "reclaimed_admission_total should be incremented, got {reclaimed}");
+
+        // 申请账本：A 申请 1 卡 + B 申请 1 卡 = 2（> limit 1，超卖由实耗账本兜底）。
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 2, "request ledger must accumulate raw card requests");
+
+        // B 与 A 共享同卡（0.75 + 0.25 = 1.0 ≤ timeslice_max 1.0）。
+        let da = allocation_device_ids_any_status(&pool, job_a.id).await;
+        let db = allocation_device_ids_any_status(&pool, job_b.id).await;
+        assert_eq!(db, da, "fractional job b must share job a's device");
+    }
+
+    /// P2-4 C Gang 崩溃窗口：配额按 2 副本预留、gang_fulfilled 仍为 0（修复前的
+    /// 崩溃遗留态）、无 GPU 分配 → reconcile 回退时必须按 2 副本等量释放配额
+    /// （修复前按 1 副本释放会残留 1 副本）。
+    #[tokio::test]
+    async fn test_gang_crash_window_releases_full_unit_quota() {
+        let pool = setup_pool().await;
+        seed_quota(&pool, "crash-q", 4).await;
+
+        // 创建 Gang 作业（2 副本 × 1 GPU），手工模拟崩溃窗口遗留态。
+        let created = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "crash-gang".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 1,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 2,
+                gang_min_available: 2,
+                topology_affinity: String::new(),
+            },
+            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+        )
+        .await
+        .expect("create gang job");
+
+        // 配额按 2 副本预留（模拟 dispatch 已走到配额预留成功）。
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        quota::allocate_resources_with_borrow(
+            &pool,
+            q.id,
+            QuotaRequest { gpu: 2, cpu: 0.0, memory_gb: 0.0, storage_gb: 0.0 },
+            2.0,
+        )
+        .await
+        .expect("reserve 2 replicas");
+
+        // 造 running + 过期 start_time + gang_fulfilled=0（崩溃窗口特征）。
+        let sqlite = pool.as_sqlite().expect("test pool must be sqlite");
+        sqlx::query("UPDATE jobs SET status = 'running', start_time = ?, gang_fulfilled = 0 WHERE id = ?")
+            .bind(Utc::now() - ChronoDuration::seconds(400))
+            .bind(created.id)
+            .execute(sqlite)
+            .await
+            .expect("craft crash-window state");
+
+        // reconcile：孤儿（无 GPU 分配、超过宽限）→ 等量释放 2 副本配额并回退。
+        reconcile(&pool, &dispatch_config()).await.expect("reconcile");
+
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(
+            q.gpu_used, 0,
+            "crash-window gang job must release the full 2-replica reservation (pre-fix leak: 1)"
+        );
+        let j = crate::services::job::get_job_unscoped(&pool, created.id).await.expect("get job");
+        assert_eq!(j.status, job::status::PENDING, "orphan gang job must revert to pending");
+        assert_eq!(j.gang_fulfilled, 0, "revert must clear gang_fulfilled");
     }
 }

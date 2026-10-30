@@ -12,7 +12,6 @@ use prometheus::{
     register_histogram, register_int_counter, register_int_counter_vec, register_int_gauge,
     register_int_gauge_vec, Histogram, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
 };
-
 /// 调度器 / 配额 / GPU 分配指标句柄。
 ///
 /// 通过 [`crate::metrics::scheduler_metrics`] 的 `OnceLock` 单次初始化，
@@ -49,6 +48,14 @@ pub struct SchedulerMetrics {
     pub topology_matched_total: IntCounter,
     /// 因拓扑亲和约束无法满足（无满足节点/钉住节点不存在或卡数不足）而回退 pending 的次数（P2-2）。
     pub topology_blocked_total: IntCounter,
+    /// fraction < 1 的 GPU 时间片分配成功次数（P2-4 GPU 时间片切分）。
+    pub timeslice_allocations_total: IntCounter,
+    /// 当前 active 份额 ≥ 2 的共享 GPU 设备数（P2-4，分配/释放路径维护）。
+    pub shared_gpu_devices: IntGauge,
+    /// 通过"回收自身申请未实耗部分"准入的分配次数（P2-4 双账本超卖回收）。
+    pub quota_reclaimed_admission_total: IntCounter,
+    /// 各租户当前可回收 GPU 量（Σ max(0, 申请 − 实耗)，按采样口径，label `tenant`）（P2-4）。
+    pub quota_reclaimable_gpu: IntGaugeVec,
 }
 
 impl SchedulerMetrics {
@@ -150,6 +157,31 @@ impl SchedulerMetrics {
         )
         .expect("register metaclouds_scheduler_topology_blocked_total");
 
+        let timeslice_allocations_total = register_int_counter!(
+            "metaclouds_gpu_timeslice_allocations_total",
+            "Total number of successful fractional (fraction < 1) GPU allocations under timeslice sharing."
+        )
+        .expect("register metaclouds_gpu_timeslice_allocations_total");
+
+        let shared_gpu_devices = register_int_gauge!(
+            "metaclouds_gpu_shared_devices",
+            "Number of GPU devices currently holding 2 or more active fractional shares."
+        )
+        .expect("register metaclouds_gpu_shared_devices");
+
+        let quota_reclaimed_admission_total = register_int_counter!(
+            "metaclouds_quota_reclaimed_admission_total",
+            "Total number of admissions allowed by reclaiming tenants' own requested-but-unfulfilled usage (dual-ledger oversell recovery)."
+        )
+        .expect("register metaclouds_quota_reclaimed_admission_total");
+
+        let quota_reclaimable_gpu = register_int_gauge_vec!(
+            "metaclouds_quota_reclaimable_gpu",
+            "Reclaimable GPU capacity per tenant: sum of max(0, requested - actual) over running sampled jobs.",
+            &["tenant"]
+        )
+        .expect("register metaclouds_quota_reclaimable_gpu");
+
         Self {
             pending_jobs,
             running_jobs,
@@ -166,6 +198,10 @@ impl SchedulerMetrics {
             gang_blocked_total,
             topology_matched_total,
             topology_blocked_total,
+            timeslice_allocations_total,
+            shared_gpu_devices,
+            quota_reclaimed_admission_total,
+            quota_reclaimable_gpu,
         }
     }
 }

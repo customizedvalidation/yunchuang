@@ -381,25 +381,31 @@ pub async fn allocate_resources(
     Ok(q.into())
 }
 
-/// 分配资源（含弹性借用，P1-3）。
+/// 分配资源（含弹性借用 P1-3 + 双账本回收准入 P2-4）。
 ///
-/// 语义：先尝试在租户**自身** `limit` 内原子分配（与 [`allocate_resources`] 同一条条件
-/// UPDATE）；当自身限额不足且配额开启了 `borrow_enabled` 时，允许从**集群空闲容量**
-/// （所有 active 配额 `limit - used` 之和，即其他租户未用额度）借用，但必须满足：
-///   1. 本租户预计借用量 ≤ 其 `borrow_limit_*`（单租户借用上限）；
-///   2. 请求量 ≤ 集群当前空闲余量（集群级不超卖）。
+/// 语义（准入优先级从高到低）：
+/// 1. **自身限额内**：与 [`allocate_resources`] 同一条条件 UPDATE 原子分配；
+/// 2. **回收准入（P2-4）**：自身限额不足时，先计算该租户 running **已采样**作业的
+///    可回收量 Σ max(0, 申请 − 实耗)（实耗取 jobs 的 *_actual 列，未采样作业保守视为
+///    占满申请量、不计回收）。若各类资源缺口 ≤ 可回收量且 `borrow_enabled`，则准入——
+///    先回收自己"申请未实耗"的部分，比直接借集群额度更公平。GPU 缺口按
+///    **卡等效需求**（`gpu_effective_demand` = 申请卡数 × fraction）折算，与可回收量
+///    同口径比较；ledger 仍按申请卡数累加（申请账本口径不变）。
+/// 3. **集群借用（P1-3）**：回收仍不足时走既有 borrow 路径（受 borrow_limit 与
+///    集群空闲余量约束）。
 ///
 /// 全部在单事务内完成；Postgres 用 `FOR UPDATE` 锁住 cohort 全部 active 配额行使空闲
-/// 余量权威，SQLite 因串行写天然安全。借用成功后 `used` 可暂时超过 `limit`，释放时按
+/// 余量权威，SQLite 因串行写天然安全。准入成功后 `used` 可暂时超过 `limit`，释放时按
 /// 申请量扣减自动归还（无需额外记账）。
 pub async fn allocate_resources_with_borrow(
     pool: &DatabasePool,
     id: i64,
     request: QuotaRequest,
+    gpu_effective_demand: f64,
 ) -> AppResult<ResourceQuotaResponse> {
     let now = chrono::Utc::now();
-    // 事务内返回是否走了借用路径（用于埋点）。
-    let borrowed: bool = crate::with_tx!(pool, |tx| {
+    // 事务内返回准入路径（用于埋点）：0 = 自身限额内，1 = 集群借用，2 = 回收准入。
+    let admitted_via: i32 = crate::with_tx!(pool, |tx| {
         // PG：锁住 cohort 全部 active 配额行，使下方集群空闲余量读取权威、防并发超借。
         if !pool.is_sqlite() {
             crate::with_db_tx!(
@@ -433,7 +439,7 @@ pub async fn allocate_resources_with_borrow(
                 || q.memory_used_gb + request.memory_gb <= q.memory_limit_gb)
             && (q.storage_limit_gb <= 0.0
                 || q.storage_used_gb + request.storage_gb <= q.storage_limit_gb);
-        let borrowed = if fits {
+        let admitted_via: i32 = if fits {
             let affected = crate::with_db_tx!(
                 pool,
                 &mut *tx,
@@ -462,10 +468,112 @@ pub async fn allocate_resources_with_borrow(
             if affected == 0 {
                 return Err(AppError::forbidden("quota exceeded (concurrent)"));
             }
-            false
+            0
         } else {
 
-        // 2) 借用路径。
+        // 2) P2-4 回收准入：本租户 running 已采样作业的可回收量（申请 − 实耗，≥0）。
+        //    未采样作业保守不计回收；storage 无实耗采样，不参与回收。
+        /// 采样行：(gpus, cpus, memory, gang_fulfilled, gpu_fraction_actual, cpu_actual, memory_gb_actual)。
+        type SampledUsageRow = (
+            i64,
+            i64,
+            i64,
+            i64,
+            Option<f64>,
+            Option<f64>,
+            Option<f64>,
+        );
+        let sampled: Vec<SampledUsageRow> = crate::with_db_tx!(
+                pool,
+                &mut *tx,
+                "SELECT gpus, cpus, memory, gang_fulfilled, \
+                        gpu_fraction_actual, cpu_actual, memory_gb_actual \
+                 FROM jobs \
+                 WHERE tenant_id = ?1 AND status = 'running' AND deleted_at IS NULL \
+                   AND usage_sampled_at IS NOT NULL",
+                |db_s, db_e| {
+                    crate::db::query_as_db(&mut *db_e, db_s)
+                        .bind(q.tenant_id)
+                        .fetch_all(&mut *db_e)
+                        .await?
+                }
+            );
+        let mut reclaim_gpu = 0.0f64;
+        let mut reclaim_cpu = 0.0f64;
+        let mut reclaim_mem = 0.0f64;
+        for (gpus, cpus, memory, fulfilled, frac_a, cpu_a, mem_a) in sampled {
+            // 该作业的配额预留副本数（Gang 准入时为 min_available）。
+            let unit_j = fulfilled.max(1) as f64;
+            if let Some(fa) = frac_a {
+                // 卡等效实耗 = 申请卡数 × 实际份额；可回收 = 申请 − 实耗。
+                reclaim_gpu += ((gpus as f64 * unit_j) * (1.0 - fa)).max(0.0);
+            }
+            if let Some(ca) = cpu_a {
+                reclaim_cpu += ((cpus as f64 * unit_j) - ca).max(0.0);
+            }
+            if let Some(ma) = mem_a {
+                reclaim_mem += ((memory as f64 * unit_j) - ma).max(0.0);
+            }
+        }
+        // 观测口径：当前可回收 GPU 量（label tenant）。
+        crate::metrics::scheduler_metrics()
+            .quota_reclaimable_gpu
+            .with_label_values(&[&q.tenant_id.to_string()])
+            .set(reclaim_gpu as i64);
+
+        // 各资源缺口（GPU 按卡等效需求折算，与可回收量同口径）。
+        let short_gpu = if q.gpu_limit > 0 {
+            (q.gpu_used as f64 + gpu_effective_demand - q.gpu_limit as f64).max(0.0)
+        } else {
+            0.0
+        };
+        let short_cpu = if q.cpu_limit > 0.0 {
+            (q.cpu_used + request.cpu - q.cpu_limit).max(0.0)
+        } else {
+            0.0
+        };
+        let short_mem = if q.memory_limit_gb > 0.0 {
+            (q.memory_used_gb + request.memory_gb - q.memory_limit_gb).max(0.0)
+        } else {
+            0.0
+        };
+        let short_sto = if q.storage_limit_gb > 0.0 {
+            (q.storage_used_gb + request.storage_gb - q.storage_limit_gb).max(0.0)
+        } else {
+            0.0
+        };
+        let reclaimable_covers = short_gpu <= reclaim_gpu + 1e-9
+            && short_cpu <= reclaim_cpu + 1e-9
+            && short_mem <= reclaim_mem + 1e-9
+            && short_sto <= 1e-9;
+
+        if q.borrow_enabled != 0 && reclaimable_covers {
+            // 回收准入：ledger 仍按申请量累加（申请账本口径不变；释放按申请量扣减）。
+            crate::with_db_tx!(
+                pool,
+                &mut *tx,
+                "UPDATE resource_quotas SET \
+                    gpu_used = gpu_used + ?1, cpu_used = cpu_used + ?2, \
+                    memory_used_gb = memory_used_gb + ?3, storage_used_gb = storage_used_gb + ?4, \
+                    updated_at = ?5 \
+                 WHERE id = ?6 AND deleted_at IS NULL",
+                |db_s, db_e| {
+                    sqlx::query(db_s)
+                        .bind(request.gpu)
+                        .bind(request.cpu)
+                        .bind(request.memory_gb)
+                        .bind(request.storage_gb)
+                        .bind(now)
+                        .bind(id)
+                        .execute(&mut *db_e)
+                        .await?
+                        .rows_affected()
+                }
+            );
+            2
+        } else {
+
+        // 3) 借用路径。
         if q.borrow_enabled == 0 {
             return Err(AppError::forbidden(
                 "quota exceeded (borrow disabled)",
@@ -550,13 +658,23 @@ pub async fn allocate_resources_with_borrow(
                     .rows_affected()
             }
         );
-            true
+            1
+        }
         };
-        borrowed
+        admitted_via
     });
 
-    if borrowed {
-        crate::metrics::scheduler_metrics().borrowed_quota_total.inc();
+    // 准入路径埋点：借用（P1-3）与回收准入（P2-4）分别计数。
+    match admitted_via {
+        1 => {
+            crate::metrics::scheduler_metrics().borrowed_quota_total.inc();
+        }
+        2 => {
+            crate::metrics::scheduler_metrics()
+                .quota_reclaimed_admission_total
+                .inc();
+        }
+        _ => {}
     }
 
     let q = resource_quota::get_by_id(pool, id, false)
@@ -869,6 +987,7 @@ mod tests {
             &pool,
             a.id,
             QuotaRequest { gpu: 3, cpu: 0.0, memory_gb: 0.0, storage_gb: 0.0 },
+            3.0,
         )
         .await
         .expect("borrow allocate");
@@ -906,6 +1025,7 @@ mod tests {
             &pool,
             a.id,
             QuotaRequest { gpu: 2, cpu: 0.0, memory_gb: 0.0, storage_gb: 0.0 },
+            2.0,
         )
         .await
         .unwrap_err();
@@ -946,6 +1066,7 @@ mod tests {
             &pool,
             a.id,
             QuotaRequest { gpu: 5, cpu: 0.0, memory_gb: 0.0, storage_gb: 0.0 },
+            5.0,
         )
         .await
         .unwrap_err();

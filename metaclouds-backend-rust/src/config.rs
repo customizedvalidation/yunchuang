@@ -118,6 +118,11 @@ pub struct Config {
     /// P2-2 拓扑感知：消费 jobs.topology_affinity，把作业的全部 GPU 副本共置到
     /// 同一节点（node/rack/switch 级别）或钉到指定节点（node:<name> / 裸节点名）。默认开启。
     pub dispatch_topology_enabled: bool,
+    /// P2-4 GPU 时间片：设备 fraction 容量上限（Σ active fraction ≤ 该值）。
+    /// 1.0 = 不超卖（与既有行为完全一致）；>1.0 允许同卡多份额共享（模拟时间片轮转）。
+    pub dispatch_gpu_timeslice_max: f64,
+    /// P2-4 实耗采样：模拟利用率，actual = 申请量 × 该值（0 < u ≤ 1）。
+    pub dispatch_simulated_utilization: f64,
 
     // ---- 链路追踪 ----
     pub tracing_enabled: bool,
@@ -245,6 +250,8 @@ impl Default for Config {
             dispatch_gang_enabled: true,
             // P2 高级调度
             dispatch_topology_enabled: true,
+            dispatch_gpu_timeslice_max: 1.0,
+            dispatch_simulated_utilization: 0.75,
             // 链路追踪
             tracing_enabled: false,
             tracing_service_name: "metaclouds-backend".to_string(),
@@ -378,6 +385,8 @@ impl Config {
 
         // 调度闭环 · 高级调度（P2）
         cfg.dispatch_topology_enabled = env_bool("DISPATCH_TOPOLOGY_ENABLED", true);
+        cfg.dispatch_gpu_timeslice_max = env_float("DISPATCH_GPU_TIMESLICE_MAX", 1.0);
+        cfg.dispatch_simulated_utilization = env_float("DISPATCH_SIMULATED_UTILIZATION", 0.75);
 
         // 链路追踪
         cfg.tracing_enabled = env_bool("TRACING_ENABLED", false);

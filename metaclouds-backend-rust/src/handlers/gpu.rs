@@ -261,7 +261,8 @@ pub async fn allocate_gpu(
         vendor: body.vendor.unwrap_or_default(),
         node_name: body.node_name.unwrap_or_default(),
     };
-    let a = gpu::allocate_gpu(&state.pool, input).await?;
+    // P2-4：时间片容量上限来自全局配置（1.0 = 不超卖）。
+    let a = gpu::allocate_gpu(&state.pool, input, state.config.dispatch_gpu_timeslice_max).await?;
     Ok(WithStatus {
         status: StatusCode::CREATED,
         inner: ApiResponse::success(a),

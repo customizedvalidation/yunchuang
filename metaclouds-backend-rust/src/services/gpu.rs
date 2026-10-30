@@ -211,9 +211,16 @@ pub async fn delete_gpu_device(pool: &DatabasePool, id: i64) -> AppResult<()> {
 /// 选机 + 批量算 fraction + INSERT allocation + UPDATE device 全部在同一事务内完成；
 /// Postgres 用 `FOR UPDATE SKIP LOCKED` 锁住候选行，SQLite 库本身串行写。
 /// 选机为 best-fit（剩余 fraction 最小但仍够本作业），设备显存用增量表达式更新。
+///
+/// P2-4 GPU 时间片：`timeslice_max` 为设备 fraction 容量上限——Σ active fraction 加上
+/// 本份额不得超过该值（epsilon 容差）。1.0 = 不超卖（与既有行为完全一致）；>1.0 允许
+/// 同卡多份额共享（模拟时间片轮转）。fraction < 1 的成功分配计入
+/// `metaclouds_gpu_timeslice_allocations_total`；分配/释放后刷新
+/// `metaclouds_gpu_shared_devices`（active 份额 ≥ 2 的设备数）。
 pub async fn allocate_gpu(
     pool: &DatabasePool,
     input: AllocateGpuInput,
+    timeslice_max: f64,
 ) -> AppResult<GpuAllocationResponse> {
     let now = Utc::now();
     // P1: 写操作事务化——候选 SELECT（PG 行锁）、批量 fraction、INSERT allocation、
@@ -271,12 +278,14 @@ pub async fn allocate_gpu(
                 rows.into_iter().collect()
             };
 
-            // 4) best-fit：满足 fraction 约束的候选里挑"剩余 fraction 最小但仍够本作业"者。
+            // 4) best-fit：满足 fraction 容量约束的候选里挑"剩余份额最小但仍够本作业"者。
+            //    P2-4 时间片：容量上限为 timeslice_max（Σ active fraction + 本份额 ≤ max）。
+            let slice_cap = timeslice_max.max(1.0);
             let mut best: Option<&GpuDevice> = None;
             let mut best_remaining: f64 = f64::MAX;
             for d in &prelim {
                 let used_frac = frac_map.get(&d.id).copied().unwrap_or(0.0);
-                let remaining = 1.0 - used_frac;
+                let remaining = slice_cap - used_frac;
                 if remaining + 0.001 < input.fraction {
                     continue;
                 }
@@ -325,6 +334,14 @@ pub async fn allocate_gpu(
     let _ = crate::cache::global_cache()
         .delete("dashboard:stats")
         .await;
+
+    // P2-4 时间片指标：fraction < 1 的成功分配计数 + 共享设备 gauge 刷新。
+    if input.fraction < 1.0 {
+        crate::metrics::scheduler_metrics()
+            .timeslice_allocations_total
+            .inc();
+    }
+    let _ = refresh_shared_devices_gauge(pool).await;
 
     let alloc = gpu_allocation::get_by_id(pool, alloc_id)
         .await?
@@ -387,6 +404,26 @@ pub async fn release_gpu(pool: &DatabasePool, allocation_id: i64) -> AppResult<(
     let _ = crate::cache::global_cache()
         .delete("dashboard:stats")
         .await;
+
+    // P2-4：共享设备 gauge 刷新（释放可能使某设备份额降到 < 2）。
+    let _ = refresh_shared_devices_gauge(pool).await;
+    Ok(())
+}
+
+/// 刷新 `metaclouds_gpu_shared_devices` gauge：active 份额 ≥ 2 的 GPU 设备数。
+///
+/// 分配/释放路径各调一次（读聚合一次即可，避免在事务内维护计数导致的漂移）。
+async fn refresh_shared_devices_gauge(pool: &DatabasePool) -> AppResult<()> {
+    let shared: i64 = crate::with_db!(
+        pool,
+        "SELECT COUNT(*) FROM (SELECT device_id FROM gpu_allocations \
+         WHERE status = 'active' AND deleted_at IS NULL \
+         GROUP BY device_id HAVING COUNT(*) >= 2)",
+        |db_s, db_e| crate::db::query_scalar_db(db_e, db_s).fetch_one(db_e).await?
+    );
+    crate::metrics::scheduler_metrics()
+        .shared_gpu_devices
+        .set(shared.max(0));
     Ok(())
 }
 

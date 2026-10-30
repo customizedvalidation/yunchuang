@@ -92,6 +92,11 @@ pub struct Job {
     pub gang_replicas: i64,
     pub gang_min_available: i64,
     pub gang_fulfilled: i64,
+    // P2-4 申请/实耗双账本：实耗采样（NULL = 尚未采样，回收口径保守视为占满申请量）。
+    pub gpu_fraction_actual: Option<f64>,
+    pub cpu_actual: Option<f64>,
+    pub memory_gb_actual: Option<f64>,
+    pub usage_sampled_at: Option<DateTime<Utc>>,
 }
 
 impl HasTimestamps for Job {
@@ -163,6 +168,11 @@ pub struct JobResponse {
     pub gang_replicas: i64,
     pub gang_min_available: i64,
     pub gang_fulfilled: i64,
+    // P2-4 申请/实耗双账本
+    pub gpu_fraction_actual: Option<f64>,
+    pub cpu_actual: Option<f64>,
+    pub memory_gb_actual: Option<f64>,
+    pub usage_sampled_at: Option<DateTime<Utc>>,
 }
 
 impl From<Job> for JobResponse {
@@ -214,6 +224,10 @@ impl From<Job> for JobResponse {
             gang_replicas: j.gang_replicas,
             gang_min_available: j.gang_min_available,
             gang_fulfilled: j.gang_fulfilled,
+            gpu_fraction_actual: j.gpu_fraction_actual,
+            cpu_actual: j.cpu_actual,
+            memory_gb_actual: j.memory_gb_actual,
+            usage_sampled_at: j.usage_sampled_at,
         }
     }
 }
@@ -246,8 +260,10 @@ pub async fn create(pool: &DatabasePool, input: NewJob) -> AppResult<Job> {
         pool,
         "INSERT INTO jobs (created_at, updated_at, cluster_id, tenant_id, user_id, name, \
          description, status, type, priority, gpus, cpus, memory, duration, progress, \
-         gang_replicas, gang_min_available, gang_fulfilled, topology_affinity) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, ?)",
+         gang_replicas, gang_min_available, gang_fulfilled, topology_affinity, \
+         gpu_fraction_actual, cpu_actual, memory_gb_actual, usage_sampled_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, ?, \
+         NULL, NULL, NULL, NULL)",
         |q| q
             .bind(now)
             .bind(now)
@@ -372,7 +388,8 @@ pub async fn list(
         node_selector, affinity, tolerations, elastic_enabled, min_gpus, max_gpus, scaling_policy, \
         checkpoint_enabled, checkpoint_interval_minutes, max_retries, retry_count, \
         fault_tolerance_level, topology_affinity, topology_anti_affinity, network_requirement, \
-        gang_replicas, gang_min_available, gang_fulfilled";
+        gang_replicas, gang_min_available, gang_fulfilled, \
+        gpu_fraction_actual, cpu_actual, memory_gb_actual, usage_sampled_at";
     let list_sql = format!(
         "SELECT {JOB_COLUMNS} FROM jobs WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?"
     );
