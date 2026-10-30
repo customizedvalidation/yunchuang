@@ -132,21 +132,23 @@ Metaclouds 当前处于"**有数据模型、有配额/GPU 分配原语，但无�
   - 指标 `metaclouds_scheduler_gang_admitted_total/blocked_total`；开关 `DISPATCH_GANG_ENABLED`（默认 true，关闭按 replicas=1）。
   - 验证：63 passed / 0 failed（+2 Gang 单测），clippy -D warnings 零告警；QA 复核回退整体性、非 Gang 释放回归、PG 迁移同构、边界值（min>replicas/0/负数宽松回退）均通过。
 
-- **P2-2 拓扑感知调度（消费 `jobs.topology_affinity`）** — ✅ 已完成（2026-10-30）
+- **P2-2 拓扑感知调度（消费 `jobs.topology_affinity`）** — ✅ 已完成（2026-10-30，commit `304a597`；QA 终验 + 轻量确认双 PASS，livelock 修复经突变验证成立）
   - **格式判别规则**：affinity trim 后，`""`/`cluster` → 无约束（既有行为）；`node`/`rack`/`switch`（大小写不敏感）→ 级别共置——该作业（× Gang unit）**全部 GPU 卡落在同一节点**；`node:<name>` 前缀或非关键字裸值 → 钉住指定节点（节点名大小写敏感，保留原值）。
   - **rack/switch 取舍**：`gpu_devices` 无 rack/switch 层级字段，rack/switch 级退化为 node 级共置——严格满足约束（单节点天然属于同一 rack/switch）、放置更紧；不满足即整体回退 pending 背压，绝不违反亲和。真层级感知需设备表加 rack/switch 列 + migration（后续项）。
   - 放置实现（预选节点，防 livelock）：分配任何卡之前先按节点分组统计满足单卡需求（vendor/显存/fraction）的空闲卡数，best-fit 选一个"空闲卡数 ≥ total_cards"的节点，再把全部卡钉在该节点逐卡分配；无满足节点 → blocked 指标 + pending 背压（正确背压，非确定性反复回退）。任一卡失败整体回退（all-or-nothing，与 Gang 语义一致）。
   - Gang 协同：min_available × gpus 张卡全部满足同节点/钉节点约束才整体准入，任一失败整体回退。
   - `AllocateGpuInput` 新增可选 `node_name`（空 = 不限节点，既有调用方零影响），best-fit 选机按节点过滤；API `CreateJobRequest`/`UpdateJobRequest` 新增**可选** `topology_affinity`（serde default 向后兼容），沉睡字段从此可经 API 设置并被调度器消费。
   - 指标 `metaclouds_scheduler_topology_matched_total`（约束满足放置）/ `topology_blocked_total`（约束不可满足回退）；开关 `DISPATCH_TOPOLOGY_ENABLED`（默认 true）。
-  - 验证：67 passed / 0 failed（+4：级别共置卡数不足→pending→补卡成功、livelock 回归 `test_topology_colocate_preselects_node_with_enough_cards`（低 id 节点卡数不足时预选直接落卡数足够节点）、显式钉扎 node:不存在→pending/裸名→成功（前缀形式大小写不敏感）、Gang×拓扑组合共置），clippy -D warnings 零告警；零 schema 变更。
+  - 验证：**68 passed / 0 failed**（+5：级别共置卡数不足→pending→补卡成功、livelock 回归 `test_topology_colocate_preselects_node_with_enough_cards`（低 id 节点卡数不足时预选直接落卡数足够节点；QA 突变验证：去预选/复刻旧算法均使该测试变红）、显式钉扎 node:不存在→pending/裸名→成功、前缀形式大小写不敏感 `test_topology_pinned_prefix_case_insensitive`（"Node:node-1"→钉 node-1）、Gang×拓扑组合共置），clippy -D warnings 零告警；零 schema 变更。
   - 测试基建顺带修复：dispatch 内存库测试池改单连接（`:memory:` 多连接各私有，偶发 no such table）。
-- P2-3 抢占体系（REQUEUE + 豁免窗口）。
-- P2-4 GPU 时间片切分 + 申请/实耗双账本超卖回收。
+- P2-3 抢占体系（REQUEUE + 豁免窗口）——**完整实现已保全于 `park/p2-3-preemption` 分支**（原 d3ea543，含 run token 防护/豁免窗口/4 测试，QA 深验通过）；重新立项时必查：victim 未按 cluster/partition 过滤的 major + `complete_running_job` run_token 契约回归。
+- P2-4 GPU 时间片切分 + 申请/实耗双账本超卖回收（进行中）。
 - P2-5 计费/showback + DCGM 利用率采集 + goodput 指标。
 
 ### P2 backlog（QA 复核发现的非阻塞观察项）
-- `reconcile` 孤儿 running 作业（无 active GPU 分配且超宽限期）直接回退 pending 时**不释放已预留的 CPU/内存配额**——P0 既有行为，持 GPU 作业不受影响，建议后续补齐配额释放。
+- `reconcile` 孤儿 running 作业（无 active GPU 分配且超宽限期）直接回退 pending 时**不释放已预留的 CPU/内存配额**——P0 既有行为（其修复曾随 P2-3 落地，摘除时一并回退，待随 P2-3 回归或单独修复）。
+- CoLocate 保守计数（每设备至多计 1 卡）→ fraction<1 需同卡多份额共置的作业可能被误 blocked（"宁可少算不超卖"取舍，已注释声明）。
+- `complete_running_job` 完成认领 UPDATE 未检查 rows_affected 即计 completed_total（7d23ee6 基线既有行为，非回归）。
 
 ### 关键决策与约束
 - 既有 `priority_scheduler.rs`（645 行 mock）**保持不动**，新闭环独立成模块，确保零回归、前端 API 契约不受影响。
