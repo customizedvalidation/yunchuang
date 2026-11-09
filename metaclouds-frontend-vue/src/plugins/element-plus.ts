@@ -23,6 +23,7 @@ import { ElBreadcrumb, ElBreadcrumbItem } from 'element-plus/es/components/bread
 import { ElButton } from 'element-plus/es/components/button/index'
 import { ElCard } from 'element-plus/es/components/card/index'
 import { ElCol } from 'element-plus/es/components/col/index'
+import { ElCollapse, ElCollapseItem } from 'element-plus/es/components/collapse/index'
 import { ElConfigProvider } from 'element-plus/es/components/config-provider/index'
 import { ElDescriptions, ElDescriptionsItem } from 'element-plus/es/components/descriptions/index'
 import { ElDialog } from 'element-plus/es/components/dialog/index'
@@ -57,6 +58,7 @@ import 'element-plus/es/components/button/style/css'
 import 'element-plus/es/components/card/style/css'
 import 'element-plus/es/components/col/style/css'
 import 'element-plus/es/components/row/style/css'
+import 'element-plus/es/components/collapse/style/css'
 import 'element-plus/es/components/descriptions/style/css'
 import 'element-plus/es/components/dialog/style/css'
 import 'element-plus/es/components/divider/style/css'
@@ -96,6 +98,8 @@ const components: Component[] = [
   ElButton,
   ElCard,
   ElCol,
+  ElCollapse,
+  ElCollapseItem,
   ElConfigProvider,
   ElDescriptions,
   ElDescriptionsItem,
