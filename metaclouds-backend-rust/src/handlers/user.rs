@@ -50,9 +50,8 @@ pub async fn list_users(
             })
         }
         None => {
-            let sql = format!(
-                "SELECT {USER_COLUMNS} FROM users ORDER BY id ASC LIMIT ?1 OFFSET ?2"
-            );
+            let sql =
+                format!("SELECT {USER_COLUMNS} FROM users ORDER BY id ASC LIMIT ?1 OFFSET ?2");
             crate::with_db!(&state.pool, &sql, |db_s, db_e| {
                 crate::db::query_as_db(db_e, db_s)
                     .bind(page_size as i64)

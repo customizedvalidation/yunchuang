@@ -4,9 +4,7 @@
 //! 值由 [`crate::services::monitoring::get_dashboard_stats`] 从 DB 拉取后刷新，
 //! 不在此重复实现统计逻辑。
 
-use prometheus::{
-    register_int_gauge, register_int_gauge_vec, IntGauge, IntGaugeVec,
-};
+use prometheus::{register_int_gauge, register_int_gauge_vec, IntGauge, IntGaugeVec};
 
 /// 持有全部业务 Gauge 句柄。
 pub struct BusinessMetrics {

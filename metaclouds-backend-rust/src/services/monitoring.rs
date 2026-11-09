@@ -66,9 +66,18 @@ async fn compute_dashboard_stats(pool: &DatabasePool) -> AppResult<serde_json::V
     // 12 条 COUNT 并发执行（SQLite WAL 下由连接池排队，Postgres 并行）。
     let futs = vec![
         safe_count(pool, "SELECT COUNT(*) FROM users"),
-        safe_count(pool, "SELECT COUNT(*) FROM tenants WHERE deleted_at IS NULL"),
-        safe_count(pool, "SELECT COUNT(*) FROM clusters WHERE deleted_at IS NULL"),
-        safe_count(pool, "SELECT COUNT(*) FROM resources WHERE deleted_at IS NULL"),
+        safe_count(
+            pool,
+            "SELECT COUNT(*) FROM tenants WHERE deleted_at IS NULL",
+        ),
+        safe_count(
+            pool,
+            "SELECT COUNT(*) FROM clusters WHERE deleted_at IS NULL",
+        ),
+        safe_count(
+            pool,
+            "SELECT COUNT(*) FROM resources WHERE deleted_at IS NULL",
+        ),
         safe_count(pool, "SELECT COUNT(*) FROM jobs WHERE deleted_at IS NULL"),
         safe_count(
             pool,
@@ -78,7 +87,10 @@ async fn compute_dashboard_stats(pool: &DatabasePool) -> AppResult<serde_json::V
             pool,
             "SELECT COUNT(*) FROM jobs WHERE deleted_at IS NULL AND status = 'pending'",
         ),
-        safe_count(pool, "SELECT COUNT(*) FROM gpu_devices WHERE deleted_at IS NULL"),
+        safe_count(
+            pool,
+            "SELECT COUNT(*) FROM gpu_devices WHERE deleted_at IS NULL",
+        ),
         safe_count(
             pool,
             "SELECT COUNT(*) FROM gpu_allocations WHERE deleted_at IS NULL",

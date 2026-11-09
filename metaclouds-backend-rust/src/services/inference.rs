@@ -267,9 +267,16 @@ mod tests {
             .await
             .expect("seed");
         }
-        let page = list_inference_configs(&pool, PaginationParams { page: 1, page_size: 2 }, Some(1))
-            .await
-            .expect("list");
+        let page = list_inference_configs(
+            &pool,
+            PaginationParams {
+                page: 1,
+                page_size: 2,
+            },
+            Some(1),
+        )
+        .await
+        .expect("list");
         assert_eq!(page.data.len(), 2);
         assert_eq!(page.total, 3);
     }

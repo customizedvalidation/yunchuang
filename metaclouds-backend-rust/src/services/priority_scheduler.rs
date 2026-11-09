@@ -281,8 +281,10 @@ impl Shared {
         }
         let cutoff = self.next_job_id.saturating_sub(5_000);
         self.jobs.retain(|id, rec| {
-            !matches!(rec.status, JobStatus::Completed | JobStatus::Cancelled | JobStatus::Failed)
-                || *id >= cutoff
+            !matches!(
+                rec.status,
+                JobStatus::Completed | JobStatus::Cancelled | JobStatus::Failed
+            ) || *id >= cutoff
         });
     }
 }

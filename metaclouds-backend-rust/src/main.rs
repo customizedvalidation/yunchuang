@@ -73,10 +73,7 @@ async fn main() -> anyhow::Result<()> {
     // 全局句柄是 Arc<dyn Cache>，snapshot() 在独立的 CacheMetrics trait 上，
     // 此处无法 downcast；待 redis.rs 暴露 as_any() 后即可读真实原子计数。
     metaclouds_backend_rust::cache::install_cache_stats(|| {
-        metaclouds_backend_rust::cache::CacheStats {
-            hits: 0,
-            misses: 0,
-        }
+        metaclouds_backend_rust::cache::CacheStats { hits: 0, misses: 0 }
     });
     metaclouds_backend_rust::cache::install_cache(cache);
 
