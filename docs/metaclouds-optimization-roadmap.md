@@ -6,9 +6,13 @@
 
 ---
 
-## 一、核心结论
+> ⚠️ **状态回标（2026-11-09）**：以下第一至四节是 2026-10-30 立项时的**初始差距分析**，其核心结论已被第六节「实施进度」推翻 —— P0 / P1 / P2-1 / P2-2 / P2-4 均已落地。当前准确状态请以第六节及 `docs/system-review-and-optimization-2026-11-09.md` 为准；本段之后的原文按历史记录保留，未作改写。
+>
+> ✅ **第二轮修复（2026-11-09 下午）**：全面复盘报告中的 P0-1~3、P1-1 / P1-3 / P1-4、P2-1 / P2-3 / P2-6 已按 `docs/system-fixes-2026-11-09.md` 落地 —— 生产模拟执行 fail-closed、`/system/mode` 模式接口与前端横幅、多副本租约 / 全局并发 / 优雅排水、CI 真实断言与 SHA 钉版本、撤销名单默认 fail-closed、配置矛盾收敛、死调度器 feature 门控、合成实耗 `usage_source` 标记。**部分落地**：P1-2 已钉镜像 SHA tag 但 Dockerfile 基础镜像 digest 未钉；P1-5 已标注 PG 单点并加 CI guard，但 HA 本身未做；P0-2 的执行任务 DB 持久化 / worker lease 未做。**剩余未决项**：真实执行器（需 K8s 集群/GPU/DCGM）、P2-3 抢占分支回归（832 行改动且已知 2 处 major，需系统定位拍板）、PG HA、Docker 基础镜像 digest、CI 首次完整 run（需推送 + 配置仓库变量与 secrets，详见修复报告第四节）。
 
-Metaclouds 当前处于"**有数据模型、有配额/GPU 分配原语，但无真实调度闭环**"的状态：
+## 一、核心结论（2026-10-30 初始基线 · 历史留存）
+
+Metaclouds 立项时处于"**有数据模型、有配额/GPU 分配原语，但无真实调度闭环**"的状态：
 
 - `jobs` 表已建 30+ 字段（含 `topology_affinity`/`elastic`/`checkpoint`/`network_requirement` 等高级调度字段），但**全部处于"只落库、不被消费"的沉睡状态**。
 - `services/scheduler/priority_scheduler.rs`（645 行）是与真实 `jobs`/`GPU` **完全脱钩的进程内 mock**（自带 mock executor）。
@@ -152,9 +156,12 @@ Metaclouds 当前处于"**有数据模型、有配额/GPU 分配原语，但无�
 - P2-5 计费/showback + DCGM 利用率采集 + goodput 指标。
 
 ### P2 backlog（QA 复核发现的非阻塞观察项）
-- `reconcile` 孤儿 running 作业（无 active GPU 分配且超宽限期）直接回退 pending 时**不释放已预留的 CPU/内存配额**——P0 既有行为（其修复曾随 P2-3 落地，摘除时一并回退，待随 P2-3 回归或单独修复）。
-- CoLocate 保守计数（每设备至多计 1 卡）→ fraction<1 需同卡多份额共置的作业可能被误 blocked（"宁可少算不超卖"取舍，已注释声明）。
-- `complete_running_job` 完成认领 UPDATE 未检查 rows_affected 即计 completed_total（7d23ee6 基线既有行为，非回归）。
+
+> **状态回标（2026-11-09 第二轮修复）**：下列 3 项已全部闭环，详见 `docs/system-fixes-2026-11-09.md`。
+
+1. ~~`reconcile` 孤儿 running 回退不释放已预留 CPU/内存配额~~ → ✅ **本轮核验确认已由既有代码覆盖**：`dispatch.rs::reconcile` 回退前调用 `release_quota_for_job`，其中 `QuotaRequest` 同时含 `gpu / cpu / memory_gb`，按 `release_unit`（Gang 副本数）等量释放。此前描述为 10-30 摘除抢占分支时的中间态，已不成立。
+2. ~~CoLocate 保守计数（每设备至多计 1 卡）→ fraction<1 需同卡多份额共置的作业可能被误 blocked~~ → ✅ **本轮修复**：`select_topology_node` 在 `fraction<1 && slice_cap>1` 时按设备剩余容量可容纳的份额槽位数计数；默认 `slice_cap=1.0` 时仍为 1，行为零回归。新增回归用例 `test_colocate_counts_fraction_slots_on_single_device`（正反两向断言）。
+3. ~~`complete_running_job` 未检查 rows_affected 即计 completed_total~~ → ✅ **本轮修复**：前置 `job.status == "running"` 检查 + 末尾 `rows_affected == 0` 双重幂等，重复完成不再重复计数/释放；配套 reconcile 数据库租约（迁移 014）消除多副本互踩。
 
 ### CI 门禁（2026-10-30 核查与修复）
 

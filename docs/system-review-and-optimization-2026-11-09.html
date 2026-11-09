@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Metaclouds 系统全面复盘与优化路线图 · 2026-11-09</title>
+<style>
+  :root{
+    --bg:#f5f7fa; --card:#ffffff; --ink:#1f2329; --ink2:#4e5969; --ink3:#86909c;
+    --line:#e5e8ef; --line2:#eef1f6;
+    --brand:#2f6bff; --brand-soft:#eef3ff;
+    --p0:#d92d20; --p0-bg:#fef3f2; --p1:#b54708; --p1-bg:#fffaeb;
+    --p2:#175cd3; --p2-bg:#eff4ff; --ok:#067647; --ok-bg:#ecfdf3;
+    --gray-bg:#f2f4f7; --code:#f6f7f9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.7;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto;padding:32px 24px 72px}
+  header.hero{background:linear-gradient(120deg,#1e3a8a 0%,#2f6bff 62%,#4f8dff 100%);
+    color:#fff;border-radius:16px;padding:34px 38px;box-shadow:0 8px 28px rgba(47,107,255,.18)}
+  header.hero .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;opacity:.82;margin:0 0 10px}
+  header.hero h1{margin:0 0 12px;font-size:29px;line-height:1.35;font-weight:700;letter-spacing:-.01em}
+  header.hero p{margin:0;opacity:.92;font-size:14px;max-width:900px}
+  .hero-meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+  .hero-meta span{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.24);
+    padding:5px 12px;border-radius:999px;font-size:12px}
+  section{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:26px 30px;margin-top:22px;box-shadow:0 1px 3px rgba(16,24,40,.04)}
+  h2{margin:0 0 6px;font-size:20px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  h2 .num{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
+    border-radius:8px;background:var(--brand-soft);color:var(--brand);font-size:13px;font-weight:700;flex:none}
+  .sub{color:var(--ink3);font-size:13px;margin:0 0 20px}
+  h3{font-size:15px;margin:24px 0 10px;font-weight:700}
+  h3:first-of-type{margin-top:8px}
+  p{margin:8px 0}
+  .lead{font-size:15px;line-height:1.85;color:var(--ink2)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:18px 0 4px}
+  .kpi{background:var(--gray-bg);border:1px solid var(--line2);border-radius:11px;padding:15px 16px}
+  .kpi .v{font-size:23px;font-weight:700;letter-spacing:-.02em;line-height:1.2}
+  .kpi .l{font-size:12px;color:var(--ink3);margin-top:5px}
+  .kpi.g .v{color:var(--ok)} .kpi.r .v{color:var(--p0)} .kpi.b .v{color:var(--brand)}
+  .callout{border-radius:11px;padding:16px 18px;margin:16px 0;border:1px solid}
+  .callout.red{background:var(--p0-bg);border-color:#fecdca}
+  .callout.amber{background:var(--p1-bg);border-color:#fedf89}
+  .callout.blue{background:var(--brand-soft);border-color:#c7d7fe}
+  .callout.green{background:var(--ok-bg);border-color:#a6f4c5}
+  .callout b{display:block;margin-bottom:6px;font-size:14px}
+  .callout.red b{color:var(--p0)} .callout.amber b{color:var(--p1)}
+  .callout.blue b{color:var(--brand)} .callout.green b{color:var(--ok)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+  th{background:var(--gray-bg);color:var(--ink2);font-weight:600;text-align:left;
+    padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:top;line-height:1.65}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:#fafbfd}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Consolas,"Liberation Mono",monospace;
+    font-size:12px;background:var(--code);border:1px solid var(--line2);border-radius:5px;
+    padding:1px 5px;color:#344054;word-break:break-all}
+  .badge{display:inline-block;padding:2px 9px;border-radius:6px;font-size:11px;
+    font-weight:700;line-height:1.6;white-space:nowrap}
+  .b-p0{background:var(--p0-bg);color:var(--p0)} .b-p1{background:var(--p1-bg);color:var(--p1)}
+  .b-p2{background:var(--p2-bg);color:var(--p2)} .b-ok{background:var(--ok-bg);color:var(--ok)}
+  .b-gray{background:var(--gray-bg);color:var(--ink2)}
+  .b-brand{background:var(--brand-soft);color:var(--brand)}
+  .timeline{border-left:2px solid var(--line);margin:16px 0 4px 8px;padding-left:22px}
+  .tl-item{position:relative;padding:0 0 18px}
+  .tl-item:before{content:"";position:absolute;left:-29px;top:7px;width:11px;height:11px;
+    border-radius:50%;background:#fff;border:3px solid var(--brand)}
+  .tl-item.hot:before{border-color:var(--p0)}
+  .tl-item .d{font-size:12px;color:var(--brand);font-weight:700;letter-spacing:.02em}
+  .tl-item .t{font-weight:600;margin:2px 0 3px}
+  .tl-item .x{color:var(--ink2);font-size:13px}
+  .chain{display:flex;flex-wrap:wrap;align-items:stretch;gap:7px;margin:18px 0 10px}
+  .node{flex:1 1 118px;min-width:112px;border-radius:10px;padding:12px 11px;border:1.5px solid;
+    font-size:12.5px;line-height:1.5}
+  .node .h{font-weight:700;font-size:13px;margin-bottom:3px}
+  .node .s{font-size:11.5px;opacity:.85}
+  .node.real{background:var(--ok-bg);border-color:#a6f4c5;color:#054f31}
+  .node.fake{background:var(--p0-bg);border-color:#fecdca;color:#912018;
+    border-style:dashed}
+  .arrow{display:flex;align-items:center;color:var(--ink3);font-size:17px;flex:none}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--ink2);margin-top:6px}
+  .legend i{display:inline-block;width:13px;height:13px;border-radius:3px;margin-right:6px;vertical-align:-2px}
+  .ev{margin:10px 0 0;padding:0;list-style:none}
+  .ev li{padding:8px 0 8px 15px;border-bottom:1px dashed var(--line);position:relative;font-size:13px;color:var(--ink2)}
+  .ev li:last-child{border-bottom:none}
+  .ev li:before{content:"›";position:absolute;left:0;color:var(--brand);font-weight:700}
+  .ev li b{color:var(--ink)}
+  .stages{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px}
+  .stage{border:1px solid var(--line);border-radius:11px;padding:16px;background:#fcfdff}
+  .stage .tag{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--brand);margin-bottom:7px}
+  .stage h4{margin:0 0 8px;font-size:14px}
+  .stage ul{margin:0;padding-left:17px;font-size:12.5px;color:var(--ink2)}
+  .stage li{margin:4px 0}
+  .stage .risk{margin-top:10px;font-size:11.5px;color:var(--ink3);border-top:1px solid var(--line2);padding-top:8px}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:820px){.two-col{grid-template-columns:1fr}.wrap{padding:18px 12px 48px}
+    section{padding:20px 16px}header.hero{padding:26px 22px}header.hero h1{font-size:23px}}
+  .foot{color:var(--ink3);font-size:12px;text-align:center;margin-top:28px;line-height:1.9}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+  .toc a{font-size:12px;color:var(--brand);background:var(--brand-soft);border-radius:7px;
+    padding:5px 11px;text-decoration:none}
+  .toc a:hover{background:#dfe9ff}
+  .src{font-size:11.5px;color:var(--ink3);margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="eyebrow">System Review · Full Stack · Verified</p>
+  <h1>Metaclouds 算力调度系统<br>全面复盘与优化路线图</h1>
+  <p>基于 2026-11-09 对当前工作区的逐文件核验与本地实测门禁，而非沿用历史复盘结论。范围覆盖 Vue3 前端、Rust 后端调度核心、认证安全、compose / K8s / CI 交付链与文档资产。</p>
+  <div class="hero-meta">
+    <span>基线 HEAD 2be6ebe</span><span>工作区干净</span><span>main 领先 origin/main 11 提交</span>
+    <span>后端 25,459 LOC</span><span>前端 12,484 LOC</span><span>报告出具时门禁 6/6 通过</span>
+    <span>S0 已全部完成</span>
+  </div>
+</header>
+
+<div style="margin-top:18px;background:var(--ok-bg);border:1px solid #abefc6;border-left:4px solid var(--ok);border-radius:12px;padding:18px 22px">
+  <div style="font-weight:700;color:var(--ok);font-size:15px;margin-bottom:8px">✅ 状态回标 · 2026-11-09 下午（第二轮修复已落地）</div>
+  <p style="margin:6px 0;color:var(--ink2)">本报告出具后，P0-1~3 / P1-1~5 / P2-1 / P2-3 / P2-4 / P2-6 已按 <a href="system-fixes-2026-11-09.md" style="color:var(--ok);font-weight:600">docs/system-fixes-2026-11-09.md</a> 落地：<b>S0 止血全部完成</b>（生产 fail-closed 守卫、<code>/api/v1/system/mode</code> 模式接口、常驻演示横幅、配置显式化）、<b>S1 多副本语义部分完成</b>（启动期租约选主、全局并发原子化、SIGTERM 排水、完成幂等、<code>usage_source</code> 合成标记）、<b>S2 的 CI 真实性修复已落地</b>（真实部署断言、Trivy 镜像扫描、SHA 钉版本、部署路径收敛）。</p>
+  <p style="margin:6px 0;color:var(--ink2)">下方各节保留<b>修复前的证据链与基线记录</b>；第 7 节的门禁表为第一轮 6 项优化时的实测，第 8 节路线图「S0 4/5 项」已过时。当前状态与完整实测（后端全特性 / 可选特性测试、前端 12 文件 60 用例、验收脚本双场景实测、CI 依赖图静态校验）见修复报告。</p>
+  <p style="margin:6px 0;color:var(--ink)"><b>核心事实未变：作业执行体仍是模拟</b>（sleep 后置 completed、实耗为合成值、K8s 为 mock）。本轮解决的是「不可误用」，不是「换成真实」；真实执行器仍受限于目标环境与系统定位，未启动。</p>
+</div>
+
+<div class="toc">
+  <a href="#s1">1 结论</a><a href="#s2">2 演进与核验基线</a><a href="#s3">3 核心断层</a>
+  <a href="#s4">4 P0 问题</a><a href="#s5">5 P1/P2 问题</a><a href="#s6">6 已修复对照</a>
+  <a href="#s7">7 实测门禁</a><a href="#s8">8 优化路线图</a><a href="#s9">9 决策与阻塞</a>
+</div>
+
+<section id="s1">
+  <h2><span class="num">1</span>核心结论</h2>
+  <p class="sub">一句话：工程质量在快速变好，但系统的「真实度」没有跟上能力清单的扩张。</p>
+  <div class="kpis">
+    <div class="kpi g"><div class="v">6 / 6</div><div class="l">本地实测门禁通过</div></div>
+    <div class="kpi g"><div class="v">72 + 56</div><div class="l">后端 / 前端单测通过</div></div>
+    <div class="kpi b"><div class="v">13 组</div><div class="l">SQLite / PG 双驱动迁移</div></div>
+    <div class="kpi r"><div class="v">0</div><div class="l">真实作业执行器（仍为 sleep 模拟）</div></div>
+    <div class="kpi r"><div class="v">11</div><div class="l">未推送提交（CI 无法验证）</div></div>
+  </div>
+  <div class="callout red">
+    <b>头号结论：调度闭环是「状态机真实、执行体模拟」的混合体</b>
+    一个月内系统补齐了配额原子校验、GPU 事务分配、Backfill、多因子评分、弹性借用、Gang、拓扑感知、时间片与双账本——这些都真实落库、有 72 个单测覆盖。但作业「运行」这一步仍是 <code>tokio::time::sleep(2000ms)</code>，实耗利用率是 <code>申请 × 0.75</code> 的编造值，K8s 页面数据来自硬编码 <code>MockK8sClient</code>。生产环境提交一个训练作业，2 秒后会显示「已完成」，并生成一份并不存在的利用率账本。这不是 bug，而是能力宣称与产品语义之间的断层。
+  </div>
+  <div class="callout amber">
+    <b>第二结论：CI 门禁的「绿」尚未被证明</b>
+    路线图自述最近 8 次 push 全部失败于 <code>Security Pre-Scan</code>，其余 13 个 job 全部 skipped，Rust Lint &amp; Test / 前端构建 / Docker 构建从未真正执行。今天刚修复 Checkov 清单与 <code>cargo fmt</code> 漂移，但 <code>verify-deployment</code> 仍是「占位域名 curl + echo」且 <code>if: always()</code>，永远返回成功。本地实测全绿只能证明代码，不能证明流水线。
+  </div>
+  <p class="lead">本次复盘共确认 <b>3 项 P0</b>、<b>7 项 P1</b>、<b>6 项 P2</b>，并逐条对照 2026-10-09 / 10-27 / 10-29 / 10-30 四轮历史复盘，标出「已修 / 遗留 / 新增」。所有问题均附当前代码的 <code>file:line</code> 证据。</p>
+  <div class="callout green">
+    <b>本轮不只诊断，已直接落地 6 项优化</b>
+    修复 1 个此前被全绿测试掩盖的<b>生产 UI 缺陷</b>（作业表单折叠分组在生产不渲染）；补齐模拟执行模式的启动告警与配置显式声明；去除 Cargo.toml 的 PoC 自述；回标路线图过时结论；在 README 写明前端角色仅为界面过滤。全部改动经前后端门禁复验通过，详见第 6.1 节。
+  </div>
+</section>
+
+<section id="s2">
+  <h2><span class="num">2</span>演进脉络与核验基线</h2>
+  <p class="sub">历史记忆停在 10-09，但主线已推进到今天 11:45。以下按提交实证还原，避免照搬过时结论。</p>
+  <div class="timeline">
+    <div class="tl-item"><div class="d">2026-10-09</div><div class="t">平台化复盘基线</div>
+      <div class="x">Vue3 + Rust 双端定型；导航三源漂移、双驱动方言、K8s 翻转（A1）、镜像名统一（A5）等被列为待办；Cargo.toml 自述 PoC。</div></div>
+    <div class="tl-item"><div class="d">2026-10-27</div><div class="t">全栈安全与配置加固（36 项）</div>
+      <div class="x">弱 JWT_SECRET 生产拒绝、compose 强制注入凭据、前端 ErrorBoundary、表单校验兜底、NetworkPolicy 端口对齐；留下 25 项待决策建议。</div></div>
+    <div class="tl-item"><div class="d">2026-10-29</div><div class="t">世界一流调度系统复盘（40 项 / 修 36 项）</div>
+      <div class="x">GPU 分配事务行锁、配额条件原子 UPDATE、dashboard 并发 COUNT、Redis 缓存、9 个调度指标与 tracing 埋点。</div></div>
+    <div class="tl-item"><div class="d">2026-10-30 → 11-06</div><div class="t">调度能力攻关：P0 / P1 / P2-1 / P2-2 / P2-4</div>
+      <div class="x">新建 <code>dispatch.rs</code>（2,435 行）打通真实状态机与资源预留；Backfill、评分、弹性借用、Gang、拓扑、时间片与双账本逐段交付；P2-3 抢占 park 到独立分支。单测从 51 → 72。</div></div>
+    <div class="tl-item hot"><div class="d">2026-11-09</div><div class="t">质量事故收口 + 文档补记</div>
+      <div class="x"><code>69c984f</code> 修 Checkov 门禁、<code>d6476e4</code> 修 fmt 漂移、<code>fb4a169</code> 修 <code>release_gpu</code> 参数绑定错位（设备显存只增不减，自 4f77937 潜伏）、<code>2be6ebe</code> 记录 CI 门禁实情。工作区干净，11 个提交未推送。</div></div>
+  </div>
+  <div class="callout blue">
+    <b>核验口径</b>
+    本次全部结论来自当前工作区文件与实跑命令，不采用历史文档的自述结论；对文档与代码不一致处，以代码为准并显式标注。仓库规模：后端 104 个 <code>.rs</code> / 13 组双驱动迁移，前端 17 个页面 / 10 个测试文件，19 份 K8s 清单，单条 40 KB CI 工作流，<code>docs/</code> 26 份文档。
+  </div>
+</section>
+
+<section id="s3">
+  <h2><span class="num">3</span>核心断层：一条作业链路上的真与假</h2>
+  <p class="sub">绿色 = 真实落库 / 真实计算；红色虚线 = 模拟或伪造。这是理解全系统风险的钥匙。</p>
+  <div class="chain">
+    <div class="node real"><div class="h">提交作业</div><div class="s">HTTP → jobs 表</div></div><div class="arrow">→</div>
+    <div class="node real"><div class="h">配额校验</div><div class="s">条件原子 UPDATE<br>含借用 / 回收</div></div><div class="arrow">→</div>
+    <div class="node real"><div class="h">GPU 分配</div><div class="s">事务行锁<br>best-fit / 拓扑</div></div><div class="arrow">→</div>
+    <div class="node real"><div class="h">running</div><div class="s">状态真实回写</div></div><div class="arrow">→</div>
+    <div class="node fake"><div class="h">执行体</div><div class="s">sleep(2s)<br>无 Pod / 无算力</div></div><div class="arrow">→</div>
+    <div class="node real"><div class="h">completed</div><div class="s">2 秒后自动完成</div></div>
+  </div>
+  <div class="chain">
+    <div class="node fake"><div class="h">实耗采样</div><div class="s">申请 × 0.75<br>写入 *_actual</div></div><div class="arrow">→</div>
+    <div class="node fake"><div class="h">超卖回收准入</div><div class="s">依据模拟实耗<br>计算可回收量</div></div><div class="arrow">→</div>
+    <div class="node fake"><div class="h">K8s 管理页</div><div class="s">MockK8sClient<br>节点 / Pod / Svc</div></div><div class="arrow">→</div>
+    <div class="node fake"><div class="h">利用率 / 计费</div><div class="s">P2-5 未做<br>当前无真实数据源</div></div>
+  </div>
+  <div class="legend">
+    <span><i style="background:#ecfdf3;border:1px solid #a6f4c5"></i>真实落库 / 真实计算（已具备工程正确性）</span>
+    <span><i style="background:#fef3f2;border:1px dashed #fecdca"></i>模拟 / 伪造 / 缺失（名实不符）</span>
+  </div>
+  <h3>证据链（逐条可复核）</h3>
+  <ul class="ev">
+    <li><b>执行体</b>：<code>src/services/dispatch.rs:479-484</code> — <code>tokio::spawn</code> 内 <code>tokio::time::sleep(sim_ms)</code> 后直接 <code>complete_running_job</code>；文件头 <code>:22</code> 自述「执行体为模拟」。</li>
+    <li><b>实耗伪造</b>：<code>dispatch.rs:486-501</code> — <code>UsageSample</code> 取 <code>申请 × simulated_utilization</code>；<code>config.rs:254,389</code> 默认 <code>0.75</code>；写入 <code>jobs.*_actual</code>（迁移 013）。</li>
+    <li><b>K8s 假数据</b>：<code>src/handlers/k8s.rs:20,31,42,55</code> 四处硬编码 <code>MockK8sClient::new()</code>；<code>src/services/k8s.rs:56</code> 注释「真实实现（kube-rs）后续接入」。</li>
+    <li><b>开关失效</b>：<code>K8S_SIMULATION_MODE</code> 全仓仅出现在 <code>config.rs:78/230/361</code> 与 <code>tests/config_test.rs:54</code>，<b>零业务代码消费</b>；而 <code>k8s/01-configmap.yaml:75</code> 设为 <code>"false"</code>，<code>docker-compose.prod.yml:28</code> 亦为 false — 配置形同虚设。</li>
+    <li><b>生产默认开启模拟</b>：<code>config.rs:235</code> <code>dispatch_enabled: true</code>；K8s ConfigMap 未覆盖该键 → 3 个副本各自启动模拟派发循环。</li>
+    <li><b>用户无感知</b>：前端 <code>src/</code> 全量检索「模拟 / 演示 / mock」仅命中测试桩与 input placeholder，界面未标注演示模式；归档文档 <code>docs/archive/root-md-2026-09-04/PRODUCTION_CONFIG_CHECK_REPORT_FINAL.md:125</code> 反而写着「已禁用模拟模式 ✅ 通过」。</li>
+  </ul>
+  <div class="callout red">
+    <b>影响面</b>
+    作业完成状态、GPU 利用率、双账本超卖回收、Gang/拓扑/时间片所有高级调度能力的「效果验证」，全部建立在模拟数据之上。当前 72 个单测验证的是<b>状态机与账本逻辑</b>，不是<b>算力交付</b>。若以此系统对外提供算力服务，用户会看到从未发生的训练任务被标记完成。
+  </div>
+</section>
+
+<section id="s4">
+  <h2><span class="num">4</span>P0 问题（须优先处置）</h2>
+  <p class="sub">判定标准：影响产品语义真实性、生产数据正确性或交付可信度。</p>
+  <table>
+    <thead><tr><th style="width:70px">级别</th><th style="width:190px">问题</th><th>证据与后果</th><th style="width:150px">建议动作</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-p0">P0-1</span></td>
+        <td><b>调度「真实闭环」名实不符</b><br><span class="src">新增（能力扩张暴露）</span></td>
+        <td>见第 3 节完整证据链。<code>K8S_SIMULATION_MODE=false</code> 未被消费，<code>DISPATCH_ENABLED</code> 默认开启；生产提交作业 2 秒后 completed，利用率与实耗账本为编造值，K8s 页面为 mock 数据，UI 无演示标注。</td>
+        <td>S0 显式化 + fail-closed 守卫；S1 接真实执行器</td></tr>
+      <tr><td><span class="badge b-p0">P0-2</span></td>
+        <td><b>多副本架构与内存态执行冲突</b><br><span class="src">新增（A1 翻转后暴露）</span></td>
+        <td><code>main.rs:118-126</code> 每副本启动 dispatch loop；<code>:156-158</code> 优雅关闭仅 <code>h.abort()</code> 主循环，已 <code>spawn</code> 的执行 task 不受管理 → Pod 重启即丢任务，作业卡 <code>running</code>。<code>dispatch.rs:144-158</code> 的 <code>max_concurrent</code> 是<b>进程内本地计数</b>，3 副本实际全局上限 30；<code>:891+</code> reconcile 无 leader 选举 / owner lease，3 副本可互踩，且 300s 宽限期内作业停滞。与 <code>05-deployment.yaml:43</code> replicas=3 + PG HA 直接矛盾。</td>
+        <td>执行任务 DB 持久化 + worker lease / 心跳；并发改全局计数；reconcile 幂等</td></tr>
+      <tr><td><span class="badge b-p0">P0-3</span></td>
+        <td><b>CI 门禁可信度不足</b><br><span class="src">部分修复，未闭环</span></td>
+        <td>路线图 <code>:159-164</code> 自述最近 8 次 push 全失败于 <code>Security Pre-Scan</code>，13 个 job 全 skipped，Rust/前端/Docker 从未执行 → 潜伏了 <code>release_gpu</code> 绑定缺陷与 fmt 漂移。今天已修 Checkov/fmt，但：<code>ci-cd.yml:481-501</code> <code>verify-deployment</code> 用 <code>if: always()</code> + 三个占位域名 curl + 只 echo，恒 success；<code>:397-410</code> staging health 非 200 仅 warning、API 校验失败仅 echo skipped；14 个 job 全部 <code>needs: security-scan</code> 形成单点扇出；Trivy 仅 <code>scan-type: fs</code>（:245,306）无镜像扫描。</td>
+        <td>验证 job 改真实断言、拆分 needs、加镜像扫描、观察首次真正跑通的 Rust job</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s5">
+  <h2><span class="num">5</span>P1 / P2 问题清单</h2>
+  <p class="sub">P1 = 交付与安全残余；P2 = 技术债与可维护性。状态列标明相对历史复盘是「遗留」还是「新增」。</p>
+  <table>
+    <thead><tr><th style="width:66px">级别</th><th style="width:200px">问题</th><th>证据 / 现状</th><th style="width:88px">状态</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge b-p1">P1-1</span></td><td><b>部署双路径并存</b></td>
+        <td><code>ci-cd.yml:386-395</code> staging 仍走 SSH 源码构建（<code>git pull &amp;&amp; cargo build --release &amp;&amp; systemctl restart</code>），与 GHCR 镜像 + <code>deploy-k8s</code>（:809+）并行；且 SSH 路径缺省 <code>USE_SQLITE=true</code>（<code>config.rs:323</code>），K8s 路径 <code>ConfigMap:42</code> 为 false，配置语义漂移。</td><td><span class="badge b-gray">遗留 A4</span></td></tr>
+      <tr><td><span class="badge b-p1">P1-2</span></td><td><b>镜像版本未钉死</b></td>
+        <td><code>k8s/13-kustomization.yaml:45,47</code> <code>newTag: main</code> 为浮动分支 tag（10-27 已建议改 SHA 未落地）；4 处 Dockerfile 基础镜像 <code>rust:1.96-alpine</code> / <code>alpine:3.20</code> / <code>node:22-alpine</code> / <code>nginx:1.27-alpine</code> 未钉 digest。</td><td><span class="badge b-gray">遗留</span></td></tr>
+      <tr><td><span class="badge b-p1">P1-3</span></td><td><b>K8s 集成自相矛盾</b></td>
+        <td><code>05-deployment.yaml:73</code> <code>automountServiceAccountToken: false</code> 与 <code>01-configmap.yaml:73</code> <code>K8S_ENABLED: "true"</code> + Role 授权并存；叠加 <code>K8S_SIMULATION_MODE=false</code> 无消费者，形成第三重矛盾。</td><td><span class="badge b-gray">遗留</span></td></tr>
+      <tr><td><span class="badge b-p1">P1-4</span></td><td><b>撤销名单默认 fail-open</b></td>
+        <td><code>config.rs:300,446</code> <code>revocation_fail_closed: false</code>（开关已加但未翻转）；<code>auth/middleware.rs:148</code> Redis 故障时放行已撤销 JWT。10-27 建议项。</td><td><span class="badge b-gray">遗留</span></td></tr>
+      <tr><td><span class="badge b-p1">P1-5</span></td><td><b>PG 单点</b></td>
+        <td>后端已 3 副本 + HPA 2/10 + PDB minAvailable:2，但 <code>17-postgresql.yaml</code> 仍为单副本 StatefulSet，无 HA；生产建议 CloudNativePG / 托管 PG。</td><td><span class="badge b-gray">遗留 A1</span></td></tr>
+      <tr><td><span class="badge b-p1">P1-6</span></td><td><b>角色边界未在文档声明</b></td>
+        <td><code>stores/auth.ts:24</code> localStorage 存含 role 的 user（既定设计，凭证在 httpOnly Cookie），<code>router/index.ts:63</code> fail-closed 守卫已正确；但此前 README 未显式写明「role 仅用于界面过滤，服务端才是授权边界」。<b>本轮已在 README 的 RBAC 章节补「Authorization boundary」小节。</b></td><td><span class="badge b-ok">已修复</span></td></tr>
+      <tr><td><span class="badge b-p0">P1-7</span></td><td><b>作业表单折叠分组在生产不渲染</b><br><span class="src">本轮新发现的生产缺陷，已修复</span></td>
+        <td>模板共使用 38 个 <code>el-*</code> 组件，唯一注册入口 <code>src/plugins/element-plus.ts</code> 的按需清单缺 <code>ElCollapse</code> / <code>ElCollapseItem</code> 及样式，页面脚本也无局部注册。10-29 的 F-7「30+ 字段分 3 组折叠」因此<b>在生产环境完全不渲染</b>；56 个全绿单测只断言「对话框打开」、不检查内容，Vue warn 洪流被当作噪声忽略。<b>本轮已补注册与样式；复验后组件告警计数归零，构建产物仅增 0.03 kB。</b></td><td><span class="badge b-ok">已修复</span></td></tr>
+      <tr><td><span class="badge b-p2">P2-1</span></td><td><b>双调度实现并存</b></td>
+        <td><code>priority_scheduler.rs</code> 647 行纯内存 mock 与 <code>dispatch.rs</code> 2,435 行生产闭环并存，路线图明确「保持不动」；<code>scheduler/tasks.rs:50-82</code> 仍是 skeleton TODO。新成员极易误改错文件。</td><td><span class="badge b-brand">新增</span></td></tr>
+      <tr><td><span class="badge b-p2">P2-2</span></td><td><b>P2-3 抢占搁置</b></td>
+        <td>完整实现保全于 <code>park/p2-3-preemption</code> 分支，路线图记录已知 major：victim 未按 cluster/partition 过滤 + <code>complete_running_job</code> run_token 契约需回归。</td><td><span class="badge b-brand">新增</span></td></tr>
+      <tr><td><span class="badge b-p2">P2-3</span></td><td><b>P2 backlog 3 项</b></td>
+        <td>reconcile 孤儿回退不释放 CPU/内存配额（配额泄漏）；CoLocate 保守计数可能误 blocked；<code>complete_running_job</code> 未校验 <code>rows_affected</code> 即计 completed_total。均见路线图 <code>:154-157</code>。</td><td><span class="badge b-brand">新增</span></td></tr>
+      <tr><td><span class="badge b-p2">P2-4</span></td><td><b>P2-5 未启动</b></td>
+        <td>计费 / showback、DCGM 真实利用率采集、goodput 北极星指标均无实现；当前「实耗」为模拟值，P2-4 的超卖回收准入因此缺少真实数据源。</td><td><span class="badge b-brand">新增</span></td></tr>
+      <tr><td><span class="badge b-p2">P2-5</span></td><td><b>前端测试噪声</b></td>
+        <td>原现象为 <code>JobManagement.spec.ts</code> 大量 <code>Failed to resolve component: el-collapse</code> 告警。本轮追根因后确认这不只是测试桩问题，而是生产组件缺失（升级为 P1-7 并修复）；复验告警计数 <b>0</b>，测试桩与生产注册范围恢复一致。</td><td><span class="badge b-ok">已修复</span></td></tr>
+      <tr><td><span class="badge b-p2">P2-6</span></td><td><b>文档与身份漂移</b></td>
+        <td><code>docs/metaclouds-optimization-roadmap.md:11-19</code> 开头「核心结论：无真实调度闭环」已被同文件第六节推翻但未回标；10-27 / 10-29 报告的多项「留作后续」已修却无状态回写；<code>Cargo.toml:5</code> 曾自述 <code>"Rust spike PoC"</code>。<b>本轮已给路线图加「状态回标」横幅并把首节标为历史留存、把 Cargo.toml 描述改为生产后端；剩余：10-27/10-29 报告的逐项状态回写、version 0.1.0 与前端 2.0.1 对齐。</b></td><td><span class="badge b-ok">部分修复</span></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s6">
+  <h2><span class="num">6</span>已修复项对照（历史复盘 → 当前代码）</h2>
+  <p class="sub">逐条核验 2026-10-09 项目记忆与 10-27 / 10-29 报告中的待办，确认哪些真正落地。</p>
+  <table>
+    <thead><tr><th style="width:230px">历史项</th><th style="width:100px">状态</th><th>当前证据</th></tr></thead>
+    <tbody>
+      <tr><td>P0-1 导航三源统一（Sidebar / router / Topbar）</td><td><span class="badge b-ok">已修复</span></td><td><code>src/nav.ts</code> 单一真源；<code>router/index.ts:3,26,62</code> 改用 <code>getNavRoles</code>，Sidebar / Topbar 由 navConfig 生成。</td></tr>
+      <tr><td>P1-2 自动刷新 / 状态映射 / useFetch 抽取</td><td><span class="badge b-ok">已修复</span></td><td><code>src/composables/useAutoRefresh.ts</code>、<code>utils/status.ts</code>、<code>utils/useFetch.ts</code> 均已独立成模块并被构建分离 chunk。</td></tr>
+      <tr><td>A1 部署翻转 PG 多副本</td><td><span class="badge b-ok">已修复</span></td><td><code>01-configmap.yaml:42</code> <code>USE_SQLITE=false</code>；<code>05-deployment.yaml:43</code> replicas 3 + RollingUpdate；HPA 2/10、PDB minAvailable:2；SQLite PVC 删除；13 组双驱动迁移齐全。</td></tr>
+      <tr><td>A4/A5 镜像名统一 + ImagePullBackOff</td><td><span class="badge b-ok">已修复</span></td><td>三处统一 <code>ghcr.io/.../{backend-rust,frontend}</code>；<code>13-kustomization.yaml</code> newTag <code>placeholder → main</code>；新增 <code>scripts/deploy-k8s.sh</code> 支持 GIT_SHA。</td></tr>
+      <tr><td>A3 前端单测 CI 阻断</td><td><span class="badge b-ok">已修复</span></td><td><code>ci-cd.yml:165</code> 注释确认移除 continue-on-error；实测 11 文件 / 56 用例通过。</td></tr>
+      <tr><td>A6 限流默认关闭</td><td><span class="badge b-ok">部分修复</span></td><td>代码默认仍 false（<code>config.rs:269</code>），但 <code>01-configmap.yaml:80</code> 生产已显式 <code>RATE_LIMIT_ENABLED=true</code>；compose 本地链路未开。</td></tr>
+      <tr><td>A7 Cargo.toml 自述 PoC</td><td><span class="badge b-ok">已修复</span></td><td><code>Cargo.toml:5</code> 本轮改为生产后端描述；version 仍 0.1.0（避免与 Cargo.lock / 发布流程联动），见 6.1。</td></tr>
+      <tr><td>10-27 建议：Checkov 阻断 / SBOM / cargo audit / 依赖评审</td><td><span class="badge b-ok">已修复</span></td><td><code>ci-cd.yml:85</code> <code>soft_fail: false</code>；<code>:110</code> dependency-review；<code>:116</code> SBOM；<code>:545</code> cargo audit；<code>:179</code> npm audit critical 阻断。</td></tr>
+      <tr><td>10-27 建议：SSH host key / Redis 口令 / 镜像 tag</td><td><span class="badge b-ok">已修复</span></td><td><code>StrictHostKeyChecking=accept-new</code>（:346 等）；<code>18-redis.yaml</code> 改 redis.conf 文件注入，口令不再进 <code>ps</code>；17/18 钉 <code>16.4-alpine</code> / <code>7.4-alpine</code>。</td></tr>
+      <tr><td>10-27 建议：REVOCATION_FAIL_CLOSED 开关</td><td><span class="badge b-ok">部分修复</span></td><td>开关已加（<code>config.rs:186,446</code>），但默认 false，见 P1-4。</td></tr>
+      <tr><td>10-29 修复 36 项 + 调度能力 P0/P1/P2-1/2/4</td><td><span class="badge b-ok">已修复</span></td><td>本地实测 <code>cargo test --lib</code> 72 passed；clippy -D warnings 零告警；fmt 干净；route/迁移 013 齐全。</td></tr>
+      <tr><td>release_gpu 参数绑定错位（P0 潜伏缺陷）</td><td><span class="badge b-ok">已修复</span></td><td><code>fb4a169</code> 删除多余绑定，路线图记录突变测试反向验证；修复前设备显存只增不减、状态永久 allocated。</td></tr>
+      <tr><td>CI fmt 漂移</td><td><span class="badge b-ok">已修复</span></td><td><code>d6476e4</code>；本地 <code>cargo fmt --all -- --check</code> 通过。</td></tr>
+    </tbody>
+  </table>
+  <div class="callout green">
+    <b>总体判断</b>
+    四轮历史复盘中的绝大多数工程债已真实落地，尤其前端导航统一、PG 多副本翻转、CI 安全门禁与调度状态机，质量提升是实质性的。剩余问题集中在<b>「最后一公里」</b>：真实执行器、CI 端到端可信、以及配置 / 文档 / 代码三者的一致性。
+  </div>
+  <h3>6.1 本轮直接落地的优化（2026-11-09）</h3>
+  <p class="sub">全部为无需目标环境、不改变生产运行行为的确定性改动；改后已重跑前后端门禁（见第 7 节）。</p>
+  <table>
+    <thead><tr><th style="width:56px">#</th><th style="width:270px">改动文件</th><th>内容与验证</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>metaclouds-frontend-vue/src/plugins/element-plus.ts</code></td><td>补 <code>ElCollapse</code> / <code>ElCollapseItem</code> 深路径导入、按需样式与全局注册，修复生产作业表单折叠分组不渲染（P1-7）。验证：组件解析告警计数归零、56 用例全绿、element-plus 产物仅 +0.03 kB。</td></tr>
+      <tr><td>2</td><td><code>metaclouds-backend-rust/src/main.rs</code></td><td>派发循环启动时输出 WARN，显式声明「模拟执行 / 合成实耗 / 不得把作业状态与利用率当作真实算力交付」，并带 3 个配置值便于排查。纯观测增强，不改变运行行为。</td></tr>
+      <tr><td>3</td><td><code>metaclouds-backend-rust/k8s/01-configmap.yaml</code></td><td>显式声明 <code>DISPATCH_ENABLED</code> / <code>DISPATCH_SIMULATED_RUN_MS</code> / <code>DISPATCH_SIMULATED_UTILIZATION</code>（取值与代码默认一致，行为不变）；注释说明 <code>K8S_SIMULATION_MODE</code> 当前无业务消费者，设 false 不会切到真实集群。</td></tr>
+      <tr><td>4</td><td><code>metaclouds-backend-rust/Cargo.toml</code></td><td>description 由 <code>"Rust spike PoC..."</code> 改为生产后端描述（Rust/axum + SQLx、SQLite/Postgres 双驱动）。version 暂留 0.1.0，避免牵动 Cargo.lock 与发布流程。</td></tr>
+      <tr><td>5</td><td><code>docs/metaclouds-optimization-roadmap.md</code></td><td>加「状态回标（2026-11-09）」横幅，首节改标「2026-10-30 初始基线 · 历史留存」，并指向第六节与本报告，消除「无真实调度闭环」这一过时结论的误导。</td></tr>
+      <tr><td>6</td><td><code>metaclouds-backend-rust/README.md</code></td><td>RBAC 章节新增「Authorization boundary」：明确前端 localStorage 的 role 仅用于界面过滤、可被篡改但不产生服务端权限，真正的授权边界在 <code>jwt_auth</code> + <code>RequirePermission</code> 与租户隔离。</td></tr>
+    </tbody>
+  </table>
+  <p class="src">另有本报告两份交付物（HTML 可视化版 + Markdown 归档版），不计入上述 6 项代码/文档改动。</p>
+</section>
+
+<section id="s7">
+  <h2><span class="num">7</span>实测门禁证据（2026-11-09 本地）</h2>
+  <p class="sub">全部命令在当前工作区真实执行，非引用文档结论；每条均在「核验基线」与「本轮改动后」各跑一次。工具链 cargo / rustc 1.96.0，与 CI <code>dtolnay/rust-toolchain@1.96.0</code> 一致。</p>
+  <table>
+    <thead><tr><th style="width:120px">层</th><th style="width:290px">命令</th><th style="width:110px">结果</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>前端</td><td><code>npm run type-check</code>（vue-tsc --noEmit）</td><td><span class="badge b-ok">通过</span></td><td>基线 + 改动后复验均零类型错误。</td></tr>
+      <tr><td>前端</td><td><code>npm run test</code>（vitest run）</td><td><span class="badge b-ok">通过</span></td><td>11 文件 / 56 用例全绿；<b>改动后组件解析告警计数由数十条降为 0</b>（P1-7），证明修复有区分力而非掩盖。</td></tr>
+      <tr><td>前端</td><td><code>npm run build</code> / <code>vite build --outDir &lt;全新目录&gt;</code></td><td><span class="badge b-ok">通过</span></td><td>首次被沙箱 safe-delete 守卫阻断（Vite 清空 dist 触发 50 文件批量删除阈值），<b>非代码缺陷</b>；改全新输出目录复验：基线 2,376 modules / 改动后 2,378 modules，均构建成功；element-plus chunk 951.34 → 951.37 kB（+0.03 kB）、CSS 205.39 → 206.12 kB，按需注册无打包回归。</td></tr>
+      <tr><td>后端</td><td><code>cargo fmt --all -- --check</code></td><td><span class="badge b-ok">通过</span></td><td>基线 + 改动后均 FMT_OK。</td></tr>
+      <tr><td>后端</td><td><code>cargo check --quiet</code></td><td><span class="badge b-ok">通过</span></td><td>改动后 CHECK_OK。</td></tr>
+      <tr><td>后端</td><td><code>cargo test --lib</code></td><td><span class="badge b-ok">通过</span></td><td>基线 + 改动后均 72 passed / 0 failed / 0 ignored。</td></tr>
+      <tr><td>后端</td><td><code>cargo clippy --all-targets -- -D warnings</code></td><td><span class="badge b-ok">通过</span></td><td>基线 + 改动后均退出 0、零 lint 告警。改动后 stderr 的 <code>error deleting lock file ... 存取被拒 (os error 5)</code> 为 Windows 沙箱增量编译锁文件清理失败的环境噪声，非代码告警，不影响退出码。</td></tr>
+      <tr><td>仓库</td><td><code>git status --short</code> / <code>git log</code> / <code>rev-list</code></td><td><span class="badge b-p1">待处理</span></td><td>核验基线时工作区干净，HEAD <code>2be6ebe</code>；本轮产生 8 个文件改动（6 项优化 + 2 份报告）；main <b>领先 origin/main 11 个提交</b>未推送。</td></tr>
+    </tbody>
+  </table>
+  <div class="callout amber">
+    <b>不要把本地绿等同于 CI 绿</b>
+    CI 的 <code>cargo audit</code>、<code>cargo test --all-features</code>、Postgres 双驱动冒烟（postgres:16 service）、Trivy、Checkov 均需 GitHub runner 与网络，本地沙箱无法覆盖。路线图 <code>:164</code> 自己也把「观察首个真正跑通的 Rust job」列为遗留核验点 —— 在 11 个提交推送并跑通一次完整流水线之前，门禁仍属未验证状态。
+  </div>
+</section>
+
+<section id="s8">
+  <h2><span class="num">8</span>优化路线图</h2>
+  <p class="sub">按「先止血、再补地基、后收口」排序。S0 可在不改变系统定位的前提下立即执行；S1 起需要第 9 节的决策拍板。</p>
+  <div class="stages">
+    <div class="stage">
+      <div class="tag">STAGE 0 · 止血</div><h4>让「模拟」显式且不可误用</h4>
+      <ul>
+        <li>生产启动守卫：无真实 K8s client 且 <code>K8S_SIMULATION_MODE=false</code> 时拒绝启动，或强制 <code>DISPATCH_ENABLED=false</code>。</li>
+        <li>ConfigMap 显式声明 <code>DISPATCH_ENABLED</code> / <code>DISPATCH_SIMULATED_*</code> 及语义注释。</li>
+        <li>前端加演示模式横幅，作业 / K8s / 利用率页标注「模拟数据」。</li>
+        <li>回标 roadmap 开头过时结论；归档历史报告并加「历史记录」横幅。</li>
+        <li>Cargo.toml 更名去 PoC、版本对齐 2.0.1。</li>
+      </ul>
+      <div class="risk">风险：低 · 本轮已执行 4/5 项（启动告警、配置显式化、文档回标、去 PoC 更名）；UI 演示横幅未纳入本轮，原因是后端尚无前端可消费的模式标识接口，需先定义该接口再实现展示</div>
+    </div>
+    <div class="stage">
+      <div class="tag">STAGE 1 · 地基</div><h4>接真实执行器 + 修多副本语义</h4>
+      <ul>
+        <li>以 kube-rs 提交 K8s Job / 自定义 CRD 替换 <code>sleep</code>；补齐 RBAC 与 token 挂载决策。</li>
+        <li>执行任务 DB 持久化 + worker lease / heartbeat，Pod 重启可恢复。</li>
+        <li><code>max_concurrent</code> 改 DB 全局计数；reconcile 幂等 + owner 判定。</li>
+        <li>实耗采样改 DCGM / 真实指标，替换 0.75 模拟口径。</li>
+      </ul>
+      <div class="risk">风险：高 · 需真实集群 / GPU 验证 · 决定系统定位</div>
+    </div>
+    <div class="stage">
+      <div class="tag">STAGE 2 · 交付</div><h4>让 CI 的绿可被信任</h4>
+      <ul>
+        <li>推送 11 个提交，观察首个完整跑通的流水线（fmt / clippy / audit / PG 双驱动）。</li>
+        <li><code>verify-deployment</code> 改真实断言，去掉 <code>if: always()</code> 恒绿；staging 校验失败即 fail。</li>
+        <li>按路径拆分 <code>needs</code>，消除 security-scan 单点扇出。</li>
+        <li>补 Trivy <code>scan-type: image</code>；<code>newTag</code> 钉 GIT_SHA；Dockerfile 钉 digest。</li>
+        <li>收敛部署路径：保留镜像 + K8s，SSH 源码构建降级或移除。</li>
+      </ul>
+      <div class="risk">风险：中 · 需 GH runner / 目标环境</div>
+    </div>
+    <div class="stage">
+      <div class="tag">STAGE 3 · 安全</div><h4>收口残余边界</h4>
+      <ul>
+        <li>生产翻转 <code>REVOCATION_FAIL_CLOSED=true</code>。</li>
+        <li>删除或明确隔离 647 行 <code>priority_scheduler.rs</code> 死 mock 与 skeleton tasks。</li>
+        <li>README 显式声明 role 仅 UI 过滤、服务端为 authz 边界。</li>
+        <li>PG HA：CloudNativePG / 托管 PG；核验 <code>max_connections ≥ 副本数 × DB_MAX_CONNS + 20</code>。</li>
+        <li>解决 <code>automountServiceAccountToken</code> 与 K8S_ENABLED 矛盾。</li>
+      </ul>
+      <div class="risk">风险：中 · 多为配置与文档</div>
+    </div>
+    <div class="stage">
+      <div class="tag">STAGE 4 · 能力</div><h4>补齐高级调度与质量</h4>
+      <ul>
+        <li>P2-3 抢占回归：修 victim 的 cluster/partition 过滤 + run_token 契约。</li>
+        <li>清 P2 backlog 三项（配额释放 / CoLocate 计数 / rows_affected）。</li>
+        <li>P2-5 计费 showback + DCGM + goodput。</li>
+        <li>前端测试桩注册 Element Plus，消除 warn 洪流；补骨架屏 / 移动端卡片化。</li>
+        <li>建立文档单一真源，路线图进度与代码状态双向回标。</li>
+      </ul>
+      <div class="risk">风险：低-中 · 依赖 S1 的真实数据源</div>
+    </div>
+  </div>
+  <h3>推荐执行顺序</h3>
+  <p class="lead"><b>S0 立即做 → 推送并跑通 CI（S2 前半）→ 依第 9 节拍板决定是否进入 S1 → S3 与 S4 并行。</b> 若系统定位是「演示 / 教学平台」，S0 + S3 + S4 已足够，S1 可不启动；若定位是「生产算力平台」，S1 是不可跳过的地基，且当前所有高级调度能力的价值都取决于它。</p>
+</section>
+
+<section id="s9">
+  <h2><span class="num">9</span>决策落点与阻塞项</h2>
+  <p class="sub">下列选择无法由代码审查代替，需明确拍板后才能进入对应阶段。</p>
+  <h3>9.1 需要拍板的决策</h3>
+  <table>
+    <thead><tr><th style="width:170px">决策</th><th>可选方向</th><th style="width:230px">影响</th></tr></thead>
+    <tbody>
+      <tr><td><b>系统定位</b><br><span class="badge b-p0">最高优先</span></td>
+        <td>A. 演示 / 教学 / 能力验证平台　B. 生产算力交付平台</td>
+        <td>A 只需 S0 显式化，S1 可不做；B 必须接真实执行器并重做验收口径。</td></tr>
+      <tr><td><b>真实执行器形态</b></td><td>kube-rs 提交 Job/CRD · Slurm 适配 · 外部调度器 API</td>
+        <td>决定 RBAC、token 挂载、作业生命周期与失败重试语义。</td></tr>
+      <tr><td><b>多副本调度模型</b></td><td>单副本 + leader 选举　·　DB lease 多活</td>
+        <td>前者简单但与 HPA 冲突；后者复杂但保住 HA 架构。</td></tr>
+      <tr><td><b>部署路径</b></td><td>收敛到 GHCR 镜像 + K8s　·　保留 SSH 源码构建</td>
+        <td>决定 CI 能否简化、SQLite/PG 配置漂移能否消除。</td></tr>
+      <tr><td><b>数据库 HA</b></td><td>托管 PostgreSQL　·　CloudNativePG / Zalando Operator</td>
+        <td>决定 3 副本后端是否真的高可用。</td></tr>
+    </tbody>
+  </table>
+  <h3>9.2 当前阻塞（明确原因）</h3>
+  <table>
+    <thead><tr><th style="width:200px">阻塞</th><th>原因</th><th style="width:150px">解除条件</th></tr></thead>
+    <tbody>
+      <tr><td><b>11 个提交未推送</b></td><td>离线 Windows 沙箱无 GitHub 凭据，<code>GIT_TERMINAL_PROMPT=0</code> 时 push 报 <code>could not read Username</code>；用户此前选择手动 <code>git push origin main</code>。</td><td>手动推送或配置凭据</td></tr>
+      <tr><td><b>CI 从未真正跑通</b></td><td>依赖 GitHub-hosted runner 与网络（cargo audit / postgres:16 service / Checkov / Trivy），本地无法等价验证；且门禁修复刚落地。</td><td>推送后观察首个完整 run</td></tr>
+      <tr><td><b>真实执行无法验证</b></td><td>无 K8s 集群、无 GPU / DCGM、无 kubeconfig；S1 的实现与验收都需目标环境。</td><td>提供集群与设备</td></tr>
+      <tr><td><b>前端 build 首次中断</b></td><td>沙箱 safe-delete 守卫在 Vite 清空 <code>dist/</code> 时触发 50 文件批量删除确认；已用全新输出目录复验通过，非代码问题。</td><td>已绕过，无残留影响</td></tr>
+      <tr><td><b>生产 Secret 未注入</b></td><td><code>k8s/02-secret.yaml</code> 为占位值，<code>database-url</code> / <code>jwt-secret</code> 需人工提供；缺失时后端按设计 fail-closed 退出。</td><td>运维注入真实凭据</td></tr>
+    </tbody>
+  </table>
+  <div class="callout blue">
+    <b>当前状态与后续</b>
+    S0 中不依赖任何决策的 4 项修复已在本轮落地并通过前后端门禁复验，可直接提交。S1 的真实执行器改造受限于目标环境（无 K8s 集群 / GPU / DCGM / kubeconfig）与系统定位尚未确定，本轮不启动；S2 的流水线验证受限于 11 个提交尚未推送且本地无 GitHub runner。这些是环境与前置条件，不是待授权的动作。具备 GitHub 凭据的一方执行 <code>git push origin main</code> 后，CI 才有机会首次完整跑通并验证门禁修复。
+  </div>
+</section>
+
+<p class="foot">
+  报告生成：2026-11-09 · 基线 HEAD <code>2be6ebe</code> · 全部结论基于当前工作区文件与本地实跑命令<br>
+  证据格式 <code>路径:行号</code> 均可直接复核 · 历史复盘参考 docs/review-2026-10-27.md、docs/world-class-review-2026-10-29.md、docs/metaclouds-optimization-roadmap.md
+</p>
+
+</div>
+</body>
+</html>
