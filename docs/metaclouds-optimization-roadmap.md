@@ -9,6 +9,8 @@
 > ⚠️ **状态回标（2026-11-09）**：以下第一至四节是 2026-10-30 立项时的**初始差距分析**，其核心结论已被第六节「实施进度」推翻 —— P0 / P1 / P2-1 / P2-2 / P2-4 均已落地。当前准确状态请以第六节及 `docs/system-review-and-optimization-2026-11-09.md` 为准；本段之后的原文按历史记录保留，未作改写。
 >
 > ✅ **第二轮修复（2026-11-09 下午）**：全面复盘报告中的 P0-1~3、P1-1 / P1-3 / P1-4、P2-1 / P2-3 / P2-6 已按 `docs/system-fixes-2026-11-09.md` 落地 —— 生产模拟执行 fail-closed、`/system/mode` 模式接口与前端横幅、多副本租约 / 全局并发 / 优雅排水、CI 真实断言与 SHA 钉版本、撤销名单默认 fail-closed、配置矛盾收敛、死调度器 feature 门控、合成实耗 `usage_source` 标记。**部分落地**：P1-2 已钉镜像 SHA tag 但 Dockerfile 基础镜像 digest 未钉；P1-5 已标注 PG 单点并加 CI guard，但 HA 本身未做；P0-2 的执行任务 DB 持久化 / worker lease 未做。**剩余未决项**：真实执行器（需 K8s 集群/GPU/DCGM）、P2-3 抢占分支回归（832 行改动且已知 2 处 major，需系统定位拍板）、PG HA、Docker 基础镜像 digest、CI 首次完整 run（需推送 + 配置仓库变量与 secrets，详见修复报告第四节）。
+>
+> ✅ **第三轮（2026-11-09 傍晚）**：运维前置条件已闭环 —— CI 新增 `deploy-prereqs` 总闸与 `DEPLOY_ENABLED` / `DEPLOY_TARGETS` 显式开关，**推送代码不再被运维配置阻塞**（未启用时部署 job 明确 skipped，既不报绿也不报红）；`scripts/check-deploy-prereqs.sh` 成为变量与校验规则的唯一真源；修掉「`02-secret.yaml` 恒含 CHANGEME 导致 K8s Guard 必失败 / `apply -k` 覆盖真实 Secret」的死结，以及 `database-url` 与 `postgres-password` 不同源的部署陷阱。剩余未决项已台账化为修复报告第五节 R1–R10，并补齐 `docs/real-executor-contract.md`（真实执行器契约）、`docs/p2-3-preemption-backlog.md`（回归清单）；Docker 基础镜像已参数化为 4 个 ARG（待联网解析 digest）。完整 runbook：`docs/deployment-prerequisites.md`。
 
 ## 一、核心结论（2026-10-30 初始基线 · 历史留存）
 

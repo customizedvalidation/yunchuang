@@ -36,6 +36,8 @@ logs/
 .env.*
 !.env.example
 !.env.production.example
+!.env.deploy.example
+# .env.deploy（本地运维变量副本，含真实凭据）由 .env.* 规则忽略，不得入库
 secrets/
 **/secrets/
 

@@ -7,8 +7,15 @@
 #       opentelemetry 0.27 / utoipa 5 / redis 0.27 require MSRV > 1.81.
 # ==============================================================================
 
+# 基础镜像可通过 --build-arg 钉到不可变 digest（P1-2 遗留项，2026-11-09 参数化）。
+# 默认仍用 tag，行为零变化；取 digest 用 scripts/pin-base-images.sh（需联网）：
+#   docker build --build-arg RUST_BUILDER_IMAGE=rust:1.96-alpine@sha256:<digest> ...
+# 全局 ARG 在 Dockerfile 顶部声明即可用于所有 FROM 指令；阶段内如需引用须重新声明。
+ARG RUST_BUILDER_IMAGE=rust:1.96-alpine
+ARG RUNTIME_IMAGE=alpine:3.20
+
 # ---- Stage 1: builder (musl static build) ----
-FROM rust:1.96-alpine AS builder
+FROM ${RUST_BUILDER_IMAGE} AS builder
 
 # rustls is used (no native OpenSSL needed); only musl C headers + binutils for strip.
 RUN apk add --no-cache musl-dev binutils && \
@@ -40,7 +47,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     strip /out/metaclouds-backend-rust
 
 # ---- Stage 2: runtime ----
-FROM alpine:3.20
+FROM ${RUNTIME_IMAGE}
 
 RUN apk add --no-cache ca-certificates tzdata wget && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \

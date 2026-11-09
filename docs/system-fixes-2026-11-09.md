@@ -1,10 +1,11 @@
-# 2026-11-09 第二轮修复实施报告
+# 2026-11-09 第二轮修复实施报告（含第三轮回标）
 
-- 日期：2026-11-09（下午）
+- 日期：2026-11-09（下午出具；同日第三轮换新第四/五节并新增第七节）
 - 对应复盘：`docs/system-review-and-optimization-2026-11-09.md`（同日 12:45 出具，第五节/第六节为**修复前**口径，状态以本文为准）
-- 基线：`2be6ebe`（复盘时工作区干净），本轮全部改动仍在工作区、未提交
+- 基线：`2be6ebe`（复盘时工作区干净）；第二轮改动已提交为 `e3eacda` / `93356e9` / `2bcff5b` / `2b2360e`，第三轮改动见第七节
 - 范围：Rust 后端、Vue3 前端、compose / 19 份 K8s 清单 / nginx / Ingress、CI 流水线、文档
-- 定位：**S0 止血全部完成 + S1 的多副本语义部分完成 + S2 的 CI 真实性修复落地**
+- 定位：**S0 止血全部完成 + S1 的多副本语义部分完成 + S2 的 CI 真实性修复落地；第三轮补齐运维前置条件与阻塞项台账**
+- 当前部署口径真源：`docs/deployment-prerequisites.md`（第四节的旧「推送前必须配齐」要求已被显式开关取代）
 
 ---
 
@@ -104,43 +105,149 @@
 
 ---
 
-## 四、推送前必须完成的运维配置（新增前置条件）
+## 四、推送前的运维前置条件（第三轮已闭环，口径以 runbook 为准）
 
-修复把「没配置就跳过并报绿」改成了「没配置就明确失败」。因此推送到 `main` 后，若下列变量未配置，流水线会**按设计变红**：
+> 本节于 2026-11-09 第三轮重写。原文要求「推送前必须一次性配齐全部变量，否则流水线按设计变红」—— 那是把「运维尚未就绪」误报成「代码有问题」。**当前真源：`docs/deployment-prerequisites.md`**；可执行的变量清单与校验规则在 `scripts/check-deploy-prereqs.sh`。
 
-| 类别 | 需要的仓库变量 / Secret | 用途 |
+### 4.1 状态机（已落地）
+
+| 状态 | 条件 | CI 表现 |
 |---|---|---|
-| 地址 | `DEV_BASE_URL` / `STAGING_BASE_URL` / `PROD_BASE_URL` / `K8S_BASE_URL` | 替换 `*.example.com` 占位域名，供 `verify-deployment.sh` 断言 |
-| SSH | `DEV_SSH_KEY` / `DEV_HOST` / `DEV_USER`、`STAGING_*`、`PROD_*`、`DEPLOY_DIR` | compose 镜像部署；目标机需预置 GHCR 登录凭据与 `.env`（含 `postgresql:// DATABASE_URL`） |
-| 集群 | `KUBE_CONFIG`（base64 kubeconfig） | `deploy-k8s` 缺它时直接 `exit 1`，不再报「skipped success」 |
-| 可选 | `REQUIRE_PG_HA=true` | 把「内置 PG 单副本」从 warning 升级为阻断门禁 |
+| 未启用部署 | `DEPLOY_ENABLED != true` | 4 个部署 job **skipped**，主构建链路照常绿；日志打印还差哪些变量（`--report` 诊断） |
+| 声明启用但没配齐 | `DEPLOY_ENABLED=true` 且 `DEPLOY_TARGETS` 中任一目标前置条件不全 | `deploy-prereqs` **exit 1 变红**，一次报全缺失项 |
+| 已配齐 | 目标校验通过 | 仅 `DEPLOY_TARGETS` 列出的目标真正部署，随后仍走 `verify-deployment.sh` 真实断言 |
 
-其他部署注意：
+**结论：推送代码不再被运维配置阻塞**，同时没有退回「跳过也算绿」。总闸开关与 `DEPLOY_TARGETS` 让「部署未发生」在 UI 上明确显示为 skipped。
 
-1. 生产 ConfigMap 当前以**演示集群**口径显式承认模拟（`ALLOW_SIMULATED_EXECUTION=true`）。作为真实算力平台交付前，必须改为 `false` 并把 `DISPATCH_ENABLED` 设为 `false`（或接入真实执行器后移除模拟路径）。
+### 4.2 本轮修掉的运维侧真实缺陷
+
+| # | 问题 | 处理 |
+|---|---|---|
+| 1 | 4 个 deploy job 各自手写 3 行 Guard，漏检 `*_USER` / `DEPLOY_DIR` / `KUBE_CONFIG` / K8s 真实凭据；只查非空不查格式，占位域名、假 PEM key、假 kubeconfig 都能通过 | 收敛到 `scripts/check-deploy-prereqs.sh` 单一真源（存在性 + URL/PEM/base64/长度/占位符校验），`--list` 自助打印清单；4 个 job 与 CI 总闸共用 |
+| 2 | `k8s/02-secret.yaml` 是恒含 `CHANGEME` 的占位模板：旧 Guard 解析它 → 启用 K8s 部署必 100% 失败；`kustomize build \| kubectl apply` 又会把集群里预置的真实 Secret **覆盖回占位值** | 新增 `scripts/render-k8s-secret.sh`，apply 前从 6 个 CI secrets 渲染真实 Secret 工作副本（仅存在于 runner checkout）；Guard 改为校验渲染结果 |
+| 3 | 旧 Guard `import yaml` 依赖 runner 预装 PyYAML（该 job 从未安装）、错误分支的 Python 字符串有未转义嵌套引号（语法错误）、并把解码后的凭据明文打到公开日志 | 改纯标准库逐行解析，增加必需 key 完整性检查，**只报 key 名不回显值** |
+| 4 | `02-secret.yaml` 注释让运维分别随机生成 `database-url` 口令与 `postgres-password`；`17-postgresql.yaml` 用后者初始化 PG，后端用前者连接，不一致时清单全绿但后端鉴权起不来 | 新增 `scripts/generate-deploy-secrets.sh` 强制两者同源，并用 `--from-env` 保证本地自检值与 `gh secret set` 注入值一致 |
+| 5 | 伪前置条件 `K8S_BASE_URL` 被列为必需 | 降为可选：K8s 验收走 `kubectl port-forward`，该地址仅用于 GitHub Environment URL 展示 |
+| 6 | `Configure kubeconfig` 把 secret 直接插值进 shell 源码，引号/换行可能破坏命令 | 改为从 env 读取 `printf '%s' "$KUBE_CONFIG" \| base64 -d` |
+
+### 4.3 仍需运维提供的配置（摘要，非推送阻塞）
+
+| 类别 | 变量 / Secret |
+|---|---|
+| 总闸 | `DEPLOY_ENABLED`、`DEPLOY_TARGETS`、`REQUIRE_PG_HA`（可选） |
+| compose | `{DEV,STAGING,PROD}_BASE_URL`（Variable）、`{DEV,STAGING,PROD}_{SSH_KEY,HOST,USER}`（Secret）、`DEPLOY_DIR`（可选） |
+| K8s | `KUBE_CONFIG` + 6 个 `K8S_*` 凭据（Secret）、`K8S_BASE_URL`（可选 Variable） |
+| 目标机 | GHCR 只读登录、`.env`（含 `postgresql:// DATABASE_URL`）、`git pull --ff-only` 可用、新版 nginx/Ingress |
+
+生成与逐项命令见 `docs/deployment-prerequisites.md`；本地自检：
+
+```bash
+bash scripts/check-deploy-prereqs.sh --env-file .env.deploy --report
+bash scripts/check-deploy-prereqs.sh --env-file .env.deploy --target staging --strict
+bash scripts/pre-push-check.sh --strict
+```
+
+### 4.4 上线前必须复核的四件事（未变）
+
+1. 生产 ConfigMap 当前以**演示集群**口径显式承认模拟（`ALLOW_SIMULATED_EXECUTION=true`）。作为真实算力平台交付前必须改为 `false` 并把 `DISPATCH_ENABLED` 设为 `false`（或接入真实执行器后移除模拟路径）。
 2. `/health` 反代依赖**新版前端 nginx 镜像**与新版 Ingress；只更新后端镜像会让验收脚本拿不到后端就绪响应。
 3. `usage_source='simulated'` 的合成实耗禁止进入计费/showback 查询。
 4. 迁移 014/015 为纯增量（建表 / 加列，可空、无外键），双驱动各一份，apply 前确认对应方言目录。
 
 ---
 
-## 五、剩余未决与阻塞
+## 五、剩余未决与阻塞项台账（第三轮更新）
 
-| 项 | 状态 | 阻塞原因 / 解除条件 |
-|---|---|---|
-| 真实执行器（kube-rs Job/CRD 等） | 未启动 | 无 K8s 集群 / GPU / DCGM / kubeconfig；且系统定位（演示平台 vs 生产算力平台）未拍板 |
-| 执行任务 DB 持久化 + worker lease/心跳 | 未做 | 与上同属 S1，需与真实执行器生命周期一并设计 |
-| reconcile owner 幂等 | 部分 | 启动期已用租约选主；运行期幂等未完成认领前仍有窗口 |
-| P2-3 抢占分支回归 | 未做 | 保全于 `park/p2-3-preemption`，832 行改动且已知 2 处 major（victim 未按 cluster/partition 过滤、run_token 契约） |
-| PG HA | 未做 | 已显式标注单点 + CI 可配置硬门禁；实际切换需托管 PG / CloudNativePG 与 `DATABASE_URL` |
-| Dockerfile 基础镜像钉 digest | 未做 | 需逐份核对并写入 digest |
-| CI 首个完整 run | 未观察 | `main` 领先 `origin/main` 11 个提交未推送；离线沙箱无 GH 凭据，需手动 `git push origin main` |
-| 生产 Secret | 未注入 | `02-secret.yaml` 仍为占位值，`database-url` / `jwt-secret` 需运维提供，缺失时后端 fail-closed 退出 |
+图例：🔴 需外部条件 / 🟡 设计已定、待环境实施 / 🟢 本轮闭环 / ⚪ 部分完成
+
+| ID | 项 | 状态 | 本轮动作 | 解除条件 | 验收标准 | 关联 |
+|---|---|---|---|---|---|---|
+| R1 | 真实执行器（kube-rs Job/CRD）、DCGM 实耗 | 🟡 | 成文 `docs/real-executor-contract.md`：`Executor` trait、状态机、灰度路径、7 组验收用例；**未写实现** | 真实 K8s 集群 + GPU/Device Plugin + DCGM + kubeconfig/RBAC；且**系统定位拍板**（演示平台 vs 生产算力平台） | 契约第六节 7 组用例全绿；`usage_source='dcgm'` 进入账本 | `real-executor-contract.md` |
+| R2 | 执行任务 DB 持久化 + worker lease/心跳 | 🟡 | 在契约中定稿 `exec_tasks` 表（双驱动）、lease 续约与 attempt 幂等；**未建表、未改代码** | 与 R1 一并实施（共用生命周期，不可拆） | SIGKILL 后另一副本在 TTL 内接管，不重复提交/释放 | `real-executor-contract.md` §3–4 |
+| R3 | reconcile owner 运行期幂等 | ⚪ | 启动期已用 014 租约选主；运行期仍未做 | 同 R2 | 契约用例 1/2/6 | `migrations/014_dispatch_lease.sql` |
+| R4 | P2-3 抢占分支回归与合并 | 🟡 | 新增 `docs/p2-3-preemption-backlog.md`：2 处 major、基线漂移清单、rebase 顺序、7 组必补测试、验收标准 | 建议与 R1 一并立项（在内存态模拟作业上验证「模拟互抢」价值有限） | 回归清单第五节全绿，默认关闭开关 | 分支 `park/p2-3-preemption` @ `d3ea543` |
+| R5 | PostgreSQL HA | 🔴 | 已标注单点 + CI 可配置硬门禁；本轮在 runbook 指向切换手册 | 托管 PG / CloudNativePG + 更新 `DATABASE_URL`；设 `REQUIRE_PG_HA=true` 升为硬门禁 | PG 故障切换演练通过，后端 3 副本不断服 | `docs/k8s-production-switch-runbook.md`、`17-postgresql.yaml` |
+| R6 | Dockerfile 基础镜像钉 digest | 🟡 | **本轮参数化**：后端 `RUST_BUILDER_IMAGE` / `RUNTIME_IMAGE`、前端 `NODE_BUILDER_IMAGE` / `NGINX_RUNTIME_IMAGE` 四个全局 ARG（默认仍用 tag，行为零变化）；新增 `scripts/pin-base-images.sh --check/--resolve` | 联网环境用 `docker buildx imagetools` 或 `crane` 解析 4 个真实 digest，写入 ARG 默认值或注入 `--build-arg` | `--check --strict` 4/4 钉死；镜像构建仍通过 | 两份 Dockerfile、`pin-base-images.sh` |
+| R7 | CI 首个完整 run | 🔴 | 新增 `scripts/pre-push-check.sh`（工作区/领先数/脚本语法/远端连通/bundle 校验）；运维前置已不阻塞推送 | **网络代理层恢复**或用户在联网主机 `git push origin main`；随后配置开关触发首个部署链路 | GitHub Actions 全 job 实跑；`cargo audit` / PG 集成 / Checkov / Trivy image / 真实 apply 全部有结果 | `pre-push-check.sh`、离线 bundle |
+| R8 | 生产 Secret 注入 | 🟡 | 本轮打通路径：`render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**真实值仍须运维提供** | 运维注入 6 个 K8s secrets 或改用 External Secrets Operator / Sealed Secrets | Guard 校验渲染 Secret 无占位；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§4 |
+| R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
+| R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
+
+### 5.1 阻塞依赖链
+
+```
+系统定位拍板 ──> 真实集群/GPU/DCGM ──> R1 ──> R2 / R3 / R9 / R10
+                                    └──> R4（抢占回归，建议同批）
+网络代理恢复 / 联网主机推送 ──> R7 ──> 首个 CI 完整 run ──> 按需打开 DEPLOY_ENABLED
+运维提供真实凭据 ──> R8 ──> K8s 部署链路可用（R5 仍为单点告警）
+```
+
+> 本轮把 R6/R8 从「纯未做」推进到「机制已就位、只差外部输入」，把 R1/R2/R4 从「一句话待办」推进到「契约/回归清单成文」。**没有任何一项被伪装成已完成**：执行体依旧是 `sleep(2s)`，实耗依旧是合成值，K8s 页面依旧是 mock。
 
 ---
 
 ## 六、交付物与改动面
 
-- 本文件：`docs/system-fixes-2026-11-09.md`（修复实施报告，roadmap 已引用）
-- 同日复盘：`docs/system-review-and-optimization-2026-11-09.md` / `.html`（问题证据链与路线图，口径已回标）
-- 代码改动：约 30 个文件（含 8 个新增文件：4 份迁移、`handlers/system.rs`、`ModeBanner.vue`、`ModeBanner.spec.ts`、`scripts/verify-deployment.sh`），全部在工作区，尚未提交
+- 第二轮（已提交 `e3eacda` / `93356e9` / `2bcff5b` / `2b2360e`）：约 30 个文件，含 8 个新增文件（4 份迁移、`handlers/system.rs`、`ModeBanner.vue`、`ModeBanner.spec.ts`、`scripts/verify-deployment.sh`）。
+- 复盘与报告：`docs/system-review-and-optimization-2026-11-09.md` / `.html`（问题证据链与路线图）、本文件。
+- 第三轮（本轮）交付物：
+  - 脚本：`check-deploy-prereqs.sh`（单一真源预检）、`render-k8s-secret.sh`（真实 Secret 渲染）、`generate-deploy-secrets.sh`（凭据同源生成）、`pin-base-images.sh`（digest 解析/检查）、`pre-push-check.sh`（推送前自检）。
+  - 文档：`docs/deployment-prerequisites.md`（runbook）、`docs/ci-deployment-secrets.md`（重写为索引）、`docs/real-executor-contract.md`（执行器契约）、`docs/p2-3-preemption-backlog.md`（回归清单）、本文件第四/五/七节。
+  - 配置：`.env.deploy.example`、`.gitignore`（放行模板 + 说明）、两份 Dockerfile 的 4 个基础镜像 ARG、`docs/metaclouds-optimization-roadmap.md` 状态回标。
+  - CI：新增 `deploy-prereqs` 总闸、4 个 deploy job 改用统一 Guard、K8s Secret 渲染与渲染后 Guard、kubeconfig 改从 env 读取。
+
+---
+
+## 七、第三轮实施记录（运维前置条件 + 阻塞项台账化）
+
+### 7.1 目标
+
+把第四节「推送前必须一次性配齐运维变量」从一句文档要求变成**可执行、可诊断、不会误报红**的机制；把第五节「剩余未决」从 8 行表格变成有 ID、状态、解除条件、验收标准与依赖链的台账。
+
+### 7.2 关键决策
+
+| 决策 | 理由 |
+|---|---|
+| 用 `DEPLOY_ENABLED` / `DEPLOY_TARGETS` 显式开关，未启用时部署 job **skipped** | 既保留 fail-closed，又不把「还没部署」伪装成绿、也不把「运维没就绪」误报成代码失败 |
+| 前置条件收敛到 `scripts/check-deploy-prereqs.sh`，本地与 CI 共用 | 消除 4 份手写 Guard 的漂移；`--list` 与文档同源 |
+| 校验格式而非只校验非空 | `example.com` 占位域名 / 假 PEM / 非 kubeconfig 的 base64 此前都能通过 |
+| CI 渲染真实 K8s Secret 工作副本，而非改仓库模板 | 模板必须保持无凭据；渲染产物只存在于 runner checkout |
+| 基础镜像只参数化、不硬写 digest | 离线沙箱无法解析 digest，脚本明确报错而不是伪造 |
+
+### 7.3 实测门禁（本地，2026-11-09）
+
+本轮**未改动 Rust / TypeScript 源码**（仅 Dockerfile、脚本、YAML、文档），故未重跑后端/前端构建门禁；改动面用下列静态与脚本实测覆盖。
+
+| 层 | 场景 | 结果 |
+|---|---|---|
+| 脚本语法 | 6 个新脚本 `bash -n` | ✅ 6/6 通过 |
+| 预检 · 本地 | `--report`（配置全空） | ✅ exit 0，只报告不阻塞 |
+| 预检 · 本地 | `--strict --target staging`（全空） | ✅ exit 1，4 项 `[FAIL]` 一次报全 |
+| 预检 · 本地 | staging 齐备 | ✅ exit 0（5 checks / 0 failure） |
+| 预检 · 格式 | 占位 URL `dev.example.com` / 假 SSH key | ✅ 均 exit 1，分别精确指出字段 |
+| 预检 · 本地 | k8s 齐备（含 base64 kubeconfig） | ✅ exit 0（7 checks / 0 failure） |
+| 预检 · CI | `DEPLOY_ENABLED` 未设 | ✅ exit 0，`GITHUB_OUTPUT` 仅 `enabled=false`，3 条 notice |
+| 预检 · CI | 启用但配置空 | ✅ exit 1，4 项 `[FAIL]` |
+| 预检 · CI | 启用 + staging 齐备 | ✅ exit 0，输出 `staging=true` / `enabled=true` |
+| 预检 · CI | `DEPLOY_TARGETS=production`（无 staging） | ✅ exit 2，指出审批门依赖 |
+| 预检 · CI | 两个目标、k8s 缺配置 | ✅ exit 1，7 项 `[FAIL]` 一次报全 |
+| Secret 渲染 | 缺 6 个凭据 / `--dry-run` 齐备 / 真实渲染 | ✅ exit 1 / exit 0 / exit 0（6 keys，无占位） |
+| 渲染后 Guard | 对渲染产物 / 对仓库占位模板 | ✅ PASS（6 keys）/ **FAIL（6 个占位 key）**，证明有区分力 |
+| 凭据生成 | 6 个值、口令同源、`--from-env --gh-commands` | ✅ 6 key；`database-url` 口令 == `postgres-password`；输出 6 条命令 |
+| digest 检查 | `--check` / `--check --strict` / `--resolve`（离线） | ✅ 0/4 钉死并告警 / exit 1 / exit 3（明确不伪造 digest） |
+| 推送自检 | `pre-push-check.sh --report` | ✅ exit 0，检出工作区未提交 + ahead 15；`git ls-remote origin` 连通 |
+| CI YAML | 静态依赖图 / 表达式 / outputs | ✅ 16 jobs、`${{ }}` 119/119 配对、0 tab、5/5 outputs 声明、所有 `needs.*.outputs` 引用均有对应 `needs` |
+| Dockerfile | ARG 声明位置与 FROM 引用 | ✅ 两份共 4 个 ARG，全部声明在首个 `FROM` 之前且被正确引用 |
+
+实测中修掉的 3 个脚本缺陷：① `GITHUB_OUTPUT` 同名 key 重复写入（改为只写最终值）；② 渲染自检对全文 grep `CHANGEME` 被注释误触发、计数正则把 `namespace: metaclouds` 算成第 7 个 data key（改为只解析 `data:` 段并逐个 base64 解码校验）；③ Windows/NTFS 不执行 POSIX `chmod`，生成脚本现在检测并告警而不是声称权限已生效。
+
+### 7.4 受环境限制、本轮未等价覆盖
+
+- GitHub runner 上的首个完整 CI run（`cargo audit`、PG 集成测试、Checkov、Trivy 镜像扫描、真实 `kubectl apply`）—— 需推送触发。
+- `docker build` 对新增 ARG 的实际兼容性 —— 沙箱无 Docker；已做静态检查（ARG 位置/FROM 引用），未做镜像构建。
+- 真实集群、GPU、DCGM、托管 PG —— 台账 R1/R2/R5/R9 的解除条件，本轮无变化。
+
+### 7.5 结论
+
+**推送不再被运维配置阻塞**：未启用部署时 CI 明确显示 skipped，主构建链路保持绿；声明启用却缺配置才按设计变红并一次报全。K8s 部署链路的两个死结（占位模板必失败、apply 覆盖真实 Secret）与口令不同源陷阱已闭环。剩余阻塞项 R1–R10 全部有可执行解除条件与验收标准，但**核心事实未变**：执行体仍是 `sleep(2s)`、实耗仍是合成值、K8s 仍是 mock —— 本轮没有把任何「未做」写成「已完成」。
+

@@ -1,6 +1,8 @@
 # Metaclouds 系统全面复盘与优化路线图
 
 > ✅ **状态回标（2026-11-09 下午 · 第二轮）**：本报告出具后，P0-1~3 / P1-1~5 / P2-1 / P2-3 / P2-4 / P2-6 已按 [`docs/system-fixes-2026-11-09.md`](system-fixes-2026-11-09.md) 落地：**S0 止血全部完成**（生产 fail-closed 守卫、`/system/mode` 模式接口、常驻演示横幅、配置显式化）、**S1 多副本语义部分完成**（启动期租约选主、全局并发原子化、SIGTERM 排水、完成幂等）、**S2 的 CI 真实性修复已落地**（真实断言、镜像扫描、SHA 钉版本、部署路径收敛）。下文第五节的门禁记录是**第一轮 6 项优化**的实测，第六节「S0 已执行 4/5 项」与第八节结论均已过时；当前状态与完整实测以修复报告为准。**核心事实未变：执行体仍为模拟**——本轮解决的是「不可误用」，不是「换成真实」。
+>
+> ✅ **第三轮回标（2026-11-09 傍晚 · 运维前置条件与阻塞台账）**：修复报告第四节原先要求「推送前必须一次性配齐全部运维变量」，本轮改为 CI `deploy-prereqs` 总闸 + `DEPLOY_ENABLED` / `DEPLOY_TARGETS` 显式开关 —— **推送不再被运维配置阻塞**（未启用时部署 job 明确 skipped），声明启用却缺配置时一次报全并变红。`scripts/check-deploy-prereqs.sh` 成为前置条件唯一真源；同时修掉 K8s `02-secret.yaml` 占位模板导致 Guard 必然失败 / `apply -k` 覆盖真实 Secret 的死结，以及 `database-url` 与 `postgres-password` 不同源的陷阱。剩余未决项已台账化为修复报告第五节 R1–R10，配套 `docs/real-executor-contract.md`、`docs/p2-3-preemption-backlog.md`。完整 runbook：`docs/deployment-prerequisites.md`。
 
 - 日期：2026-11-09
 - 基线 HEAD：`2be6ebe`（2026-11-09 11:45），工作区干净，`main` 领先 `origin/main` **11 个提交**

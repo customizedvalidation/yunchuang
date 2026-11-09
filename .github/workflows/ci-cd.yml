@@ -15,6 +15,11 @@
 #                                              │      └──> deploy-k8s (SHA 钉版本 + 真实断言)
 #                                              └──> verify-deployment（仅 staging 成功后真实断言）
 # 安全门禁、镜像扫描、部署后验证均以非 0 退出码表达失败，不再有恒绿占位步骤。
+#
+# 2026-11-09 第三轮（运维前置条件）：新增 deploy-prereqs 作为部署链路总闸。
+#   deploy-prereqs ──> deploy-development / deploy-staging / deploy-production / deploy-k8s
+#   未启用部署时这些 job 显示 skipped（既非绿也非红），主构建链路不受影响；
+#   声明启用却缺配置时才由 preflight 明确变红。详见 docs/deployment-prerequisites.md。
 # ==============================================================================
 
 name: Metaclouds CI/CD Pipeline
@@ -64,6 +69,68 @@ env:
   FRONTEND_IMAGE_NAME: ${{ github.repository }}/frontend
 
 jobs:
+  # ============================================================================
+  # Job 0: 部署前置条件总闸（2026-11-09 第三轮）
+  #
+  # 此前「推送前必须配齐运维变量」只是文档里的一张表，CI 侧由 4 个 deploy job
+  # 各自手写 3 行 Guard：漏检 *_USER / DEPLOY_DIR / KUBE_CONFIG / K8s 真实凭据，
+  # 只查非空不查格式（example.com 占位域名、假 SSH key、假 kubeconfig 都能通过），
+  # 而且未配置就让整条流水线变红 —— 等于把"还没运维就绪"误报成"代码有问题"。
+  #
+  # 现在收敛到唯一真源 scripts/check-deploy-prereqs.sh，状态机为：
+  #   DEPLOY_ENABLED != true            -> 部署 job 全部 skipped（主构建链路保持绿）
+  #   DEPLOY_ENABLED=true 且前置条件不全 -> preflight exit 1（按设计变红，一次报全）
+  #   DEPLOY_ENABLED=true 且齐全        -> 仅放行 DEPLOY_TARGETS 列出的目标
+  # 任何配置值都不会被打印到日志（只输出变量名与检查结果）。
+  # ============================================================================
+  deploy-prereqs:
+    name: Deployment Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      enabled:     ${{ steps.check.outputs.enabled }}
+      development: ${{ steps.check.outputs.development }}
+      staging:     ${{ steps.check.outputs.staging }}
+      production:  ${{ steps.check.outputs.production }}
+      k8s:         ${{ steps.check.outputs.k8s }}
+    env:
+      DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED }}
+      DEPLOY_TARGETS: ${{ vars.DEPLOY_TARGETS }}
+      DEV_BASE_URL: ${{ vars.DEV_BASE_URL }}
+      DEV_SSH_KEY: ${{ secrets.DEV_SSH_KEY }}
+      DEV_HOST: ${{ secrets.DEV_HOST }}
+      DEV_USER: ${{ secrets.DEV_USER }}
+      STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
+      STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+      STAGING_HOST: ${{ secrets.STAGING_HOST }}
+      STAGING_USER: ${{ secrets.STAGING_USER }}
+      PROD_BASE_URL: ${{ vars.PROD_BASE_URL }}
+      PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+      PROD_HOST: ${{ secrets.PROD_HOST }}
+      PROD_USER: ${{ secrets.PROD_USER }}
+      DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '/opt/metaclouds' }}
+      K8S_BASE_URL: ${{ vars.K8S_BASE_URL }}
+      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+      K8S_JWT_SECRET: ${{ secrets.K8S_JWT_SECRET }}
+      K8S_DATABASE_URL: ${{ secrets.K8S_DATABASE_URL }}
+      K8S_REDIS_PASSWORD: ${{ secrets.K8S_REDIS_PASSWORD }}
+      K8S_DEFAULT_ADMIN_PASSWORD: ${{ secrets.K8S_DEFAULT_ADMIN_PASSWORD }}
+      K8S_POSTGRES_PASSWORD: ${{ secrets.K8S_POSTGRES_PASSWORD }}
+      K8S_PROTECTED_ENDPOINTS_TOKEN: ${{ secrets.K8S_PROTECTED_ENDPOINTS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deployment prerequisites (single source of truth)
+        id: check
+        run: bash scripts/check-deploy-prereqs.sh --ci
+
+      - name: Syntax-check deployment scripts and catalog
+        run: |
+          bash -n scripts/check-deploy-prereqs.sh
+          bash -n scripts/render-k8s-secret.sh
+          bash -n scripts/verify-deployment.sh
+          bash scripts/check-deploy-prereqs.sh --list > /dev/null
+          echo "deployment helper scripts syntax OK"
+
   # ============================================================================
   # Job 1: 安全预扫描（IaC + 密钥检测）
   # ============================================================================
@@ -336,8 +403,8 @@ jobs:
   # ============================================================================
   deploy-development:
     name: Deploy to Development
-    needs: [docker-build-backend-rust, docker-build-frontend]
-    if: github.ref == 'refs/heads/develop' || (github.event.inputs.environment == 'development' && github.event_name == 'workflow_dispatch')
+    needs: [docker-build-backend-rust, docker-build-frontend, deploy-prereqs]
+    if: needs.deploy-prereqs.outputs.development == 'true' && (github.ref == 'refs/heads/develop' || (github.event.inputs.environment == 'development' && github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     environment:
       name: development
@@ -353,12 +420,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Guard - require deployment target and credentials
-        run: |
-          if [ -z "$BASE_URL" ] || [ -z "$DEV_SSH_KEY" ] || [ -z "$DEV_HOST" ]; then
-            echo "::error::DEV_BASE_URL / DEV_SSH_KEY / DEV_HOST not configured; refusing to mark an unperformed deployment as successful"
-            exit 1
-          fi
+      - name: Guard - deployment prerequisites (single source of truth)
+        run: bash scripts/check-deploy-prereqs.sh --target development --strict
 
       - name: Deploy to Development (immutable image)
         run: |
@@ -381,8 +444,8 @@ jobs:
   # ============================================================================
   deploy-staging:
     name: Deploy to Staging
-    needs: [docker-build-backend-rust, docker-build-frontend]
-    if: github.ref == 'refs/heads/main' || (github.event.inputs.environment == 'staging' && github.event_name == 'workflow_dispatch')
+    needs: [docker-build-backend-rust, docker-build-frontend, deploy-prereqs]
+    if: needs.deploy-prereqs.outputs.staging == 'true' && (github.ref == 'refs/heads/main' || (github.event.inputs.environment == 'staging' && github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     environment:
       name: staging
@@ -398,12 +461,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Guard - require deployment target and credentials
-        run: |
-          if [ -z "$BASE_URL" ] || [ -z "$STAGING_SSH_KEY" ] || [ -z "$STAGING_HOST" ]; then
-            echo "::error::STAGING_BASE_URL / STAGING_SSH_KEY / STAGING_HOST not configured; refusing to mark an unperformed deployment as successful"
-            exit 1
-          fi
+      - name: Guard - deployment prerequisites (single source of truth)
+        run: bash scripts/check-deploy-prereqs.sh --target staging --strict
 
       - name: Deploy to Staging (immutable image)
         run: |
@@ -439,7 +498,8 @@ jobs:
   # ============================================================================
   deploy-production:
     name: Deploy to Production
-    needs: [production-approval]
+    needs: [production-approval, deploy-prereqs]
+    if: needs.deploy-prereqs.outputs.production == 'true'
     runs-on: ubuntu-latest
     environment:
       name: production
@@ -455,12 +515,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Guard - require deployment target and credentials
-        run: |
-          if [ -z "$BASE_URL" ] || [ -z "$PROD_SSH_KEY" ] || [ -z "$PROD_HOST" ]; then
-            echo "::error::PROD_BASE_URL / PROD_SSH_KEY / PROD_HOST not configured; refusing to record a deployment that did not happen"
-            exit 1
-          fi
+      - name: Guard - deployment prerequisites (single source of truth)
+        run: bash scripts/check-deploy-prereqs.sh --target production --strict
 
       - name: Deploy to Production (immutable image)
         run: |
@@ -809,13 +865,15 @@ jobs:
 
   # ============================================================================
   # Job 9: K8s 真实部署（kustomize apply + set image 注入 GIT_SHA）
-  # 依赖：镜像构建完成 + 仓库配置 KUBE_CONFIG secret（base64 的 kubeconfig）。
-  # 未配置 KUBE_CONFIG 时自动跳过（K8S_ENABLED=false 分支），不阻塞其他 job。
+  # 依赖：deploy-prereqs 放行 k8s 目标 + 镜像构建完成 + 清单校验通过。
+  # 注意：02-secret.yaml 仓库内是 CHANGEME 占位模板，apply 前必须由
+  #       render-k8s-secret.sh 从 CI secrets 渲染真实 Secret 工作副本，
+  #       否则 Guard 必然失败，且 apply -k 会把集群里的真实 Secret 覆盖回占位值。
   # ============================================================================
   deploy-k8s:
     name: Deploy to Kubernetes
-    needs: [docker-build-backend-rust, docker-build-frontend, validate-k8s]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [docker-build-backend-rust, docker-build-frontend, validate-k8s, deploy-prereqs]
+    if: needs.deploy-prereqs.outputs.k8s == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     environment:
       name: k8s
@@ -823,6 +881,13 @@ jobs:
     env:
       K8S_ENABLED: ${{ secrets.KUBE_CONFIG != '' }}
       K8S_NAMESPACE: metaclouds
+      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+      K8S_JWT_SECRET: ${{ secrets.K8S_JWT_SECRET }}
+      K8S_DATABASE_URL: ${{ secrets.K8S_DATABASE_URL }}
+      K8S_REDIS_PASSWORD: ${{ secrets.K8S_REDIS_PASSWORD }}
+      K8S_DEFAULT_ADMIN_PASSWORD: ${{ secrets.K8S_DEFAULT_ADMIN_PASSWORD }}
+      K8S_POSTGRES_PASSWORD: ${{ secrets.K8S_POSTGRES_PASSWORD }}
+      K8S_PROTECTED_ENDPOINTS_TOKEN: ${{ secrets.K8S_PROTECTED_ENDPOINTS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -837,7 +902,9 @@ jobs:
       - name: Configure kubeconfig
         if: env.K8S_ENABLED == 'true'
         run: |
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > /tmp/kubeconfig
+          # 从 env 读取而非把 secret 直接插值进 shell 源码：避免引号/换行破坏命令，
+          # 也避免 kubeconfig 内容出现在渲染后的脚本里。
+          printf '%s' "$KUBE_CONFIG" | base64 -d > /tmp/kubeconfig
           chmod 600 /tmp/kubeconfig
           export KUBECONFIG=/tmp/kubeconfig
           # 安全：禁止打印 kubeconfig 内容。`kubectl config view --minify -o yaml`
@@ -847,41 +914,70 @@ jobs:
           kubectl config current-context || true
           kubectl config get-contexts --no-headers || true
 
-      # 占位密钥门禁：02-secret.yaml 的 data 是 base64 占位（CHANGEME-*），
-      # 若不替换就 apply，等于用公开可见的口令给生产签发 JWT。
-      - name: Guard - reject placeholder secrets
+      # 占位模板死结：仓库里的 02-secret.yaml 恒含 CHANGEME；Guard 解析它会
+      # 100% 拒绝，而 kustomize build 又会把它 apply 进集群覆盖真实凭据。
+      # 这里先渲染真实 Secret 的工作副本（只存在于 runner checkout，不提交），
+      # 后续 Guard 校验渲染结果、kustomize build 拿到真实值。
+      - name: Render real K8s Secret from CI secrets
+        if: env.K8S_ENABLED == 'true'
+        run: bash scripts/render-k8s-secret.sh --output metaclouds-backend-rust/k8s/02-secret.yaml
+
+      - name: Guard - deployment prerequisites (single source of truth)
+        run: bash scripts/check-deploy-prereqs.sh --target k8s --strict
+
+      # 校验「渲染后」的 Secret，而不是仓库里的占位模板。
+      # 旧实现的问题：① import yaml 依赖 runner 预装 PyYAML（本 job 从未安装）；
+      # ② 错误分支里的 Python 字符串存在未转义的嵌套引号，本身是语法错误；
+      # ③ 把解码后的凭据明文打到公开日志；④ 恒含 CHANGEME 的模板永远触发失败。
+      # 现在改为纯标准库逐行解析，只报 key 名，绝不回显值。
+      - name: Guard - verify rendered Secret has real credentials
         if: env.K8S_ENABLED == 'true'
         run: |
           python3 - <<'PY'
-          import base64, sys, yaml
+          import base64, re, sys
 
           path = "metaclouds-backend-rust/k8s/02-secret.yaml"
-          doc = yaml.safe_load(open(path))
-          data = (doc.get("data") or {})
-
-          bad = []
-          for key, val in data.items():
-              try:
-                  plain = base64.b64decode(val).decode("utf-8", "replace")
-              except Exception:
-                  bad.append((key, "<base64 decode failed>"))
+          required = {
+              "jwt-secret", "database-url", "redis-password",
+              "default-admin-password", "postgres-password",
+              "protected-endpoints-token",
+          }
+          data, in_data = {}, False
+          for line in open(path, encoding="utf-8"):
+              if line.startswith("data:"):
+                  in_data = True
                   continue
-              if "CHANGEME" in plain:
-                  bad.append((key, plain))
+              if not in_data:
+                  continue
+              m = re.match(r"^  ([a-z0-9-]+):\s*(\S+)\s*$", line)
+              if m:
+                  data[m.group(1)] = m.group(2)
+              elif line.strip() and not line.startswith((" ", "#")):
+                  in_data = False
 
-          if bad:
-              print("::error::Refusing to deploy: placeholder secrets still present in %s" % path)
-              for key, plain in bad:
-                  print("::error::  - %s = %s" % (key, plain))
-              print("::error::Create the real secret first, e.g.")
-              print("::error::  kubectl -n metaclouds create secret generic metaclouds-secrets \\")
-              print("::error::    --from-literal=jwt-secret="$(openssl rand -base64 48)" \\")
-              print("::error::    --from-literal=database-url="postgresql://..." \\")
-              print("::error::    --from-literal=redis-password="$(openssl rand -base64 24)" \\")
-              print("::error::    --from-literal=default-admin-password="$(openssl rand -base64 18 | tr -d '/+=')"")
+          missing = sorted(required - set(data))
+          if missing:
+              print("::error::rendered Secret is missing required keys: %s" % ", ".join(missing))
               sys.exit(1)
 
-          print("secret placeholder check passed: %d keys verified" % len(data))
+          bad = []
+          for key in sorted(data):
+              try:
+                  plain = base64.b64decode(data[key]).decode("utf-8", "replace")
+              except Exception:
+                  bad.append("%s (base64 decode failed)" % key)
+                  continue
+              if not plain.strip() or "CHANGEME" in plain or "placeholder" in plain.lower():
+                  bad.append(key)  # 只报 key 名，不回显明文
+
+          if bad:
+              print("::error::Refusing to deploy: placeholder/empty credentials in rendered Secret")
+              for key in bad:
+                  print("::error::  - %s (value intentionally not printed)" % key)
+              print("::error::Inject real CI secrets and re-run scripts/render-k8s-secret.sh")
+              sys.exit(1)
+
+          print("rendered Secret verified: %d keys, no placeholders" % len(data))
           PY
 
       # P1-5：后端多副本不等于系统高可用——内置 PG 仍是单副本。
@@ -971,9 +1067,12 @@ jobs:
             exit 1
           fi
 
+      # 二次兜底：preflight 未放行 k8s 时整个 job 已 skipped，正常不会走到这里。
+      # 若有人改动 workflow 绕过 preflight 而 KUBE_CONFIG 又缺失，仍拒绝把跳过的
+      # 部署记为成功。
       - name: Refuse to report a skipped deployment as successful
         if: env.K8S_ENABLED != 'true'
         run: |
           echo "::error::KUBE_CONFIG secret not configured; refusing to mark a skipped K8s deployment as successful."
-          echo "Configure repo secret KUBE_CONFIG (base64 kubeconfig) to activate deployment."
+          echo "Configure repo secret KUBE_CONFIG (base64 kubeconfig) and enable k8s in DEPLOY_TARGETS."
           exit 1

@@ -1,65 +1,74 @@
-# CI 部署 Secrets 配置指南
+# CI 部署 Secrets 配置指南（索引）
 
-配置以下 GitHub Actions secrets 后，对应部署环节会在下次 push / workflow_dispatch 时**自动启用**（无需再改 workflow 代码）。
+- 更新：2026-11-09（第三轮）
+- **当前真源**：[`docs/deployment-prerequisites.md`](deployment-prerequisites.md)
+- **变量清单与校验规则的可执行版本**：`bash scripts/check-deploy-prereqs.sh --list`
 
-## Secrets 清单
+---
 
-| Secret | 用于 | 说明 |
+## ⚠️ 本文档旧版已废止
+
+旧版（2026-09-28 起）描述的是**已退役的部署路径**，请勿按它操作：
+
+| 旧版说法 | 现状 |
+|---|---|
+| 目标机执行 `cargo build --release && sudo systemctl restart metaclouds-backend-rust` | 已改为 SSH 取编排文件后 `docker compose pull/up` 拉同一 `sha-<commit>` 的 GHCR 镜像，目标机不再编译（2026-11-09 第二轮收敛） |
+| 缺 `*_SSH_KEY` 时步骤自动跳过，job 保持绿色 | 已废止：这是「没部署却报成功」的假绿。现在由 `deploy-prereqs` 总闸统一 gate，未启用时部署 job 显示 **skipped**，既不报绿也不报红 |
+| 只需 3 个环境 × 3 个 secret + `DEPLOY_DIR` | 还需 `*_USER`、`*_BASE_URL`、`KUBE_CONFIG`、6 个 K8s 真实凭据；且做格式校验（占位域名 / 假 PEM key / 假 kubeconfig 会被拒绝） |
+| `K8S_BASE_URL` 是必需前置 | 降为可选：K8s 验收走 `kubectl port-forward`，该地址仅用于 GitHub Environment URL 展示 |
+
+---
+
+## 30 秒上手
+
+```bash
+# 1) 看当前还差什么（不联网、不改动）
+bash scripts/check-deploy-prereqs.sh --report
+
+# 2) 按 runbook 配好之后做严格自检
+bash scripts/check-deploy-prereqs.sh --env-file .env.deploy --target staging --strict
+
+# 3) 打开总闸
+gh variable set DEPLOY_ENABLED --body 'true'
+gh variable set DEPLOY_TARGETS --body 'staging'
+```
+
+推送代码**不要求**先完成运维配置：未启用时部署段明确 skipped，主构建链路照常运行。配置齐全后再打开 `DEPLOY_ENABLED`，此时 `deploy-prereqs` 才会强校验，缺一项即按设计变红并一次报全。
+
+---
+
+## 分组速查
+
+| 组 | GitHub Variables | GitHub Secrets |
 |---|---|---|
-| `DEV_SSH_KEY` | Deploy to Development | SSH 私钥（目标开发服务器，`ssh-keygen -t ed25519` 生成，公钥加入服务器 `~/.ssh/authorized_keys`） |
-| `DEV_HOST` | Deploy to Development | 开发服务器地址（IP 或域名） |
-| `DEV_USER` | Deploy to Development | 登录用户（需有仓库 clone 目录写权限） |
-| `STAGING_SSH_KEY` | Deploy to Staging | SSH 私钥（同上） |
-| `STAGING_HOST` | Deploy to Staging | 预发服务器地址 |
-| `STAGING_USER` | Deploy to Staging | 登录用户 |
-| `PROD_SSH_KEY` | Deploy to Production | SSH 私钥（同上） |
-| `PROD_HOST` | Deploy to Production | 生产服务器地址 |
-| `PROD_USER` | Deploy to Production | 登录用户 |
-| `DEPLOY_DIR` | 全部部署 job（可选） | 服务器上仓库目录，默认 `/opt/metaclouds` |
+| 总闸 | `DEPLOY_ENABLED`、`DEPLOY_TARGETS`、`REQUIRE_PG_HA`（可选） | — |
+| development | `DEV_BASE_URL` | `DEV_SSH_KEY`、`DEV_HOST`、`DEV_USER` |
+| staging | `STAGING_BASE_URL` | `STAGING_SSH_KEY`、`STAGING_HOST`、`STAGING_USER` |
+| production | `PROD_BASE_URL` | `PROD_SSH_KEY`、`PROD_HOST`、`PROD_USER` |
+| 共用 | — | `DEPLOY_DIR`（可选，默认 `/opt/metaclouds`） |
+| k8s | `K8S_BASE_URL`（可选） | `KUBE_CONFIG`、`K8S_JWT_SECRET`、`K8S_DATABASE_URL`、`K8S_REDIS_PASSWORD`、`K8S_DEFAULT_ADMIN_PASSWORD`、`K8S_POSTGRES_PASSWORD`、`K8S_PROTECTED_ENDPOINTS_TOKEN` |
 
-## 触发方式
+生成 K8s 凭据：`scripts/generate-deploy-secrets.sh`（强制 `K8S_POSTGRES_PASSWORD` 与 `K8S_DATABASE_URL` 口令同源）。
+
+---
+
+## 触发方式（未改动）
 
 | 环境 | 自动触发 | 手动触发 |
 |---|---|---|
-| Development | push 到 `develop` 分支 | workflow_dispatch + environment=development |
-| Staging | push 到 `main` 分支 | workflow_dispatch + environment=staging |
-| Production | 不自动触发（安全） | workflow_dispatch + environment=production（经 approval gate） |
+| development | push 到 `develop` | `workflow_dispatch` + `environment=development` |
+| staging | push 到 `main` | `workflow_dispatch` + `environment=staging` |
+| production | 不自动触发 | `workflow_dispatch` + `environment=production`，经 `production-approval` 审批门（需 staging 成功） |
+| k8s | push 到 `main` | `workflow_dispatch` |
 
-## 服务器前置条件
-
-目标服务器需满足（SSH 命令会自动执行）：
-
-```bash
-# 1. 安装 Rust toolchain（部署时在服务器上执行 cargo build --release）
-# 2. 克隆仓库到部署目录（默认 /opt/metaclouds）
-sudo mkdir -p /opt/metaclouds && sudo chown $USER /opt/metaclouds
-cd /opt/metaclouds && git clone https://github.com/customizedvalidation/yunchuang.git .
-
-# 3. 准备环境配置文件（systemd 服务 metaclouds-backend-rust 启动前必读）
-cd /opt/metaclouds/metaclouds-backend-rust
-cp .env.example .env.staging      # 按需改为 .env.development / .env.production
-# 4. 服务器上生成部署密钥对，公钥加入 authorized_keys
-ssh-keygen -t ed25519 -f ~/.ssh/metaclouds_deploy
-cat ~/.ssh/metaclouds_deploy.pub >> ~/.ssh/authorized_keys
-# 私钥内容（~/.ssh/metaclouds_deploy）粘贴到对应 *_SSH_KEY secret
-```
-
-## 部署执行逻辑
-
-CI 中每个部署 job 的 SSH 步骤仅在对应 `*_SSH_KEY` 与 `*_HOST` 均已配置时执行：
-
-```bash
-echo "${{ secrets.XXX_SSH_KEY }}" > /tmp/deploy_key
-ssh -i /tmp/deploy_key user@host \
-  "cd $DEPLOY_DIR && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust"
-```
-
-未配置 secret 时步骤自动跳过，job 保持绿色，不影响主 CI 链路。
+以上触发条件**还要叠加** `deploy-prereqs` 输出的对应 target 开关；未在 `DEPLOY_TARGETS` 中列出的目标一律 skipped。
 
 ## 生产环境保护（建议）
 
-在 GitHub → Settings → Environments → `production` 中：
-1. 添加 **Required reviewers**（如 2 人审批）
-2. 勾选 **Wait timer**（如 5 分钟冷却期）
+在 GitHub → Settings → Environments → `production` 中添加 **Required reviewers**（建议 2 人）并勾选 **Wait timer**（如 5 分钟冷却期）。
 
-这样 workflow_dispatch production 会在真正执行 `Deploy to Production (SSH)` 前等待人工审批，避免误部署。
+## 延伸阅读
+
+- `docs/deployment-prerequisites.md` — 完整 runbook（生成命令、目标机预置、故障排查、上线复核）
+- `docs/system-fixes-2026-11-09.md` — 第二轮修复与剩余阻塞项台账
+- `scripts/verify-deployment.sh` — 部署后真实断言（`/health/ready` JSON 信封 + `/api/v1/system/mode`）

@@ -1,11 +1,16 @@
 # ==============================================================================
 # Metaclouds Frontend (Vue 3) Dockerfile
-# 多阶段构建：node:22-alpine 构建产物 -> nginx:alpine 静态托管
+# 多阶段构建：node:22-alpine 构建产物 -> nginx:1.27-alpine 静态托管
+#
+# 基础镜像可通过 --build-arg 钉到不可变 digest（P1-2 遗留项，2026-11-09 参数化）。
+# 默认仍用 tag，行为零变化；取 digest 用 scripts/pin-base-images.sh（需联网）。
 # ==============================================================================
+ARG NODE_BUILDER_IMAGE=node:22-alpine
+ARG NGINX_RUNTIME_IMAGE=nginx:1.27-alpine
 
 # --- Builder 阶段 ---
 # 与项目工具链对齐：node 22（本地 managed 22.x），避免与 Vite 5 / vue-tsc 兼容问题
-FROM node:22-alpine AS builder
+FROM ${NODE_BUILDER_IMAGE} AS builder
 
 WORKDIR /app
 
@@ -22,8 +27,9 @@ ENV CODEBUDDY_SAFE_DELETE_ENABLED=0
 RUN npm run build
 
 # --- Runtime 阶段 ---
-# 钉具体 minor tag（避免 :alpine 浮动）；digest 由 CI 在 deploy 时注入
-FROM nginx:1.27-alpine
+# 钉具体 minor tag（避免 :alpine 浮动）；生产建议再用 --build-arg 把
+# NGINX_RUNTIME_IMAGE 换成 nginx:1.27-alpine@sha256:<digest>。
+FROM ${NGINX_RUNTIME_IMAGE}
 
 # Vite 默认输出目录 dist/
 COPY --from=builder /app/dist /usr/share/nginx/html
