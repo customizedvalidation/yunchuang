@@ -66,10 +66,10 @@ spec:
           type: RuntimeDefault
       containers:
         - name: redis
-          # 钉具体 minor tag（避免 :7-alpine 浮动 minor）；imagePullPolicy 改 IfNotPresent
-          # 配合固定 tag，避免每次 Pod 重建都拉浮动层。
+          # 钉具体 minor tag（避免 :7-alpine 浮动 minor）；拉取策略 Always：
+          # 同一 tag 仍可能被上游重推，Always 保证每次启动校验远端 digest（CKV_K8S_15）。
           image: redis:7.4-alpine
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name: redis
               containerPort: 6379
@@ -135,6 +135,23 @@ spec:
       initContainers:
         - name: gen-redis-conf
           image: redis:7.4-alpine
+          # 与主容器同口径：钉 tag + Always；initContainer 同样受 Checkov K8s 策略约束
+          # （CKV_K8S_10/11/12/13 资源、20/22/28/30/37 安全上下文、15 拉取策略）。
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            # 只写空卷 /etc/redis，根文件系统无需可写
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: REDIS_PASSWORD
               valueFrom:
