@@ -159,6 +159,9 @@ services:
   # 本地联调默认 USE_SQLITE=true 走 SQLite 文件。
   # ============================================================================
   backend:
+    # CI/生产统一使用 GHCR 镜像，IMAGE_TAG 由流水线钉为 sha-<commit>；
+    # 保留 build 段供本地 `docker compose up --build` 离线联调（两条路径同一镜像名）。
+    image: ghcr.io/customizedvalidation/yunchuang/backend-rust:${IMAGE_TAG:-main}
     build:
       context: ./metaclouds-backend-rust
       dockerfile: Dockerfile
@@ -179,10 +182,12 @@ services:
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8000
       - SERVER_ENV=${SERVER_ENV:-development}
-      # 请求层方言未移植 → 走 SQLite 文件库（改 true 前先完成 PG 移植里程碑）
+      # 双驱动方言已完成：本地默认 SQLite 文件库，staging/生产由流水线传
+      # USE_SQLITE=false + DATABASE_URL=postgresql://... 走 Postgres，
+      # 消除「SSH 源码构建用 SQLite、K8s 镜像用 PG」的部署路径漂移（P1-1）。
       - MEMORY_STORE_ENABLED=false
-      - USE_SQLITE=true
-      - DATABASE_URL=sqlite:///app/data/metaclouds.db
+      - USE_SQLITE=${USE_SQLITE:-true}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///app/data/metaclouds.db}
       # 以下 PG 变量在切到 Postgres 后生效，此处保留以便一键切换
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
@@ -202,11 +207,24 @@ services:
       - PROMETHEUS_PORT=9090
       - MONITORING_ENABLED=true
       - ALERT_ENABLED=true
-      - K8S_ENABLED=true
+      - K8S_ENABLED=${K8S_ENABLED:-false}
       - K8S_NAMESPACE=metaclouds
+      # 与 k8s/01-configmap.yaml 保持一致：K8s 只读面固定走 MockK8sClient。
+      # 该开关现在有真实语义（handlers/k8s.rs::ensure_mock_allowed）：
+      #   true  = 明确返回 mock 数据；false = 真实客户端未接线，端点 fail-closed。
+      # K8S_ENABLED 目前仍是声明性开关（零业务消费），不参与上面这条判定。
       - K8S_SIMULATION_MODE=true
       - SCHEDULER_ENABLED=true
       - SCHEDULER_INTERVAL_SECONDS=10
+      # 执行模式知情开关（P0-1）：SERVER_ENV=production 且未显式承认演示模式时，
+      # 后端 Config::validate() 会拒绝启动。CI/staging/生产走 compose 时若把
+      # SERVER_ENV 设为 production，必须保留 true（演示集群），否则同步把
+      # ALLOW_SIMULATED_EXECUTION=false + DISPATCH_ENABLED=false 一起下发。
+      - ALLOW_SIMULATED_EXECUTION=${ALLOW_SIMULATED_EXECUTION:-true}
+      - DISPATCH_ENABLED=${DISPATCH_ENABLED:-true}
+      - DISPATCH_SIMULATED_RUN_MS=2000
+      - DISPATCH_SIMULATED_UTILIZATION=0.75
+      - REVOCATION_FAIL_CLOSED=true
       - TRACING_ENABLED=true
       - TRACING_SERVICE_NAME=metaclouds-backend
       - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
@@ -228,6 +246,7 @@ services:
     restart: unless-stopped
 
   frontend:
+    image: ghcr.io/customizedvalidation/yunchuang/frontend:${IMAGE_TAG:-main}
     build:
       context: ./metaclouds-frontend-vue
       dockerfile: Dockerfile

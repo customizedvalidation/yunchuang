@@ -70,11 +70,34 @@ data:
   OTEL_ENABLED: "false"
 
   # ---- K8s 集成 ----
-  K8S_ENABLED: "true"
+  # P1-3（2026-11-09）：本机未接入 kube-rs，K8s 只读面固定走 MockK8sClient。
+  # 与 05-deployment.yaml 的 automountServiceAccountToken: false 保持一致：
+  # 没有真实客户端就不挂载 SA token（最小权限）。接入真实客户端时，
+  # 需同时把本项改 true、开启 token 挂载并复核 09-rbac 的 Role 权限。
+  K8S_ENABLED: "false"
   K8S_NAMESPACE: "metaclouds"
-  K8S_SIMULATION_MODE: "false"
+  # 该开关现在**有真实语义**（handlers/k8s.rs::ensure_mock_allowed）：
+  #   true  = 明确返回 mock 数据，前端 /system/mode 同步展示演示模式横幅；
+  #   false = 真实客户端未接线，K8s 只读端点 fail-closed 返回错误，绝不伪造数据。
+  # 设为 false 不会「切到真实集群」，只会让 K8s 页面不可用。
+  K8S_SIMULATION_MODE: "true"
   SCHEDULER_ENABLED: "true"
   SCHEDULER_INTERVAL_SECONDS: "10"
+
+  # ---- 执行模式知情开关（P0-1 生产 fail-closed 守卫）----
+  # SERVER_ENV=production 且未显式承认演示模式时，后端 validate() 会拒绝启动。
+  # 本清单对应「演示集群」：作业执行体与 K8s 数据均为模拟，故显式设为 true。
+  # ⚠️ 作为真实算力平台交付前，必须改为 false 并把 DISPATCH_ENABLED 设为 false
+  #    （或接入真实执行器后移除模拟路径），否则生产仍会把模拟完成态当真实结果。
+  ALLOW_SIMULATED_EXECUTION: "true"
+
+  # ---- 调度闭环（P0/P1/P2）----
+  # ⚠️ 显式声明，避免依赖代码默认值隐式开启模拟执行：当前执行体为 sleep 后直接
+  #    置 completed，实耗 = 申请量 × DISPATCH_SIMULATED_UTILIZATION，均为模拟数据。
+  #    接入真实执行器前，作业状态 / 利用率 / 双账本回收不得作为对外服务依据。
+  DISPATCH_ENABLED: "true"
+  DISPATCH_SIMULATED_RUN_MS: "2000"
+  DISPATCH_SIMULATED_UTILIZATION: "0.75"
 
   # ---- 限流 / 熔断 ----
   RATE_LIMIT_ENABLED: "true"
@@ -104,3 +127,6 @@ data:
   ALLOW_PUBLIC_REGISTRATION: "false"
   COOKIE_SAME_SITE: "lax"
   COOKIE_SECURE: "true"
+  # P1-4：撤销名单检查默认 fail-closed。Redis 曾成功接入后失效时返回 503，
+  # 不放行已登出的令牌；从未部署 Redis 的环境仍按无缓存降级，不会全站 503。
+  REVOCATION_FAIL_CLOSED: "true"

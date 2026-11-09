@@ -68,8 +68,12 @@ spec:
         metaclouds.io/config-checksum: "PLACEHOLDER"
     spec:
       serviceAccountName: metaclouds-backend
-      # 服务账户 token 仅按需挂载（CKV_K8S_38）：后端通过 RBAC 调用 K8s API 时才需要；
-      # 当前后端不调用 K8s API（清单由 CI 直接 apply），故不自动挂载 token，减小攻击面。
+      # 服务账户 token 仅按需挂载（CKV_K8S_38）：
+      # 与 01-configmap.yaml 的 K8S_ENABLED=false 保持一致——当前未接入 kube-rs，
+      # 后端不调用 K8s API（清单由 CI 直接 apply），故不自动挂载 token。
+      # 接入真实 K8s 客户端时，需同时把 K8S_ENABLED 改 true、本项改 true，
+      # 并复核 09-rbac 的 Role 权限；三者必须一起变更，避免「有 RBAC 无 token」
+      # 或「有 token 无客户端」的配置矛盾（P1-3）。
       automountServiceAccountToken: false
       # Pod 级安全上下文：非 root + seccomp
       securityContext:
@@ -96,8 +100,10 @@ spec:
             matchLabels:
               app: metaclouds
               component: backend
-      # 优雅终止：给在途请求 30 秒
-      terminationGracePeriodSeconds: 30
+      # 优雅终止（P0-2）：SIGTERM 后需完成「停止接新作业 → 等在途派发任务收尾
+      # （dispatch shutdown grace 30s）→ 关 HTTP server」。给 45s 留出余量，
+      # 否则 K8s 会在任务收尾前 SIGKILL，重新制造卡在 running 的孤儿作业。
+      terminationGracePeriodSeconds: 45
       containers:
         - name: metaclouds-backend
           # 镜像占位：CI 构建时注入真实 tag（如 git commit SHA），禁止 latest

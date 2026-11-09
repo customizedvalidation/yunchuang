@@ -44,6 +44,13 @@ kind: StatefulSet
 metadata:
   name: postgresql
   namespace: metaclouds
+  # P1-5：显式标记「非生产 HA」，供部署门禁与审计脚本识别。
+  # 后端是 3 副本 + HPA 2/10 + PDB minAvailable:2，但数据库仍是单副本，
+  # 因此整体并非高可用：PG 一旦故障，全部后端副本同时不可用。
+  # 生产必须改用托管 PG / CloudNativePG(Zalando) 并同步 DATABASE_URL。
+  annotations:
+    metaclouds.io/production-ha: "false"
+    metaclouds.io/single-point-of-failure: "postgresql-replicas-1"
   labels:
     app: postgresql
     component: database

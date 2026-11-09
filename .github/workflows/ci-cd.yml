@@ -5,16 +5,16 @@
 # 所有路径均为 monorepo 相对路径，通过 working-directory 切换子项目。
 # 后端已全面迁移至 Rust（metaclouds-backend-rust），Go 旧架构已于 2026-09 退役。
 #
-# Job 依赖关系：
-#   security-scan ──┬──> frontend-test ──────┐
-#                   ├──> rust-lint-test ─────┤
-#                   ├──> rust-test-postgres   │
-#                   └──> rust-release-build   │
-#                                            ├──> docker-build-backend-rust ──┐
-#                                            └──> docker-build-frontend ──────┤
-#                                                                             ├──> deploy-development
-#                                                                             ├──> deploy-staging ──> production-approval ──> deploy-production
-#                                                                                                                             └──> verify-deployment
+# Job 依赖关系（2026-11-09 修订）：
+#   security-scan ────────────────────────────┐（不再单点扇出：预扫描失败不会连锁跳过单测/构建）
+#   frontend-test / rust-lint-test /           │
+#   rust-test-postgres / rust-release-build ───┤
+#   validate-k8s ──────────────────────────────┤
+#                                              ├──> docker-build-* (needs 含 security-scan)
+#                                              │      ├──> deploy-development / deploy-staging
+#                                              │      └──> deploy-k8s (SHA 钉版本 + 真实断言)
+#                                              └──> verify-deployment（仅 staging 成功后真实断言）
+# 安全门禁、镜像扫描、部署后验证均以非 0 退出码表达失败，不再有恒绿占位步骤。
 # ==============================================================================
 
 name: Metaclouds CI/CD Pipeline
@@ -125,7 +125,8 @@ jobs:
   frontend-test:
     name: Frontend Test & Build
     runs-on: ubuntu-latest
-    needs: security-scan
+    # 不再单点依赖 security-scan：预扫描失败不应连锁跳过全部单测/构建，
+    # 安全门禁改为在镜像构建/部署前统一收敛（见下方 needs）。
     defaults:
       run:
         working-directory: metaclouds-frontend-vue
@@ -201,7 +202,7 @@ jobs:
   # ============================================================================
   docker-build-backend-rust:
     name: Build Rust Backend Docker Image
-    needs: [rust-lint-test, frontend-test]
+    needs: [rust-lint-test, frontend-test, security-scan]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -226,7 +227,8 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=tag
-            type=sha
+            # 钉版本：long SHA tag 供部署阶段唯一引用，避免浮动 main 或短 SHA 歧义
+            type=sha,format=long
 
       - name: Build Rust backend Docker image
         uses: docker/build-push-action@v5
@@ -239,30 +241,35 @@ jobs:
           cache-from: type=gha,scope=backend-rust
           cache-to: type=gha,mode=max,scope=backend-rust
 
-      - name: Trivy vulnerability scan (rust backend)
+      - name: Trivy image scan (rust backend)
         uses: aquasecurity/trivy-action@v0.20.0
         with:
-          scan-type: 'fs'
-          scan-ref: 'metaclouds-backend-rust/'
-          skip-dirs: 'target,.git,node_modules'
+          # 扫描已推送的运行时镜像而非源码目录：fs 扫描看不到最终镜像里的
+          # 系统包/基础镜像层，此前等于把最关键的攻击面留在门禁之外。
+          scan-type: 'image'
+          image-ref: '${{ env.DOCKER_REGISTRY }}/${{ env.RUST_BACKEND_IMAGE_NAME }}:sha-${{ github.sha }}'
           format: 'sarif'
           output: 'trivy-backend-rust-results.sarif'
           severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          exit-code: '1'
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Trivy scan results (rust backend)
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-backend-rust-results.sarif'
-        # 仅当 build+scan 成功才上传：scan 未产出 sarif 时此步骤会误报
-        # "Path does not exist" 并级联失败
-        if: success()
+        # 扫描失败（发现高危漏洞）时仍要上传报告，便于按 SARIF 定位修复
+        if: always()
 
   # ============================================================================
   # Job 4: 前端 Docker 镜像构建与推送
   # ============================================================================
   docker-build-frontend:
     name: Build Frontend Docker Image
-    needs: [rust-lint-test, frontend-test]
+    needs: [rust-lint-test, frontend-test, security-scan]
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -287,7 +294,8 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=tag
-            type=sha
+            # 钉版本：long SHA tag 供部署阶段唯一引用，避免浮动 main 或短 SHA 歧义
+            type=sha,format=long
 
       - name: Build and push frontend Docker image
         uses: docker/build-push-action@v5
@@ -300,24 +308,31 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
-      - name: Trivy vulnerability scan (frontend)
+      - name: Trivy image scan (frontend)
         uses: aquasecurity/trivy-action@v0.20.0
         with:
-          scan-type: 'fs'
-          scan-ref: 'metaclouds-frontend-vue/'
-          skip-dirs: 'vendor,target,dist,.git,node_modules'
+          scan-type: 'image'
+          image-ref: '${{ env.DOCKER_REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:sha-${{ github.sha }}'
           format: 'sarif'
           output: 'trivy-frontend-results.sarif'
           severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          exit-code: '1'
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Trivy scan results (frontend)
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-frontend-results.sarif'
-        if: success() || failure()
+        if: always()
 
   # ============================================================================
-  # Job 5a: 部署到 Development（Rust 后端：cargo build --release + systemd 重启）
+  # Job 5a: 部署到 Development（统一 GHCR 镜像，P1-1 收敛双路径）
+  # 此前该 job 在目标主机 `cargo build --release && systemctl restart`，与 K8s
+  # 镜像路径产物不同、且 compose 默认 USE_SQLITE=true 与生产 PG 漂移。现在两条
+  # 路径都拉同一 commit 的镜像；凭据/目标地址缺失时直接失败，不再"跳过也算绿"。
   # ============================================================================
   deploy-development:
     name: Deploy to Development
@@ -326,44 +341,43 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: development
-      url: http://dev.metaclouds.example.com
+      url: ${{ vars.DEV_BASE_URL }}
     env:
       LOG_LEVEL: DEBUG
       DEV_SSH_KEY: ${{ secrets.DEV_SSH_KEY }}
       DEV_HOST: ${{ secrets.DEV_HOST }}
       DEV_USER: ${{ secrets.DEV_USER }}
       DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '/opt/metaclouds' }}
+      BASE_URL: ${{ vars.DEV_BASE_URL }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to Development (SSH)
-        if: env.DEV_SSH_KEY != '' && env.DEV_HOST != ''
+      - name: Guard - require deployment target and credentials
         run: |
-          echo "Deploying to Development via SSH: ${{ env.DEV_USER }}@${{ env.DEV_HOST }}"
-          echo "${{ env.DEV_SSH_KEY }}" > /tmp/deploy_key
+          if [ -z "$BASE_URL" ] || [ -z "$DEV_SSH_KEY" ] || [ -z "$DEV_HOST" ]; then
+            echo "::error::DEV_BASE_URL / DEV_SSH_KEY / DEV_HOST not configured; refusing to mark an unperformed deployment as successful"
+            exit 1
+          fi
+
+      - name: Deploy to Development (immutable image)
+        run: |
+          printf '%s' "$DEV_SSH_KEY" > /tmp/deploy_key
           chmod 600 /tmp/deploy_key
+          # 目标主机需预置 GHCR 登录凭据与 .env（含 postgresql:// DATABASE_URL）；
+          # git pull 只用于取编排文件，后端不再从源码构建。
           ssh -i /tmp/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-            "${{ env.DEV_USER }}@${{ env.DEV_HOST }}" \
-            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust"
+            "$DEV_USER@$DEV_HOST" \
+            "cd $DEPLOY_DIR && git pull --ff-only && \
+             IMAGE_TAG=sha-${{ github.sha }} USE_SQLITE=false docker compose pull backend frontend && \
+             IMAGE_TAG=sha-${{ github.sha }} USE_SQLITE=false docker compose up -d --no-build backend frontend"
           rm -f /tmp/deploy_key
 
       - name: Verify Development deployment
-        run: |
-          echo "Verifying development deployment..."
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://dev.metaclouds.example.com/health || echo '000')
-          echo "HTTP Status: $STATUS"
-          if [ "$STATUS" != "200" ]; then
-            echo "Warning: Health check returned status $STATUS (may be expected for placeholder domain)"
-          fi
-
-      - name: Validate API endpoints
-        run: |
-          echo "Validating API endpoints..."
-          curl -s -f http://dev.metaclouds.example.com/api/v1/clusters || echo "API endpoint validation skipped (placeholder domain)"
+        run: bash scripts/verify-deployment.sh "$BASE_URL"
 
   # ============================================================================
-  # Job 5b: 部署到 Staging（Rust 后端）
+  # Job 5b: 部署到 Staging（统一 GHCR 镜像 + 真实断言，P0-3 / P1-1）
   # ============================================================================
   deploy-staging:
     name: Deploy to Staging
@@ -372,42 +386,38 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: http://staging.metaclouds.example.com
+      url: ${{ vars.STAGING_BASE_URL }}
     env:
       LOG_LEVEL: INFO
       STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
       STAGING_HOST: ${{ secrets.STAGING_HOST }}
       STAGING_USER: ${{ secrets.STAGING_USER }}
       DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '/opt/metaclouds' }}
+      BASE_URL: ${{ vars.STAGING_BASE_URL }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to Staging (SSH)
-        if: env.STAGING_SSH_KEY != '' && env.STAGING_HOST != ''
+      - name: Guard - require deployment target and credentials
         run: |
-          echo "Deploying to Staging via SSH: ${{ env.STAGING_USER }}@${{ env.STAGING_HOST }}"
-          echo "${{ env.STAGING_SSH_KEY }}" > /tmp/deploy_key
+          if [ -z "$BASE_URL" ] || [ -z "$STAGING_SSH_KEY" ] || [ -z "$STAGING_HOST" ]; then
+            echo "::error::STAGING_BASE_URL / STAGING_SSH_KEY / STAGING_HOST not configured; refusing to mark an unperformed deployment as successful"
+            exit 1
+          fi
+
+      - name: Deploy to Staging (immutable image)
+        run: |
+          printf '%s' "$STAGING_SSH_KEY" > /tmp/deploy_key
           chmod 600 /tmp/deploy_key
           ssh -i /tmp/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-            "${{ env.STAGING_USER }}@${{ env.STAGING_HOST }}" \
-            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust"
+            "$STAGING_USER@$STAGING_HOST" \
+            "cd $DEPLOY_DIR && git pull --ff-only && \
+             IMAGE_TAG=sha-${{ github.sha }} USE_SQLITE=false docker compose pull backend frontend && \
+             IMAGE_TAG=sha-${{ github.sha }} USE_SQLITE=false docker compose up -d --no-build backend frontend"
           rm -f /tmp/deploy_key
 
       - name: Verify Staging deployment
-        run: |
-          echo "Verifying staging deployment..."
-          STATUS=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://staging.metaclouds.example.com/health || echo '000')
-          echo "HTTP Status: $STATUS"
-          if [ "$STATUS" != "200" ]; then
-            echo "Warning: Health check returned status $STATUS (may be expected for placeholder domain)"
-          fi
-
-      - name: Validate API endpoints
-        run: |
-          echo "Validating API endpoints..."
-          curl -s --max-time 5 -f http://staging.metaclouds.example.com/api/v1/clusters || echo "API endpoint validation skipped (placeholder domain)"
-          curl -s --max-time 5 -f http://staging.metaclouds.example.com/api/v1/jobs || echo "Jobs endpoint validation skipped (placeholder domain)"
+        run: bash scripts/verify-deployment.sh "$BASE_URL"
 
   # ============================================================================
   # Job 5c: 生产环境审批门
@@ -419,13 +429,13 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://api.metaclouds.example.com
+      url: ${{ vars.PROD_BASE_URL }}
     steps:
       - name: Approval Gate
         run: echo "Production deployment approved"
 
   # ============================================================================
-  # Job 5d: 部署到 Production（Rust 后端）
+  # Job 5d: 部署到 Production（统一 GHCR 镜像 + 真实断言）
   # ============================================================================
   deploy-production:
     name: Deploy to Production
@@ -433,72 +443,64 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://api.metaclouds.example.com
+      url: ${{ vars.PROD_BASE_URL }}
     env:
       LOG_LEVEL: WARN
       PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
       PROD_HOST: ${{ secrets.PROD_HOST }}
       PROD_USER: ${{ secrets.PROD_USER }}
       DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '/opt/metaclouds' }}
+      BASE_URL: ${{ vars.PROD_BASE_URL }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to Production (SSH)
-        if: env.PROD_SSH_KEY != '' && env.PROD_HOST != ''
+      - name: Guard - require deployment target and credentials
         run: |
-          echo "Deploying to Production via SSH: ${{ env.PROD_USER }}@${{ env.PROD_HOST }}"
-          echo "${{ env.PROD_SSH_KEY }}" > /tmp/deploy_key
+          if [ -z "$BASE_URL" ] || [ -z "$PROD_SSH_KEY" ] || [ -z "$PROD_HOST" ]; then
+            echo "::error::PROD_BASE_URL / PROD_SSH_KEY / PROD_HOST not configured; refusing to record a deployment that did not happen"
+            exit 1
+          fi
+
+      - name: Deploy to Production (immutable image)
+        run: |
+          printf '%s' "$PROD_SSH_KEY" > /tmp/deploy_key
           chmod 600 /tmp/deploy_key
           ssh -i /tmp/deploy_key -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-            "${{ env.PROD_USER }}@${{ env.PROD_HOST }}" \
-            "cd ${{ env.DEPLOY_DIR }} && git pull --ff-only && cd metaclouds-backend-rust && cargo build --release && sudo systemctl restart metaclouds-backend-rust"
+            "$PROD_USER@$PROD_HOST" \
+            "cd $DEPLOY_DIR && git pull --ff-only && \
+             IMAGE_TAG=sha-${{ github.sha }} USE_SQLITE=false docker compose pull backend frontend && \
+             IMAGE_TAG=sha-${{ github.sha }} USE_SQLITE=false docker compose up -d --no-build backend frontend"
           rm -f /tmp/deploy_key
 
       - name: Verify Production deployment
-        run: |
-          echo "Verifying production deployment..."
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' https://api.metaclouds.example.com/health || echo '000')
-          echo "HTTP Status: $STATUS"
-          if [ "$STATUS" != "200" ]; then
-            echo "Warning: Health check returned status $STATUS (may be expected for placeholder domain)"
-          fi
-
-      - name: Validate API endpoints
-        run: |
-          echo "Validating API endpoints..."
-          curl -s -f https://api.metaclouds.example.com/api/v1/clusters || echo "API endpoint validation skipped (placeholder domain)"
-          curl -s -f https://api.metaclouds.example.com/api/v1/jobs || echo "Jobs endpoint validation skipped (placeholder domain)"
+        run: bash scripts/verify-deployment.sh "$BASE_URL"
 
       - name: Record deployment
         run: |
-          echo "Recording deployment..."
-          echo "Deployment successful at $(date) with commit ${{ github.sha }}"
+          echo "Deployment verified at $(date) with commit ${{ github.sha }}"
 
   # ============================================================================
-  # Job 6: 综合部署验证（health endpoint 验证）
+  # Job 6: 部署后综合验证（真实断言，P0-3）
+  #
+  # 此前 `if: always()` + 占位域名 curl + 只 echo 状态码 = 恒 success；同时
+  # needs 依赖三个互斥环境 job（其中两个通常 skipped），等于从未验证任何部署。
+  # 现在只在 staging 部署成功后运行，对真实地址做 health/ready + mode 断言，
+  # 失败即让流水线变红。地址由仓库变量注入，不再用 example.com 占位。
   # ============================================================================
   verify-deployment:
     name: Comprehensive Deployment Verification
-    needs: [deploy-development, deploy-staging, deploy-production]
-    if: always()
+    needs: [deploy-staging]
+    if: ${{ needs.deploy-staging.result == 'success' }}
     runs-on: ubuntu-latest
     env:
-      LOG_LEVEL: INFO
+      BASE_URL: ${{ vars.STAGING_BASE_URL }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify health endpoints
-        run: |
-          echo "=== Deployment Verification Summary ==="
-          DEV_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://dev.metaclouds.example.com/health 2>/dev/null || echo 'N/A')
-          STAGING_STATUS=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://staging.metaclouds.example.com/health 2>/dev/null || echo 'N/A')
-          PROD_STATUS=$(curl -s -o /dev/null -w '%{http_code}' https://api.metaclouds.example.com/health 2>/dev/null || echo 'N/A')
-          echo "Development: $DEV_STATUS"
-          echo "Staging: $STAGING_STATUS"
-          echo "Production: $PROD_STATUS"
-          echo "=== Note: Placeholder domains may return non-200 status ==="
+      - name: Verify endpoints of the deployed build
+        run: bash scripts/verify-deployment.sh "$BASE_URL"
 
   # ============================================================================
   # Job 7: Rust 后端（lint / test / coverage / release）
@@ -508,7 +510,8 @@ jobs:
   rust-lint-test:
     name: Rust Lint & Test
     runs-on: ubuntu-latest
-    needs: security-scan
+    # 不再单点依赖 security-scan：预扫描失败不应连锁跳过全部单测/构建，
+    # 安全门禁改为在镜像构建/部署前统一收敛（见下方 needs）。
     defaults:
       run:
         working-directory: metaclouds-backend-rust
@@ -558,7 +561,8 @@ jobs:
   rust-test-postgres:
     name: Rust Postgres Dual-Driver Tests
     runs-on: ubuntu-latest
-    needs: security-scan
+    # 不再单点依赖 security-scan：预扫描失败不应连锁跳过全部单测/构建，
+    # 安全门禁改为在镜像构建/部署前统一收敛（见下方 needs）。
     services:
       postgres:
         image: postgres:16
@@ -667,7 +671,8 @@ jobs:
   rust-release-build:
     name: Rust Release Build
     runs-on: ubuntu-latest
-    needs: security-scan
+    # 不再单点依赖 security-scan：预扫描失败不应连锁跳过全部单测/构建，
+    # 安全门禁改为在镜像构建/部署前统一收敛（见下方 needs）。
     defaults:
       run:
         working-directory: metaclouds-backend-rust
@@ -707,7 +712,8 @@ jobs:
   validate-k8s:
     name: Validate K8s Manifests
     runs-on: ubuntu-latest
-    needs: security-scan
+    # 不再单点依赖 security-scan：预扫描失败不应连锁跳过全部单测/构建，
+    # 安全门禁改为在镜像构建/部署前统一收敛（见下方 needs）。
     steps:
       - uses: actions/checkout@v4
 
@@ -813,7 +819,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: k8s
-      url: https://app.metaclouds.example.com
+      url: ${{ vars.K8S_BASE_URL }}
     env:
       K8S_ENABLED: ${{ secrets.KUBE_CONFIG != '' }}
       K8S_NAMESPACE: metaclouds
@@ -878,6 +884,38 @@ jobs:
           print("secret placeholder check passed: %d keys verified" % len(data))
           PY
 
+      # P1-5：后端多副本不等于系统高可用——内置 PG 仍是单副本。
+      # 默认发出显式告警；把仓库变量 REQUIRE_PG_HA 设为 true 可升级为硬门禁，
+      # 强制生产切换到托管 PG / CloudNativePG 后再允许部署。
+      - name: Guard - database HA in production
+        if: env.K8S_ENABLED == 'true'
+        env:
+          REQUIRE_PG_HA: ${{ vars.REQUIRE_PG_HA }}
+        run: |
+          if grep -q 'metaclouds.io/production-ha: "false"' metaclouds-backend-rust/k8s/17-postgresql.yaml; then
+            MSG="built-in PostgreSQL is single-replica; backend 3 replicas + HPA + PDB do NOT make the system HA. Use managed PG / CloudNativePG and update DATABASE_URL."
+            if [ "$REQUIRE_PG_HA" = "true" ]; then
+              echo "::error::$MSG"
+              exit 1
+            fi
+            echo "::warning::$MSG (set repo variable REQUIRE_PG_HA=true to block production deploys)"
+          fi
+
+      # P1-2：kustomization 默认 newTag: main 是浮动分支 tag。部署前用 kustomize
+      # 把镜像钉到本次 commit 的不可变 sha tag（与 metadata-action 的
+      # type=sha,format=long 一致），避免 apply 后再 kubectl set image 造成
+      # 清单漂移，以及此前 set image 用裸 <full-sha>（根本不存在的 tag）
+      # 导致的 ImagePullBackOff。
+      - name: Pin image tags to commit SHA
+        if: env.K8S_ENABLED == 'true'
+        working-directory: metaclouds-backend-rust/k8s
+        run: |
+          kustomize edit set image \
+            ghcr.io/customizedvalidation/yunchuang/backend-rust=ghcr.io/customizedvalidation/yunchuang/backend-rust:sha-${{ github.sha }}
+          kustomize edit set image \
+            ghcr.io/customizedvalidation/yunchuang/frontend=ghcr.io/customizedvalidation/yunchuang/frontend:sha-${{ github.sha }}
+          echo "Pinned images:" && grep -A5 '^images:' 13-kustomization.yaml
+
       - name: Apply manifests (kustomize)
         if: env.K8S_ENABLED == 'true'
         run: |
@@ -888,17 +926,20 @@ jobs:
           kubectl -n ${{ env.K8S_NAMESPACE }} rollout status deployment/metaclouds-backend --timeout=300s
           kubectl -n ${{ env.K8S_NAMESPACE }} rollout status deployment/metaclouds-frontend --timeout=120s
 
-      - name: Inject image tag (GIT_SHA)
+      - name: Assert deployed images are SHA-pinned
         if: env.K8S_ENABLED == 'true'
         run: |
           export KUBECONFIG=/tmp/kubeconfig
-          GIT_SHA=${{ github.sha }}
-          kubectl -n ${{ env.K8S_NAMESPACE }} set image deployment/metaclouds-backend \
-            metaclouds-backend=ghcr.io/customizedvalidation/yunchuang/backend-rust:${GIT_SHA}
-          kubectl -n ${{ env.K8S_NAMESPACE }} set image deployment/metaclouds-frontend \
-            metaclouds-frontend=ghcr.io/customizedvalidation/yunchuang/frontend:${GIT_SHA}
-          kubectl -n ${{ env.K8S_NAMESPACE }} rollout status deployment/metaclouds-backend --timeout=300s
-          kubectl -n ${{ env.K8S_NAMESPACE }} rollout status deployment/metaclouds-frontend --timeout=120s
+          EXPECTED="sha-${{ github.sha }}"
+          for d in metaclouds-backend metaclouds-frontend; do
+            ACTUAL=$(kubectl -n "${{ env.K8S_NAMESPACE }}" get deploy "$d" \
+              -o jsonpath='{.spec.template.spec.containers[*].image}')
+            echo "$d -> $ACTUAL"
+            case "$ACTUAL" in
+              *"$EXPECTED"*) ;;
+              *) echo "::error::$d is not running $EXPECTED"; exit 1 ;;
+            esac
+          done
 
       - name: Verify K8s deployment
         if: env.K8S_ENABLED == 'true'
@@ -911,14 +952,28 @@ jobs:
           echo "=== Ingress ==="
           kubectl -n ${{ env.K8S_NAMESPACE }} get ingress
           echo "=== Health via port-forward ==="
+          # 真实断言：port-forward 后必须拿到 health/ready 200，否则部署失败。
+          # 此前 `curl ... || echo Warning` 永远成功，掩盖了集群根本没起来的事实。
           kubectl -n ${{ env.K8S_NAMESPACE }} port-forward svc/metaclouds-backend 18080:8000 &
           PF_PID=$!
-          sleep 5
-          curl -sf http://localhost:18080/health || echo "Warning: health check via port-forward failed (may be placeholder cluster)"
+          OK=0
+          for i in 1 2 3 4 5; do
+            if curl -fsS --max-time 5 http://localhost:18080/health/ready >/dev/null; then
+              echo "health/ready OK (attempt $i)"
+              OK=1
+              break
+            fi
+            sleep 2
+          done
           kill $PF_PID 2>/dev/null || true
+          if [ "$OK" -ne 1 ]; then
+            echo "::error::K8s health/ready check failed after rollout"
+            exit 1
+          fi
 
-      - name: Skip notice (KUBE_CONFIG not configured)
+      - name: Refuse to report a skipped deployment as successful
         if: env.K8S_ENABLED != 'true'
         run: |
-          echo "::warning::KUBE_CONFIG secret not configured — K8s deploy skipped. Configure repo secret KUBE_CONFIG (base64 kubeconfig) to activate."
-          echo "Skipped deploy-k8s job (K8S_ENABLED=false)"
+          echo "::error::KUBE_CONFIG secret not configured; refusing to mark a skipped K8s deployment as successful."
+          echo "Configure repo secret KUBE_CONFIG (base64 kubeconfig) to activate deployment."
+          exit 1

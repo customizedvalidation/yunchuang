@@ -56,3 +56,13 @@ spec:
                 name: metaclouds-backend
                 port:
                   number: 8000
+          # 后端健康/就绪探针（P0-3）：/health/ready 会查库，必须直达后端。
+          # 若缺失，该路径会命中上面的 `/` 落到前端 nginx，部署验收永远拿不到
+          # 后端就绪状态。与 nginx.conf 的 location /health/ 反代保持同一语义。
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: metaclouds-backend
+                port:
+                  number: 8000
