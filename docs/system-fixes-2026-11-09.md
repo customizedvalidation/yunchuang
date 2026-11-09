@@ -168,7 +168,7 @@ bash scripts/pre-push-check.sh --strict
 | R4 | P2-3 抢占分支回归与合并 | 🟡 | 新增 `docs/p2-3-preemption-backlog.md`：2 处 major、基线漂移清单、rebase 顺序、7 组必补测试、验收标准 | 建议与 R1 一并立项（在内存态模拟作业上验证「模拟互抢」价值有限） | 回归清单第五节全绿，默认关闭开关 | 分支 `park/p2-3-preemption` @ `d3ea543` |
 | R5 | PostgreSQL HA | 🔴 | 已标注单点 + CI 可配置硬门禁；本轮在 runbook 指向切换手册 | 托管 PG / CloudNativePG + 更新 `DATABASE_URL`；设 `REQUIRE_PG_HA=true` 升为硬门禁 | PG 故障切换演练通过，后端 3 副本不断服 | `docs/k8s-production-switch-runbook.md`、`17-postgresql.yaml` |
 | R6 | Dockerfile 基础镜像钉 digest | 🟡 | **本轮参数化**：后端 `RUST_BUILDER_IMAGE` / `RUNTIME_IMAGE`、前端 `NODE_BUILDER_IMAGE` / `NGINX_RUNTIME_IMAGE` 四个全局 ARG（默认仍用 tag，行为零变化）；新增 `scripts/pin-base-images.sh --check/--resolve` | 联网环境用 `docker buildx imagetools` 或 `crane` 解析 4 个真实 digest，写入 ARG 默认值或注入 `--build-arg` | `--check --strict` 4/4 钉死；镜像构建仍通过 | 两份 Dockerfile、`pin-base-images.sh` |
-| R7 | CI 首个完整 run | 🔴 | 新增 `scripts/pre-push-check.sh`（工作区/领先数/脚本语法/远端连通/bundle 校验）；运维前置已不阻塞推送 | **网络代理层恢复**或用户在联网主机 `git push origin main`；随后配置开关触发首个部署链路 | GitHub Actions 全 job 实跑；`cargo audit` / PG 集成 / Checkov / Trivy image / 真实 apply 全部有结果 | `pre-push-check.sh`、离线 bundle |
+| R7 | CI 首个完整 run | 🟡 | 新增 `scripts/pre-push-check.sh`；**本轮网络恢复后已成功推送 `2c13f7c..ee08262`（16 个提交），GitHub Actions run 已触发并进入 `in_progress`**；离线 bundle 已更新到 `ee08262` | 等待该 run 出结论；若仍红，按首个失败 job 定位（历史 4 次 run 均 failure、且常止于 Security Pre-Scan） | 全 job 实跑、无 `if: always()` / 占位假绿；`cargo audit` / PG 集成 / Checkov / Trivy image / 真实 apply 均有真实结果 | `pre-push-check.sh`、`.workbuddy/yunchuang-main-20261109.bundle` |
 | R8 | 生产 Secret 注入 | 🟡 | 本轮打通路径：`render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**真实值仍须运维提供** | 运维注入 6 个 K8s secrets 或改用 External Secrets Operator / Sealed Secrets | Guard 校验渲染 Secret 无占位；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
@@ -178,7 +178,7 @@ bash scripts/pre-push-check.sh --strict
 ```
 系统定位拍板 ──> 真实集群/GPU/DCGM ──> R1 ──> R2 / R3 / R9 / R10
                                     └──> R4（抢占回归，建议同批）
-网络代理恢复 / 联网主机推送 ──> R7 ──> 首个 CI 完整 run ──> 按需打开 DEPLOY_ENABLED
+网络恢复 ✅ / 已推送 `2c13f7c..ee08262` ──> R7（run 已触发，结论待观察）──> 按需打开 DEPLOY_ENABLED
 运维提供真实凭据 ──> R8 ──> K8s 部署链路可用（R5 仍为单点告警）
 ```
 
@@ -243,11 +243,23 @@ bash scripts/pre-push-check.sh --strict
 
 ### 7.4 受环境限制、本轮未等价覆盖
 
-- GitHub runner 上的首个完整 CI run（`cargo audit`、PG 集成测试、Checkov、Trivy 镜像扫描、真实 `kubectl apply`）—— 需推送触发。
+- GitHub runner 上的首个完整 CI run —— 推送已于本轮完成并触发（run `ee08262` 状态 `in_progress`），**结论待观察**；本地无法等价覆盖 runner 上的工具链与联网步骤。
 - `docker build` 对新增 ARG 的实际兼容性 —— 沙箱无 Docker；已做静态检查（ARG 位置/FROM 引用），未做镜像构建。
 - 真实集群、GPU、DCGM、托管 PG —— 台账 R1/R2/R5/R9 的解除条件，本轮无变化。
 
 ### 7.5 结论
 
 **推送不再被运维配置阻塞**：未启用部署时 CI 明确显示 skipped，主构建链路保持绿；声明启用却缺配置才按设计变红并一次报全。K8s 部署链路的两个死结（占位模板必失败、apply 覆盖真实 Secret）与口令不同源陷阱已闭环。剩余阻塞项 R1–R10 全部有可执行解除条件与验收标准，但**核心事实未变**：执行体仍是 `sleep(2s)`、实耗仍是合成值、K8s 仍是 mock —— 本轮没有把任何「未做」写成「已完成」。
+
+### 7.6 推送与远端对齐（本轮收尾实测）
+
+| 项 | 结果 |
+|---|---|
+| `git push origin main` | ✅ `2c13f7c..ee08262  main -> main`，一次推送送达此前积压的 16 个提交 |
+| 同步核验 | ✅ `git fetch` 后 `origin/main == main == ee08262`，ahead 0 / behind 0，`git status` 干净 |
+| GitHub Actions | ✅ 已触发 `Metaclouds CI/CD Pipeline` run（head `ee08262`，event `push`），状态 `queued → in_progress`；**结论尚未产生** |
+| 历史对照 | ⚠️ API 显示此前 4 次 run（10-29 / 10-30）全部 `failure`，与「首个完整 run 从未观察到」一致；本次是首次有机会看到完整流水线 |
+| 离线兜底 | ✅ `.workbuddy/yunchuang-main-20261109.bundle` 更新至 `ee08262`（2.3 MB，`git bundle verify` OK，记录完整历史） |
+
+> CI 结论、以及 `deploy-prereqs` 在 runner 上的真实行为，需在 GitHub 上观察后回填；本地静态与脚本实测不能替代 runner 结果。
 
