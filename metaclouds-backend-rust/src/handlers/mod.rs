@@ -16,6 +16,7 @@ pub mod quota;
 pub mod resource;
 pub mod scheduler;
 pub mod security;
+pub mod system;
 pub mod tenant;
 pub mod topology;
 pub mod user;

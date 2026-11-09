@@ -181,9 +181,14 @@ pub struct Config {
     pub allow_public_registration: bool,
     pub cookie_same_site: String,
     // ---- 安全：JWT 撤销名单在 Redis 故障时是否 fail-closed ----
-    // false（默认）：缓存抖动不打挂全站，等令牌自然过期；
-    // true：安全优先，Redis 不可用时直接 503，拒绝所有请求。
+    // true（默认）：Redis 曾成功接入后不可用时返回 503，不放行已撤销令牌；
+    // false：缓存抖动时放行，退化为"等令牌自然过期"（仅限显式降级的部署）。
+    // 从未接入 Redis 的部署始终走无缓存降级，不会因本开关造成全站 503。
     pub revocation_fail_closed: bool,
+    // ---- 执行模式知情开关 ----
+    // 当前作业执行体与 K8s 只读面均为模拟实现。生产环境若未在配置中显式
+    // 承认演示模式，启动即失败（fail-closed），避免把模拟完成态/利用率误当真实算力。
+    pub allow_simulated_execution: bool,
 }
 
 impl Default for Config {
@@ -296,8 +301,11 @@ impl Default for Config {
             // 注册 / Cookie
             allow_public_registration: false,
             cookie_same_site: "lax".to_string(),
-            // 安全：撤销名单默认 fail-open（可用性优先）
-            revocation_fail_closed: false,
+            // 安全：撤销名单默认 fail-closed（配合 middleware 的"曾接入 Redis"判定，
+            // 未部署 Redis 的环境仍按无缓存降级，不会全站 503）
+            revocation_fail_closed: true,
+            // 生产环境默认禁止隐式模拟执行
+            allow_simulated_execution: false,
         }
     }
 }
@@ -443,7 +451,10 @@ impl Config {
         cfg.cookie_same_site = env_or("COOKIE_SAME_SITE", "lax");
 
         // 安全：JWT 撤销名单 Redis 故障时是否 fail-closed
-        cfg.revocation_fail_closed = env_bool("REVOCATION_FAIL_CLOSED", false);
+        cfg.revocation_fail_closed = env_bool("REVOCATION_FAIL_CLOSED", true);
+
+        // 执行模式知情开关：生产环境必须显式承认模拟实现，否则 validate 拒绝启动
+        cfg.allow_simulated_execution = env_bool("ALLOW_SIMULATED_EXECUTION", false);
 
         cfg.validate()?;
         Ok(cfg)
@@ -529,6 +540,27 @@ impl Config {
             return Err(AppError::bad_request(
                 "DATABASE_SSL_MODE must not be 'disable' in production environment",
             ));
+        }
+
+        // 生产环境禁止隐式模拟执行（P0-1 fail-closed）。
+        // 作业执行体是 sleep 后直接置 completed、实耗为合成值；K8s 只读面是
+        // MockK8sClient。若未在配置里显式知情（ALLOW_SIMULATED_EXECUTION=true），
+        // 宁可拒绝启动，也不能让生产把模拟完成态与模拟利用率当作真实算力交付。
+        if is_prod && !self.allow_simulated_execution {
+            if self.dispatch_enabled {
+                return Err(AppError::bad_request(
+                    "DISPATCH_ENABLED=true would run a SIMULATED executor in production; \
+                     set ALLOW_SIMULATED_EXECUTION=true to explicitly acknowledge demo mode, \
+                     or DISPATCH_ENABLED=false until a real executor is wired",
+                ));
+            }
+            if self.k8s_simulation_mode {
+                return Err(AppError::bad_request(
+                    "K8S_SIMULATION_MODE=true would expose mock cluster data in production; \
+                     set ALLOW_SIMULATED_EXECUTION=true to explicitly acknowledge demo mode, \
+                     or K8S_SIMULATION_MODE=false to fail closed on K8s read endpoints",
+                ));
+            }
         }
 
         // 生产环境 CORS 与可信代理必须显式声明。

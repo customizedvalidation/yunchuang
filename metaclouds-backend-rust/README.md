@@ -625,6 +625,17 @@ quota:read/write, scheduler:read/write, topology:read/write,
 dataset:read/write, checkpoint:read/write
 ```
 
+#### Authorization boundary（前端角色仅用于界面过滤）
+
+Vue 前端 `src/stores/auth.ts` 将非敏感的 `user`（含 `role`）存入 `localStorage`，
+只用于菜单/按钮展示过滤与路由守卫；**它不是凭证，也不可信**。
+
+- 真正的凭证是 `httpOnly` + `Secure`（生产）+ `SameSite` 的 `access_token` Cookie，或 Bearer 头；
+- 真正的授权边界在服务端：受保护路由经 `jwt_auth` + `RequirePermission`（RBAC fail-closed）校验，
+  并对非 admin 角色强制租户隔离；
+- 前端 `role` 可被用户自行篡改，篡改只改变本地界面，**不会获得任何额外服务端权限**；
+- 因此新增后端端点必须自带权限校验，不得依赖前端隐藏入口充当授权。
+
 ### ORM layer (GORM parity)
 
 `src/orm/mod.rs` provides traits that replace GORM's automatic behavior:

@@ -1,6 +1,7 @@
 //! Binary entrypoint: config -> db -> router -> serve on :8001.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use metaclouds_backend_rust::auth::middleware::AppState;
 use metaclouds_backend_rust::config::Config;
@@ -116,6 +117,17 @@ async fn main() -> anyhow::Result<()> {
 
     // ── 真实调度闭环（P0）：消费 pending 作业，配额+GPU 预留后派发执行 ─────────
     let dispatch_handle = if config.dispatch_enabled {
+        // 状态机与资源预留是真实的，但执行体仍是模拟：sleep 后直接置 completed，
+        // 实耗按「申请 × simulated_utilization」写入，K8S_SIMULATION_MODE 不参与
+        // 执行路径选择。显式告警，避免把模拟完成态与模拟利用率误读为真实算力交付。
+        tracing::warn!(
+            simulated_run_ms = config.dispatch_simulated_run_ms,
+            simulated_utilization = config.dispatch_simulated_utilization,
+            k8s_simulation_mode = config.k8s_simulation_mode,
+            "dispatch loop starting in SIMULATED execution mode: jobs are marked completed \
+             without a real workload and usage samples are synthetic; do not treat job status \
+             or utilization as real compute delivery. Set DISPATCH_ENABLED=false outside demo."
+        );
         Some(
             metaclouds_backend_rust::services::dispatch::start_dispatch_loop(
                 state.pool.clone(),
@@ -152,9 +164,11 @@ async fn main() -> anyhow::Result<()> {
                 tracing::info!("cron scheduler stopped");
             }
         }
-        // 停止真实调度闭环（P0）。
-        if let Some(h) = &dispatch_handle {
-            h.abort();
+        // 停止调度闭环（P0-2）：先停止接新作业，再等待在途执行任务收尾（最多 30s），
+        // 最后停主循环。此前只 `abort()` 主循环，已 spawn 的执行体随进程消失，
+        // 作业会一直卡在 running 直到 300s 宽限期被误判为孤儿回退。
+        if let Some(d) = dispatch_handle {
+            d.shutdown(Duration::from_secs(30)).await;
             tracing::info!("dispatch loop stopped");
         }
     })

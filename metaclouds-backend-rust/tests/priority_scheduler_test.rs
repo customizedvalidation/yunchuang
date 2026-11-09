@@ -2,6 +2,11 @@
 //!
 //! 覆盖：优先级排序、同优先级 FIFO、submit、cancel(pending/running)、状态查询、
 //! 队列信息、并发提交/取消、worker 执行、health、shutdown。
+//!
+//! P2-1：`priority_scheduler` 已改为 `legacy-scheduler` feature 下的可选模块，
+//! 默认生产构建不编译该死 mock。仅在 `cargo test --features legacy-scheduler`
+//! 时编译本文件，避免默认 `cargo test` 因找不到模块而失败。
+#![cfg(feature = "legacy-scheduler")]
 
 use std::sync::Arc;
 use std::time::Duration;

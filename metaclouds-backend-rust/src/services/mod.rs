@@ -20,6 +20,11 @@ pub mod k8s;
 pub mod monitoring;
 pub mod partition;
 pub mod partition_permission;
+// P2-1（2026-11-09）：纯内存态 mock 调度器，647 行，从未在生产进程接线，
+// 与下面 `dispatch` 的真实 DB 闭环并存曾造成「到底哪个在跑」的误判。
+// 改为显式 feature 门控：默认构建/发布产物完全不含该实现；需要对照 Go
+// 行为契约时以 `--features legacy-scheduler` 临时启用。
+#[cfg(feature = "legacy-scheduler")]
 pub mod priority_scheduler;
 pub mod quota;
 pub mod resource;

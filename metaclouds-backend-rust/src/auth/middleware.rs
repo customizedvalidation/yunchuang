@@ -125,9 +125,11 @@ pub async fn jwt_auth(
     tracing::Span::current().record("tenant_id", claims.tenant_id);
 
     // 撤销名单：显式登出过的 jti 即使未过期也拒绝。
-    // Redis 故障时的行为由 REVOCATION_FAIL_CLOSED 决定：
-    //   - false（默认）：失败开放，退化为"等令牌自然过期"，避免缓存抖动打挂全站；
-    //   - true：安全优先，Redis 不可用时返回 503，拒绝所有请求。
+    // Redis 故障时的行为由 REVOCATION_FAIL_CLOSED 决定（默认 true = 安全优先）：
+    //   - 检查报错 / 曾接入后整体失效：返回 503，不放行可能已撤销的令牌；
+    //   - 从未接入 Redis 的部署：明确的无缓存降级，不触发 503（避免单点缓存
+    //     把全站打挂），行为退化为"等令牌自然过期"；
+    //   - 显式设 false：任何故障都放行（仅限已评估可用性的部署）。
     if crate::cache::redis_active() {
         match crate::cache::global_session()
             .is_jti_revoked(&claims.jti)
@@ -148,6 +150,15 @@ pub async fn jwt_auth(
                 tracing::warn!(error = %e, "revocation check failed; failing open (REVOCATION_FAIL_CLOSED=false)");
             }
         }
+    } else if state.config.revocation_fail_closed && crate::cache::revocation_store_ever_active() {
+        // Redis 曾成功接入，现在整体不可用（缓存被降级/替换）：撤销名单完全失效，
+        // 默认安全策略下拒绝请求，而不是静默放行已登出的令牌。
+        tracing::error!(
+            "revocation store was previously active but is now unavailable; failing closed (503)"
+        );
+        return Err(AppError::internal(
+            "auth revocation store unavailable; retry later",
+        ));
     }
 
     tracing::debug!(user_id = claims.user_id, username = %claims.username, "authenticated");

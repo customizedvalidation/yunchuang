@@ -6,9 +6,10 @@
 //!
 //! # 设计动机
 //!
-//! 既有 [`crate::services::priority_scheduler`] 是纯内存态 mock，从未在进程内接线，
-//! 且执行体仅是 `tokio::time::sleep`，与 DB 的 `jobs` 表完全脱钩——这就是"有 mock
-//! 无调度闭环"的根因。本模块直接消费 DB 中真实作业，是生产进程唯一启动的调度闭环。
+//! 既有的 `services::priority_scheduler`（仅在 `legacy-scheduler` feature 下编译）
+//! 是纯内存态 mock，从未在进程内接线，且执行体仅是 `tokio::time::sleep`，
+//! 与 DB 的 `jobs` 表完全脱钩——这就是"有 mock 无调度闭环"的根因。
+//! 本模块直接消费 DB 中真实作业，是生产进程唯一启动的调度闭环。
 //!
 //! # 关键不变量
 //!
@@ -24,6 +25,9 @@
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
@@ -106,9 +110,101 @@ impl DispatchConfig {
     }
 }
 
-/// 启动后台调度闭环，返回 `JoinHandle`（优雅关闭时 `abort`）。
-pub fn start_dispatch_loop(pool: DatabasePool, config: DispatchConfig) -> JoinHandle<()> {
+/// 已派发但尚未收尾的执行任务计数（进程级，仅用于优雅关闭排水）。
+static INFLIGHT_TASKS: AtomicUsize = AtomicUsize::new(0);
+
+/// 带计数的后台任务：使 SIGTERM 时能等待在途作业收尾，而不是直接 `abort` 主循环后
+/// 把作业永久遗留在 `running`（P0-2：此前 `main.rs` 只 abort 主循环，已 spawn 的执行体
+/// 随进程一起消失，作业卡死直到 300s 宽限期回退）。
+fn spawn_tracked<F>(future: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    INFLIGHT_TASKS.fetch_add(1, AtomicOrdering::SeqCst);
     tokio::spawn(async move {
+        future.await;
+        INFLIGHT_TASKS.fetch_sub(1, AtomicOrdering::SeqCst);
+    });
+}
+
+/// 等待全部在途执行任务收尾，返回超时后仍未结束的任务数。
+async fn wait_for_inflight(timeout: Duration) -> usize {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let n = INFLIGHT_TASKS.load(AtomicOrdering::SeqCst);
+        if n == 0 || tokio::time::Instant::now() >= deadline {
+            return n;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// 调度闭环句柄：关闭时先停止接新作业 → 等待在途任务收尾 → 停主循环。
+pub struct DispatchLoop {
+    stop: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+}
+
+impl DispatchLoop {
+    /// 优雅关闭。`grace` 内等待已派发任务完成，超时才强制中断主循环。
+    pub async fn shutdown(self, grace: Duration) {
+        self.stop.store(true, AtomicOrdering::SeqCst);
+        let remaining = wait_for_inflight(grace).await;
+        if remaining > 0 {
+            tracing::warn!(
+                remaining,
+                "dispatch shutdown grace expired; aborting loop with in-flight jobs"
+            );
+        } else {
+            tracing::info!("dispatch in-flight jobs drained");
+        }
+        self.handle.abort();
+    }
+}
+
+/// 抢占启动期 reconcile 的 leader 租约：多副本只有一个执行崩溃恢复。
+///
+/// 租约带 TTL，holder 进程崩溃后过期即可被重新抢占，不会永久锁死恢复逻辑。
+/// 使用 DB 表而非进程内状态，才能跨 Pod 生效；不依赖 K8s Lease API / SA token。
+async fn acquire_reconcile_lease(
+    pool: &DatabasePool,
+    holder: &str,
+    ttl_seconds: i64,
+) -> AppResult<bool> {
+    let now = Utc::now();
+    let now_s = now.to_rfc3339();
+    let expires_s = (now + ChronoDuration::seconds(ttl_seconds.max(30))).to_rfc3339();
+
+    // 种子行幂等创建（ON CONFLICT DO NOTHING 在 SQLite 3.24+ / Postgres 均支持）。
+    let _: u64 = crate::with_db!(
+        pool,
+        "INSERT INTO dispatch_lease (lease_key, holder, expires_at) \
+         VALUES ('reconcile', '', NULL) ON CONFLICT (lease_key) DO NOTHING",
+        |db_s, db_e| sqlx::query(db_s).execute(db_e).await?.rows_affected()
+    );
+    // 未过期租约不允许抢占 → rows_affected == 0。
+    let won: u64 = crate::with_db!(
+        pool,
+        "UPDATE dispatch_lease SET holder = ?, expires_at = ? \
+         WHERE lease_key = 'reconcile' AND (expires_at IS NULL OR expires_at < ?)",
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(holder)
+                .bind(expires_s.clone())
+                .bind(now_s.clone())
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    Ok(won == 1)
+}
+
+/// 启动后台调度闭环，返回可优雅关闭的 [`DispatchLoop`]。
+pub fn start_dispatch_loop(pool: DatabasePool, config: DispatchConfig) -> DispatchLoop {
+    let stop = Arc::new(AtomicBool::new(false));
+    let loop_stop = stop.clone();
+    let handle = tokio::spawn(async move {
         tracing::info!(
             interval_ms = config.interval_ms,
             simulated_run_ms = config.simulated_run_ms,
@@ -116,9 +212,24 @@ pub fn start_dispatch_loop(pool: DatabasePool, config: DispatchConfig) -> JoinHa
             "dispatch loop started"
         );
 
-        // 崩溃恢复：先 reconcile 孤儿 / 遗留 running 作业。
-        if let Err(e) = reconcile(&pool, &config).await {
-            tracing::warn!(error = %e, "dispatch reconcile failed");
+        // P0-2：3 副本同时启动 reconcile 会互踩（重复释放配额/GPU、误判孤儿）。
+        // 用数据库租约选出唯一 leader；抢不到或租约表异常时本副本跳过恢复。
+        let holder = format!(
+            "pid{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_millis()
+        );
+        match acquire_reconcile_lease(&pool, &holder, config.reconcile_grace_seconds).await {
+            Ok(true) => {
+                if let Err(e) = reconcile(&pool, &config).await {
+                    tracing::warn!(error = %e, "dispatch reconcile failed");
+                }
+            }
+            Ok(false) => tracing::info!("skipping reconcile: another replica holds the lease"),
+            Err(e) => tracing::warn!(
+                error = %e,
+                "reconcile lease unavailable; skipping crash recovery on this replica"
+            ),
         }
 
         let mut ticker = tokio::time::interval(Duration::from_millis(config.interval_ms.max(100)));
@@ -126,11 +237,16 @@ pub fn start_dispatch_loop(pool: DatabasePool, config: DispatchConfig) -> JoinHa
         ticker.tick().await;
         loop {
             ticker.tick().await;
+            if loop_stop.load(AtomicOrdering::SeqCst) {
+                break;
+            }
             if let Err(e) = dispatch_tick(&pool, &config).await {
                 tracing::warn!(error = %e, "dispatch tick failed");
             }
         }
-    })
+        tracing::info!("dispatch loop stopped accepting new jobs");
+    });
+    DispatchLoop { stop, handle }
 }
 
 /// 单轮调度：受并发上限约束地认领并派发 pending 作业。
@@ -347,24 +463,31 @@ async fn try_dispatch_one(
     let unit = gang_unit(job, config);
     let is_gang = unit > 1;
 
-    // 原子认领 pending→running，仅当仍是 pending。
+    // 原子认领 pending→running，仅当仍是 pending 且**全局** running 未达上限。
+    //
+    // P0-2：并发上限此前在 dispatch_tick 起始处读一次 COUNT，再由本进程顺序认领，
+    // 属于典型 TOCTOU——3 个副本各自读到相同的余量，各自放行，实际全局上限变成
+    // 3 × max_concurrent（默认 30）。把容量条件放进同一条原子 UPDATE 的子查询后，
+    // 每次认领都在数据库层重新判定，跨副本/跨进程全局一致。
     let now = Utc::now();
     let claimed = crate::with_db!(
         pool,
         "UPDATE jobs SET status = 'running', start_time = ?, updated_at = ? \
-         WHERE id = ? AND status = 'pending' AND deleted_at IS NULL",
+         WHERE id = ? AND status = 'pending' AND deleted_at IS NULL \
+           AND (SELECT COUNT(*) FROM jobs WHERE status = 'running' AND deleted_at IS NULL) < ?",
         |db_s, db_e| {
             sqlx::query(db_s)
                 .bind(now)
                 .bind(now)
                 .bind(job.id)
+                .bind(config.max_concurrent as i64)
                 .execute(db_e)
                 .await?
                 .rows_affected()
         }
     );
     if claimed == 0 {
-        return Ok(false); // 已被其他 worker 认领或不再是 pending
+        return Ok(false); // 已被其他 worker 认领、不再是 pending，或全局并发已满
     }
 
     // 观测入队到调度的等待延迟（秒）。
@@ -476,7 +599,7 @@ async fn try_dispatch_one(
     let pool2 = pool.clone();
     let job_id = job.id;
     let sim_ms = config.simulated_run_ms;
-    tokio::spawn(async move {
+    spawn_tracked(async move {
         tokio::time::sleep(Duration::from_millis(sim_ms)).await;
         if let Err(e) = complete_running_job(&pool2, job_id).await {
             tracing::warn!(job_id, error = %e, "complete_running_job failed");
@@ -493,7 +616,7 @@ async fn try_dispatch_one(
         cpu_actual: job.cpus as f64 * unit as f64 * utilization,
         memory_gb_actual: job.memory as f64 * unit as f64 * utilization,
     };
-    tokio::spawn(async move {
+    spawn_tracked(async move {
         tokio::time::sleep(Duration::from_millis(sim_ms / 2)).await;
         if let Err(e) = sample_job_usage(&pool3, sample_job_id, &sample).await {
             tracing::warn!(job_id = sample_job_id, error = %e, "usage sampler failed");
@@ -510,12 +633,17 @@ struct UsageSample {
     memory_gb_actual: f64,
 }
 
-/// 落实一次实耗采样：仅当作业仍为 running 时写 *_actual 与 usage_sampled_at。
+/// 落实一次**模拟**实耗采样：仅当作业仍为 running 时写 *_actual、
+/// `usage_sampled_at` 与 `usage_source='simulated'`。
+///
+/// P2-4：合成值必须与真实采集在 DB 层可区分，否则计费/showback 会对
+/// 从未发生过的算力用量出账。计费查询须显式过滤 `usage_source`。
 async fn sample_job_usage(pool: &DatabasePool, job_id: i64, sample: &UsageSample) -> AppResult<()> {
     crate::with_db!(
         pool,
         "UPDATE jobs SET gpu_fraction_actual = ?, cpu_actual = ?, memory_gb_actual = ?, \
-         usage_sampled_at = ? WHERE id = ? AND status = 'running' AND deleted_at IS NULL",
+         usage_sampled_at = ?, usage_source = 'simulated' \
+         WHERE id = ? AND status = 'running' AND deleted_at IS NULL",
         |db_s, db_e| {
             sqlx::query(db_s)
                 .bind(sample.gpu_fraction_actual)
@@ -591,7 +719,8 @@ fn topology_placement(job: &Job, config: &DispatchConfig) -> TopoPlacement {
 /// 下一轮重试），而非"首卡落在卡数不足节点 → 确定性反复回退"的 livelock。
 ///
 /// 钉扎模式只统计指定节点；节点不存在 / 卡数不足 → `None`。
-/// 注意：按"每卡一设备"保守计数（fraction < 1 的同卡多份额不计入），宁可少算不超卖。
+/// 注意：默认按"每卡一设备"计数；开启时间片超卖（fraction<1 且 slice_cap>1）时
+/// 按设备可容纳的份额槽位数计数，避免同卡多份额共置作业被误 blocked（P2-3）。
 async fn select_topology_node(
     pool: &DatabasePool,
     job: &Job,
@@ -659,7 +788,18 @@ async fn select_topology_node(
         if used + fraction > slice_cap + 0.001 {
             continue;
         }
-        *per_node.entry(d.node_name.clone()).or_insert(0) += 1;
+        // P2-3：此前每设备恒计 1 卡，fraction<1 且开启时间片超卖时，明明一张卡
+        // 能容纳多个份额，却被误判「节点卡数不足」而 blocked（宁可少算的保守取舍）。
+        // 按该设备剩余容量可容纳的本作业份额槽位数计数，与 allocate_gpu 的
+        // `used + fraction <= slice_cap` 准入口径一致。
+        // 默认 slice_cap=1.0 / fraction=1.0 时 slots=1，既有行为完全不变。
+        let slots = if fraction < 1.0 && slice_cap > 1.0 {
+            let free = (slice_cap - used).max(0.0);
+            ((free + 0.001) / fraction).floor() as i64
+        } else {
+            1
+        };
+        *per_node.entry(d.node_name.clone()).or_insert(0) += slots.max(1);
     }
 
     // 4) best-fit：卡数足够的节点里选空闲卡数最小者（并列取名字序，保证确定性）。
@@ -857,6 +997,18 @@ async fn complete_running_job(pool: &DatabasePool, job_id: i64) -> AppResult<()>
         .await?
         .ok_or_else(|| crate::error::AppError::internal("job disappeared during completion"))?;
 
+    // P0-2 / P2-3：模拟执行任务与 reconcile 重新挂接可能并发命中同一作业。
+    // 前置状态检查 + 末尾 rows_affected 校验构成双重幂等，避免重复释放配额/GPU
+    // 与重复累加 completed_total 指标（此前完全未校验更新结果）。
+    if job.status != "running" {
+        tracing::warn!(
+            job_id,
+            status = %job.status,
+            "completion skipped: job is no longer running"
+        );
+        return Ok(());
+    }
+
     // 释放配额（若租户有 active 配额；释放量按 release_unit 与预留量等量）。
     release_quota_for_job(pool, &job).await?;
 
@@ -865,7 +1017,7 @@ async fn complete_running_job(pool: &DatabasePool, job_id: i64) -> AppResult<()>
 
     // 置 completed。
     let now = Utc::now();
-    crate::with_db!(
+    let completed = crate::with_db!(
         pool,
         "UPDATE jobs SET status = 'completed', progress = 100, end_time = ?, updated_at = ? \
          WHERE id = ? AND status = 'running' AND deleted_at IS NULL",
@@ -879,6 +1031,13 @@ async fn complete_running_job(pool: &DatabasePool, job_id: i64) -> AppResult<()>
                 .rows_affected()
         }
     );
+    if completed == 0 {
+        tracing::warn!(
+            job_id,
+            "completion skipped: another worker finished the job first"
+        );
+        return Ok(());
+    }
     crate::metrics::scheduler_metrics().completed_total.inc();
     Ok(())
 }
@@ -911,7 +1070,7 @@ async fn reconcile(pool: &DatabasePool, config: &DispatchConfig) -> AppResult<()
             // 重新挂接完成（视为已运行，不再睡眠）。
             let pool2 = pool.clone();
             let jid = job.id;
-            tokio::spawn(async move {
+            spawn_tracked(async move {
                 if let Err(e) = complete_running_job(&pool2, jid).await {
                     tracing::warn!(job_id = jid, error = %e, "reconcile complete_running_job failed");
                 }
@@ -1578,6 +1737,63 @@ mod tests {
                 .await
         )
         .expect("query allocation nodes")
+    }
+
+    /// P2-3 回归：单卡节点 + fraction=0.5 + 时间片上限 2.0 时，2 个份额可共置同一张卡，
+    /// 预选不应再因「每设备至多计 1 卡」把作业误判为 blocked。
+    /// 同时验证默认 slice_cap=1.0 的保守行为不变（零回归）。
+    #[tokio::test]
+    async fn test_colocate_counts_fraction_slots_on_single_device() {
+        let pool = setup_pool().await;
+        seed_gpu_device(&pool, "node-1", 0).await;
+
+        let created = crate::services::job::create_job(
+            &pool,
+            crate::services::job::CreateJobInput {
+                name: "fraction-topo".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 0,
+                gpus: 2,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: "node".into(),
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create job");
+
+        set_gpu_fraction(&pool, created.id, 0.5).await;
+        let job = crate::services::job::get_job_unscoped(&pool, created.id)
+            .await
+            .expect("get job");
+
+        let placement = TopoPlacement::CoLocate;
+        let node = select_topology_node(&pool, &job, &placement, 2, 2.0)
+            .await
+            .expect("select topology node");
+        assert_eq!(
+            node.as_deref(),
+            Some("node-1"),
+            "fraction slots must be counted per device when timeslicing is enabled"
+        );
+
+        let legacy = select_topology_node(&pool, &job, &placement, 2, 1.0)
+            .await
+            .expect("select topology node");
+        assert_eq!(
+            legacy, None,
+            "default timeslice_max=1.0 must keep the conservative per-card counting"
+        );
     }
 
     /// 场景①：双节点各 1 卡 + 级别 `node` 作业请求 2 卡 → 同节点卡数不足必须保持

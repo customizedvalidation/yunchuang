@@ -1,9 +1,16 @@
 [package]
 name = "metaclouds-backend-rust"
-version = "0.1.0"
+version = "2.0.1"
 edition = "2021"
-description = "Rust spike PoC of the Metaclouds backend (parity with Go v1 API contract)."
+description = "Metaclouds compute scheduling backend (Rust/axum + SQLx, SQLite/Postgres dual driver)."
 license = "MIT"
+
+[features]
+default = []
+# P2-1：旧的纯内存态 priority_scheduler 从未在生产进程接线，默认不编译，
+# 避免与 services::dispatch 的 DB 调度闭环形成「双实现并存」的误读。
+# 需要对照 Go 行为契约时用 `cargo test --features legacy-scheduler` 恢复。
+legacy-scheduler = []
 
 [dependencies]
 axum = { version = "0.8", features = ["macros"] }

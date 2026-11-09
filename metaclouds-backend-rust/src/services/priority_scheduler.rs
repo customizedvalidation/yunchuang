@@ -1,3 +1,8 @@
+//! ⚠️ 已停用（P2-1，2026-11-09）：本模块默认**不参与编译**，仅在
+//! `cargo build --features legacy-scheduler` 时启用，用于对照 Go 行为契约。
+//! 生产进程唯一接线的是 `services::dispatch`（DB 驱动的调度闭环）。
+//! 请勿在本文件上新增业务能力：新能力应落在 dispatch / scheduler 链路。
+//!
 //! 优先级调度器核心（对齐 Go `pkg/priorityscheduler` 的行为契约）。
 //!
 //! # 设计

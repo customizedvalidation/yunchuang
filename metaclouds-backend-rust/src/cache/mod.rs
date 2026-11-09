@@ -28,6 +28,7 @@
 pub mod redis;
 pub mod session;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 pub use redis::{
@@ -51,8 +52,26 @@ static CACHE: OnceLock<Arc<dyn Cache>> = OnceLock::new();
 /// 原子计数。未注入（或 Noop）时返回全 0。
 static CACHE_STATS: OnceLock<Box<dyn Fn() -> CacheStats + Send + Sync>> = OnceLock::new();
 
+/// Redis 撤销存储是否曾在本进程内成功接入。
+///
+/// 用于区分两种「缓存不可用」：
+///
+/// - 从未部署 Redis（预期降级）：放行请求不会放大成全站 503；
+/// - 曾成功接入、随后整体失效：撤销名单完全失效，安全优先必须 fail-closed。
+///
+/// 没有这个区分，把 `REVOCATION_FAIL_CLOSED` 默认翻转为 true 会让未部署 Redis
+/// 的开发/演示环境直接全站拒绝服务（P1-4 的历史顾虑）。
+static REVOCATION_STORE_EVER_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn revocation_store_ever_active() -> bool {
+    REVOCATION_STORE_EVER_ACTIVE.load(Ordering::Relaxed)
+}
+
 /// 安装进程级缓存实现。重复调用只生效第一次。
 pub fn install_cache(cache: Arc<dyn Cache>) {
+    if !cache.is_noop() {
+        REVOCATION_STORE_EVER_ACTIVE.store(true, Ordering::Relaxed);
+    }
     if CACHE.set(cache).is_err() {
         tracing::warn!("install_cache called more than once; keeping the first instance");
     }

@@ -21,6 +21,8 @@ fn valid_prod() -> Config {
     c.rate_limit_enabled = true;
     c.rate_limit_requests = 100;
     c.rate_limit_duration_seconds = 60;
+    // 生产环境默认拒绝隐式模拟执行；合法夹具显式承认演示模式（见 2026-11-09 门禁）。
+    c.allow_simulated_execution = true;
     c
 }
 
@@ -78,6 +80,8 @@ fn defaults_match_go() {
     assert!(c.feature_monitoring);
     assert!(c.feature_security_policies);
     assert!(!c.allow_public_registration);
+    assert!(c.revocation_fail_closed);
+    assert!(!c.allow_simulated_execution);
     assert_eq!(c.cookie_same_site, "lax");
     assert!(c.allowed_origins.is_empty());
     assert!(c.trusted_proxies.is_empty());
@@ -282,4 +286,61 @@ fn parse_list_cases() {
     );
     assert_eq!(parse_list("a,,b,"), vec!["a".to_string(), "b".to_string()]);
     assert!(parse_list(",,,").is_empty());
+}
+
+// ── 生产环境模拟执行 fail-closed 门禁（P0-1，2026-11-09）──────────────────
+
+#[test]
+fn prod_rejects_implicit_simulated_dispatcher() {
+    let mut c = valid_prod();
+    c.allow_simulated_execution = false;
+    c.dispatch_enabled = true;
+    let err = c.validate().unwrap_err();
+    assert!(
+        err.to_string().contains("SIMULATED executor"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn prod_rejects_implicit_mock_k8s() {
+    let mut c = valid_prod();
+    c.allow_simulated_execution = false;
+    c.dispatch_enabled = false;
+    c.k8s_simulation_mode = true;
+    let err = c.validate().unwrap_err();
+    assert!(
+        err.to_string().contains("mock cluster data"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn prod_with_real_executor_needs_no_simulated_opt_in() {
+    let mut c = valid_prod();
+    c.allow_simulated_execution = false;
+    c.dispatch_enabled = false;
+    c.k8s_simulation_mode = false;
+    assert!(c.validate().is_ok());
+}
+
+#[test]
+fn prod_explicit_simulated_opt_in_is_allowed() {
+    let c = valid_prod();
+    assert!(c.allow_simulated_execution);
+    assert!(c.dispatch_enabled);
+    assert!(c.k8s_simulation_mode);
+    assert!(c.validate().is_ok());
+}
+
+#[test]
+fn development_mode_allows_simulated_execution() {
+    let c = Config {
+        jwt_secret: "s".repeat(32),
+        allow_simulated_execution: false,
+        dispatch_enabled: true,
+        k8s_simulation_mode: true,
+        ..Default::default()
+    };
+    assert!(c.validate().is_ok());
 }

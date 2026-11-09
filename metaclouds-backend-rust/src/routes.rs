@@ -78,6 +78,7 @@ use crate::handlers::security::{
     create_policy, delete_policy, disable_policy, enable_policy, get_policy, list_policies,
     update_policy,
 };
+use crate::handlers::system::mode as system_mode;
 use crate::handlers::tenant::{
     create_tenant, delete_tenant, get_tenant, list_tenants, update_tenant,
 };
@@ -155,7 +156,10 @@ pub fn build_router(state: AppState) -> Router {
     // 运维端点守卫：生产环境开启（/metrics、/swagger-ui、/api-docs 需 token 或可信网段）。
     let guard = Arc::new(EndpointGuard::from_environment(&state.config.environment));
     // ── Public routes (no JWT required) ──────────────────────────────────
-    let public = Router::new().route("/auth/login", post(login));
+    // /system/mode 公开：前端在登录页也能判断实例是否处于演示模式（不含敏感信息）。
+    let public = Router::new()
+        .route("/auth/login", post(login))
+        .route("/system/mode", get(system_mode));
 
     // ── Auth routes (JWT only, no extra permission) ────────────────────
     let auth_routes = Router::new()
