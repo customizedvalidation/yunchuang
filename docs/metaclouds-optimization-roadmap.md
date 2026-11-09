@@ -142,13 +142,26 @@ Metaclouds 当前处于"**有数据模型、有配额/GPU 分配原语，但无�
   - 验证：**68 passed / 0 failed**（+5：级别共置卡数不足→pending→补卡成功、livelock 回归 `test_topology_colocate_preselects_node_with_enough_cards`（低 id 节点卡数不足时预选直接落卡数足够节点；QA 突变验证：去预选/复刻旧算法均使该测试变红）、显式钉扎 node:不存在→pending/裸名→成功、前缀形式大小写不敏感 `test_topology_pinned_prefix_case_insensitive`（"Node:node-1"→钉 node-1）、Gang×拓扑组合共置），clippy -D warnings 零告警；零 schema 变更。
   - 测试基建顺带修复：dispatch 内存库测试池改单连接（`:memory:` 多连接各私有，偶发 no such table）。
 - P2-3 抢占体系（REQUEUE + 豁免窗口）——**完整实现已保全于 `park/p2-3-preemption` 分支**（原 d3ea543，含 run token 防护/豁免窗口/4 测试，QA 深验通过）；重新立项时必查：victim 未按 cluster/partition 过滤的 major + `complete_running_job` run_token 契约回归。
-- P2-4 GPU 时间片切分 + 申请/实耗双账本超卖回收（进行中）。
+- **P2-4 GPU 时间片切分 + 申请/实耗双账本超卖回收** — ✅ 已完成（2026-10-30，commit `6cef438`；收口缺陷修复见 `fix(gpu)` 提交）
+  - **时间片共享**：fraction 容量上限由 `DISPATCH_GPU_TIMESLICE_MAX` 控制（默认 `1.0` = 不超卖、与既有行为完全一致；配置 <1.0 一律按 1.0），`allocate_gpu(..., timeslice_max)` 的 best-fit 用 `slice_cap − Σactive_fraction` 判断；fraction<1 的成功分配计入 `metaclouds_gpu_timeslice_allocations_total`，分配/释放后按「active 份额 ≥ 2」刷新 `metaclouds_gpu_shared_devices` gauge。
+  - **双账本**：`jobs` 追加 `gpu_fraction_actual / cpu_actual / memory_gb_actual / usage_sampled_at`（双驱动迁移 013，全部可空、零破坏）；调度采样按 `DISPATCH_SIMULATED_UTILIZATION`（默认 `0.75`）写入实耗（模拟口径，接入 DCGM 后替换数据源）。
+  - **超卖回收准入**：`quota::allocate_resources_with_borrow` 新增第 3 档——自身限额与集群借用都不够时，以本租户 running **已采样**作业的 `Σmax(0, 申请 − 实耗)` 作为可回收量准入（先回收自己的「申请未实耗」再借集群，更公平）；未采样作业保守视为占满申请量、不计回收，storage 无实耗不参与；GPU 缺口按卡等效需求（申请卡数 × fraction）同口径比较，申请账本仍按卡数累加。准入路径埋点 `quota_reclaimed_admission_total`，可回收量 gauge `quota_reclaimable_gpu`。
+  - **收口缺陷（P0 级，自 `4f77937` 起存在）**：`release_gpu` 的设备扣减 SQL 只有 `?1/?2/?3` 三个编号占位符（`?1` 复用两次），却绑定了 4 个参数。SQLite 按位绑定错位后 `updated_at` 收到显存值、`WHERE id` 收到时间戳（RFC3339 与整数永不相等）→ 语句静默 0 行：**设备显存只增不减、状态永久卡在 `allocated`**；Postgres 则直接 Bind 报错。已删去多余绑定，并加注释钉住「绑定必须与占位符一一对应」。
+  - 验证：`cargo test --lib` **72 passed / 0 failed**；全量 `cargo test` 全绿；`cargo clippy --all-targets -- -D warnings` 零告警；`cargo fmt --all -- --check` 干净。反向验证（突变测试）：恢复旧绑定后 `b3_gpu_allocate_updates_device_status_then_release` 立即变红（设备停留 `allocated`），证明修复有区分力。
+  - 测试稳定性：`shared_gpu_devices` 是进程级 gauge，并行单测各自独立内存库会在释放路径互相把 gauge 刷成 0 → 断言前用自身 pool 主动刷新（`refresh_shared_devices_gauge` 提升为 `pub(crate)`）并带短重试，避免偶发红。
 - P2-5 计费/showback + DCGM 利用率采集 + goodput 指标。
 
 ### P2 backlog（QA 复核发现的非阻塞观察项）
 - `reconcile` 孤儿 running 作业（无 active GPU 分配且超宽限期）直接回退 pending 时**不释放已预留的 CPU/内存配额**——P0 既有行为（其修复曾随 P2-3 落地，摘除时一并回退，待随 P2-3 回归或单独修复）。
 - CoLocate 保守计数（每设备至多计 1 卡）→ fraction<1 需同卡多份额共置的作业可能被误 blocked（"宁可少算不超卖"取舍，已注释声明）。
 - `complete_running_job` 完成认领 UPDATE 未检查 rows_affected 即计 completed_total（7d23ee6 基线既有行为，非回归）。
+
+### CI 门禁（2026-10-30 核查与修复）
+
+- **事实**：GitHub Actions 最近 8 次 push 全部 `failure`，首个失败 job 均为 `Security Pre-Scan`（Checkov IaC），其余 13 个 job 全部 `skipped`——Rust Lint & Test、前端构建、Docker 构建**从未真正执行**，因此 P2 期间积累的 `release_gpu` 绑定缺陷与 `cargo fmt` 漂移长期未被拦截。
+- **Checkov 失败面**：仅 2 个清单。`17-postgresql.yaml` 缺 CKV_K8S_15（拉取策略非 Always）；`18-redis.yaml` 的 `gen-redis-conf` initContainer 缺全部资源与安全上下文（CKV_K8S_10/11/12/13 资源、20 越权提升、22 只读根、28/30/37 能力与 seccomp、15 拉取策略）。
+- **修复**：两份清单镜像拉取策略统一 `Always`（与仓库其余清单一致，tag 可被上游重推、Always 每次校验 digest）；initContainer 补 `requests/limits`（50m/64Mi → 200m/128Mi）、`allowPrivilegeEscalation: false`、`readOnlyRootFilesystem: true`、`capabilities.drop: [ALL]`（seccomp 由 Pod 级 `RuntimeDefault` 覆盖）。本地按 Checkov 同名规则做等价静态校验通过。
+- **遗留核验点**：门禁修好后需观察首个真正跑通的 Rust job，确认 1.96.0 rustfmt/clippy/测试在 CI 环境同样绿。
 
 ### 关键决策与约束
 - 既有 `priority_scheduler.rs`（645 行 mock）**保持不动**，新闭环独立成模块，确保零回归、前端 API 契约不受影响。
