@@ -121,8 +121,7 @@ pub fn start_dispatch_loop(pool: DatabasePool, config: DispatchConfig) -> JoinHa
             tracing::warn!(error = %e, "dispatch reconcile failed");
         }
 
-        let mut ticker =
-            tokio::time::interval(Duration::from_millis(config.interval_ms.max(100)));
+        let mut ticker = tokio::time::interval(Duration::from_millis(config.interval_ms.max(100)));
         // `interval` 首 tick 立即触发，先吞掉一次以避免启动即密集派发。
         ticker.tick().await;
         loop {
@@ -316,8 +315,7 @@ fn dispatch_scores(
         let age_hours = (now - job.created_at).num_seconds().max(0) as f64 / 3600.0;
         // 半衰期：age_bonus 随等待时间逼近 age_weight，边际增量每 half_life 减半。
         let age_bonus = if config.age_half_life_hours > 0.0 {
-            config.age_weight
-                * (1.0 - 0.5f64.powf(age_hours / config.age_half_life_hours))
+            config.age_weight * (1.0 - 0.5f64.powf(age_hours / config.age_half_life_hours))
         } else {
             config.age_weight * age_hours
         };
@@ -340,7 +338,11 @@ fn dispatch_scores(
 /// （已被他人认领、或资源不足已回退 pending，下一轮重试）。真正的硬错误（如 DB 故障）
 /// 返回 `Err`。认领成功后、所有资源预留成功前，作业短暂处于 `running` 半状态——若此窗口
 /// 内进程崩溃，[`reconcile`] 会安全回退/重挂接。
-async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfig) -> AppResult<bool> {
+async fn try_dispatch_one(
+    pool: &DatabasePool,
+    job: &Job,
+    config: &DispatchConfig,
+) -> AppResult<bool> {
     // P2-1 Gang：准入副本数（非 Gang 或开关关闭时为 1，行为与既有路径完全一致）。
     let unit = gang_unit(job, config);
     let is_gang = unit > 1;
@@ -465,7 +467,9 @@ async fn try_dispatch_one(pool: &DatabasePool, job: &Job, config: &DispatchConfi
     // P2-1 Gang：min_available 副本资源全部原子预留成功 → 计准入指标
     // （gang_fulfilled 已在配额预留后提前落库，见上）。
     if is_gang {
-        crate::metrics::scheduler_metrics().gang_admitted_total.inc();
+        crate::metrics::scheduler_metrics()
+            .gang_admitted_total
+            .inc();
     }
 
     // 全部预留成功 → 挂接模拟执行任务 + 实耗采样任务（P2-4 双账本）。
@@ -507,11 +511,7 @@ struct UsageSample {
 }
 
 /// 落实一次实耗采样：仅当作业仍为 running 时写 *_actual 与 usage_sampled_at。
-async fn sample_job_usage(
-    pool: &DatabasePool,
-    job_id: i64,
-    sample: &UsageSample,
-) -> AppResult<()> {
+async fn sample_job_usage(pool: &DatabasePool, job_id: i64, sample: &UsageSample) -> AppResult<()> {
     crate::with_db!(
         pool,
         "UPDATE jobs SET gpu_fraction_actual = ?, cpu_actual = ?, memory_gb_actual = ?, \
@@ -710,7 +710,9 @@ async fn allocate_gpus_for_job(
                     total_cards,
                     "no node with enough free cards for topology constraint"
                 );
-                crate::metrics::scheduler_metrics().topology_blocked_total.inc();
+                crate::metrics::scheduler_metrics()
+                    .topology_blocked_total
+                    .inc();
                 return Ok(false);
             }
         }
@@ -752,7 +754,9 @@ async fn allocate_gpus_for_job(
                     .with_label_values(&["no_capacity"])
                     .inc();
                 if constraint_active {
-                    crate::metrics::scheduler_metrics().topology_blocked_total.inc();
+                    crate::metrics::scheduler_metrics()
+                        .topology_blocked_total
+                        .inc();
                 }
                 // 释放已分配部分，交由调用方回退 pending。
                 let _ = release_gpu_for_job(pool, job.id).await;
@@ -762,7 +766,9 @@ async fn allocate_gpus_for_job(
     }
 
     if constraint_active {
-        crate::metrics::scheduler_metrics().topology_matched_total.inc();
+        crate::metrics::scheduler_metrics()
+            .topology_matched_total
+            .inc();
     }
     Ok(true)
 }
@@ -912,10 +918,7 @@ async fn reconcile(pool: &DatabasePool, config: &DispatchConfig) -> AppResult<()
             });
         } else {
             // 孤儿：超过宽限期才回退。
-            let stale = job
-                .start_time
-                .map(|st| now - st > grace)
-                .unwrap_or(true);
+            let stale = job.start_time.map(|st| now - st > grace).unwrap_or(true);
             if stale {
                 tracing::info!(
                     job_id = job.id,
@@ -1048,12 +1051,16 @@ mod tests {
         .expect("create job");
 
         // 单轮派发：应认领并置 running，随后模拟执行并 completed。
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         // 轮询直到作业完成（模拟执行 50ms）。
         let mut completed = false;
         for _ in 0..100 {
-            let j = crate::services::job::get_job_unscoped(&pool, created.id).await.expect("get job");
+            let j = crate::services::job::get_job_unscoped(&pool, created.id)
+                .await
+                .expect("get job");
             if j.status == job::status::COMPLETED {
                 completed = true;
                 break;
@@ -1072,7 +1079,10 @@ mod tests {
                 .await
         )
         .expect("count active allocations");
-        assert_eq!(active, 0, "gpu allocation must be released after completion");
+        assert_eq!(
+            active, 0,
+            "gpu allocation must be released after completion"
+        );
 
         // 配额应已释放（gpu_used 回到 0）。
         let q = quota::find_quota_for_scope(&pool, 1, None)
@@ -1111,11 +1121,15 @@ mod tests {
         .await
         .expect("create job");
 
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         let mut completed = false;
         for _ in 0..100 {
-            let j = crate::services::job::get_job_unscoped(&pool, created.id).await.expect("get job");
+            let j = crate::services::job::get_job_unscoped(&pool, created.id)
+                .await
+                .expect("get job");
             if j.status == job::status::COMPLETED {
                 completed = true;
                 break;
@@ -1203,10 +1217,7 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(30)).await;
         }
-        assert!(
-            small_done,
-            "small job should be backfilled and completed"
-        );
+        assert!(small_done, "small job should be backfilled and completed");
 
         // 大作业因无 GPU 资源而保持 pending（回退），未被错误完成。
         let big_j = crate::services::job::get_job_unscoped(&pool, big.id)
@@ -1301,7 +1312,9 @@ mod tests {
         .await
         .expect("create gang job");
 
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         // 作业必须仍为 pending（all-or-nothing：任一副本资源不足即整体回退）。
         let j = crate::services::job::get_job_unscoped(&pool, created.id)
@@ -1312,7 +1325,10 @@ mod tests {
             job::status::PENDING,
             "gang job must remain pending when min_available replicas cannot be reserved"
         );
-        assert_eq!(j.gang_fulfilled, 0, "blocked gang job must not record gang_fulfilled");
+        assert_eq!(
+            j.gang_fulfilled, 0,
+            "blocked gang job must not record gang_fulfilled"
+        );
 
         // 回退后不得残留 active GPU 分配（整体回退清理）。
         let active: i64 = crate::with_db!(
@@ -1324,11 +1340,17 @@ mod tests {
                 .await
         )
         .expect("count active allocations");
-        assert_eq!(active, 0, "blocked gang job must release partially allocated gpus");
+        assert_eq!(
+            active, 0,
+            "blocked gang job must release partially allocated gpus"
+        );
 
         // gang_blocked_total 应至少 +1。
         let blocked = crate::metrics::scheduler_metrics().gang_blocked_total.get();
-        assert!(blocked >= 1, "gang_blocked_total should be incremented, got {blocked}");
+        assert!(
+            blocked >= 1,
+            "gang_blocked_total should be incremented, got {blocked}"
+        );
     }
 
     #[tokio::test]
@@ -1382,22 +1404,34 @@ mod tests {
         .await
         .expect("create gang job");
 
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         // 派发后（模拟执行睡眠窗口内）作业应 running，且资源按 2 副本原子预留：
         // gang_fulfilled=2、配额 gpu_used=2/cpu_used=4/mem=16、active GPU 分配=2 张。
         let j = crate::services::job::get_job_unscoped(&pool, created.id)
             .await
             .expect("get gang job");
-        assert_eq!(j.status, job::status::RUNNING, "gang job should be running after admission");
-        assert_eq!(j.gang_fulfilled, 2, "gang_fulfilled must equal min_available on admission");
+        assert_eq!(
+            j.status,
+            job::status::RUNNING,
+            "gang job should be running after admission"
+        );
+        assert_eq!(
+            j.gang_fulfilled, 2,
+            "gang_fulfilled must equal min_available on admission"
+        );
 
         let q = quota::find_quota_for_scope(&pool, 1, None)
             .await
             .expect("find quota")
             .expect("some quota");
         assert_eq!(q.gpu_used, 2, "quota gpu_used must account for 2 replicas");
-        assert!((q.cpu_used - 4.0).abs() < 1e-9, "quota cpu_used must account for 2 replicas");
+        assert!(
+            (q.cpu_used - 4.0).abs() < 1e-9,
+            "quota cpu_used must account for 2 replicas"
+        );
         assert!(
             (q.memory_used_gb - 16.0).abs() < 1e-9,
             "quota memory_used_gb must account for 2 replicas"
@@ -1415,8 +1449,13 @@ mod tests {
         assert_eq!(active, 2, "must allocate min_available × gpus = 2 cards");
 
         // gang_admitted_total 应至少 +1。
-        let admitted = crate::metrics::scheduler_metrics().gang_admitted_total.get();
-        assert!(admitted >= 1, "gang_admitted_total should be incremented, got {admitted}");
+        let admitted = crate::metrics::scheduler_metrics()
+            .gang_admitted_total
+            .get();
+        assert!(
+            admitted >= 1,
+            "gang_admitted_total should be incremented, got {admitted}"
+        );
 
         // 随后模拟执行完成：资源应按 2 副本等量释放（配额归零、无残留分配）。
         let mut completed = false;
@@ -1436,7 +1475,10 @@ mod tests {
             .await
             .expect("find quota")
             .expect("some quota");
-        assert_eq!(q.gpu_used, 0, "quota must be fully released after completion (2 replicas)");
+        assert_eq!(
+            q.gpu_used, 0,
+            "quota must be fully released after completion (2 replicas)"
+        );
         let active: i64 = crate::with_db!(
             &pool,
             "SELECT COUNT(*) FROM gpu_allocations WHERE job_id = ? AND status = 'active' AND deleted_at IS NULL",
@@ -1446,7 +1488,10 @@ mod tests {
                 .await
         )
         .expect("count active allocations");
-        assert_eq!(active, 0, "all gang gpu allocations must be released after completion");
+        assert_eq!(
+            active, 0,
+            "all gang gpu allocations must be released after completion"
+        );
     }
 
     /// 播种租户级 active 配额（简化测试样板）。
@@ -1572,7 +1617,9 @@ mod tests {
         .await
         .expect("create job");
 
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         // 每节点仅 1 卡：共置不可满足 → 整体回退 pending，无残留分配，配额不残留。
         let j = crate::services::job::get_job_unscoped(&pool, created.id)
@@ -1591,13 +1638,23 @@ mod tests {
             .await
             .expect("find quota")
             .expect("some quota");
-        assert_eq!(q.gpu_used, 0, "blocked colocate job must release reserved quota");
-        let blocked = crate::metrics::scheduler_metrics().topology_blocked_total.get();
-        assert!(blocked >= 1, "topology_blocked_total should be incremented, got {blocked}");
+        assert_eq!(
+            q.gpu_used, 0,
+            "blocked colocate job must release reserved quota"
+        );
+        let blocked = crate::metrics::scheduler_metrics()
+            .topology_blocked_total
+            .get();
+        assert!(
+            blocked >= 1,
+            "topology_blocked_total should be incremented, got {blocked}"
+        );
 
         // 给 node-1 补第 2 卡 → 共置可满足，两卡都落在 node-1。
         seed_gpu_device(&pool, "node-1", 1).await;
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         let nodes = active_allocation_nodes(&pool, created.id).await;
         assert_eq!(nodes.len(), 2, "must allocate 2 cards");
@@ -1607,8 +1664,13 @@ mod tests {
         );
 
         // 约束满足 → matched 指标至少 +1；随后模拟执行完成、资源正常释放。
-        let matched = crate::metrics::scheduler_metrics().topology_matched_total.get();
-        assert!(matched >= 1, "topology_matched_total should be incremented, got {matched}");
+        let matched = crate::metrics::scheduler_metrics()
+            .topology_matched_total
+            .get();
+        assert!(
+            matched >= 1,
+            "topology_matched_total should be incremented, got {matched}"
+        );
         assert!(
             wait_for_status(&pool, created.id, job::status::COMPLETED).await,
             "topology job should complete normally"
@@ -1657,7 +1719,9 @@ mod tests {
         .await
         .expect("create job");
 
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         // 必须直接成功（不反复回退）：两卡共置 node-2。
         let j = crate::services::job::get_job_unscoped(&pool, created.id)
@@ -1674,8 +1738,13 @@ mod tests {
             nodes.iter().all(|n| n == "node-2"),
             "all replicas must land on node-2 (the only node with enough cards), got {nodes:?}"
         );
-        let matched = crate::metrics::scheduler_metrics().topology_matched_total.get();
-        assert!(matched >= 1, "topology_matched_total should be incremented, got {matched}");
+        let matched = crate::metrics::scheduler_metrics()
+            .topology_matched_total
+            .get();
+        assert!(
+            matched >= 1,
+            "topology_matched_total should be incremented, got {matched}"
+        );
 
         // 完成后资源正常释放。
         assert!(
@@ -1722,7 +1791,9 @@ mod tests {
         .await
         .expect("create job");
 
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         // 钉到不存在节点：保持 pending，无 active 分配，配额不残留，blocked 计数。
         let j = crate::services::job::get_job_unscoped(&pool, created.id)
@@ -1741,16 +1812,30 @@ mod tests {
             .await
             .expect("find quota")
             .expect("some quota");
-        assert_eq!(q.gpu_used, 0, "blocked pinned job must release reserved quota");
-        let blocked = crate::metrics::scheduler_metrics().topology_blocked_total.get();
-        assert!(blocked >= 1, "topology_blocked_total should be incremented, got {blocked}");
+        assert_eq!(
+            q.gpu_used, 0,
+            "blocked pinned job must release reserved quota"
+        );
+        let blocked = crate::metrics::scheduler_metrics()
+            .topology_blocked_total
+            .get();
+        assert!(
+            blocked >= 1,
+            "topology_blocked_total should be incremented, got {blocked}"
+        );
 
         // 改钉到裸节点名 node-1（非关键字值视为节点名）→ 成功且分配落在 node-1。
         set_topology_affinity(&pool, created.id, "node-1").await;
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         let nodes = active_allocation_nodes(&pool, created.id).await;
-        assert_eq!(nodes, vec!["node-1".to_string()], "pinned allocation must be on node-1");
+        assert_eq!(
+            nodes,
+            vec!["node-1".to_string()],
+            "pinned allocation must be on node-1"
+        );
         assert!(
             wait_for_status(&pool, created.id, job::status::COMPLETED).await,
             "pinned job should complete normally"
@@ -1791,7 +1876,9 @@ mod tests {
         .await
         .expect("create job");
 
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         // "Node:node-1" 应被识别为钉扎 node-1（节点存在）→ 直接派发成功。
         let j = crate::services::job::get_job_unscoped(&pool, created.id)
@@ -1851,17 +1938,30 @@ mod tests {
         .await
         .expect("create gang+topo job");
 
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         // 准入成功：gang_fulfilled=2，两卡必须共置 node-1。
         let j = crate::services::job::get_job_unscoped(&pool, created.id)
             .await
             .expect("get gang+topo job");
-        assert_eq!(j.status, job::status::RUNNING, "gang+topo job should be admitted");
-        assert_eq!(j.gang_fulfilled, 2, "gang_fulfilled must equal min_available");
+        assert_eq!(
+            j.status,
+            job::status::RUNNING,
+            "gang+topo job should be admitted"
+        );
+        assert_eq!(
+            j.gang_fulfilled, 2,
+            "gang_fulfilled must equal min_available"
+        );
 
         let nodes = active_allocation_nodes(&pool, created.id).await;
-        assert_eq!(nodes.len(), 2, "must allocate min_available × gpus = 2 cards");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "must allocate min_available × gpus = 2 cards"
+        );
         assert!(
             nodes.iter().all(|n| n == "node-1"),
             "gang replicas must be co-located on node-1, got {nodes:?}"
@@ -1880,7 +1980,10 @@ mod tests {
             .await
             .expect("find quota")
             .expect("some quota");
-        assert_eq!(q.gpu_used, 0, "quota must be fully released after completion");
+        assert_eq!(
+            q.gpu_used, 0,
+            "quota must be fully released after completion"
+        );
     }
 
     /// 查询作业历史（含已释放）GPU 分配所在设备 id（共享判定不受完成竞态影响）。
@@ -1923,7 +2026,11 @@ mod tests {
                 gang_min_available: 1,
                 topology_affinity: String::new(),
             },
-            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
         )
         .await
         .expect("create job1");
@@ -1945,7 +2052,11 @@ mod tests {
                 gang_min_available: 1,
                 topology_affinity: String::new(),
             },
-            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
         )
         .await
         .expect("create job2");
@@ -1956,9 +2067,17 @@ mod tests {
         let mut cfg = dispatch_config();
         cfg.simulated_run_ms = 500;
         dispatch_tick(&pool, &cfg).await.expect("dispatch tick");
-        let j1 = crate::services::job::get_job_unscoped(&pool, job1.id).await.expect("get j1");
-        assert_eq!(j1.status, job::status::RUNNING, "first fractional job must be admitted");
-        let j2 = crate::services::job::get_job_unscoped(&pool, job2.id).await.expect("get j2");
+        let j1 = crate::services::job::get_job_unscoped(&pool, job1.id)
+            .await
+            .expect("get j1");
+        assert_eq!(
+            j1.status,
+            job::status::RUNNING,
+            "first fractional job must be admitted"
+        );
+        let j2 = crate::services::job::get_job_unscoped(&pool, job2.id)
+            .await
+            .expect("get j2");
         assert_eq!(
             j2.status,
             job::status::PENDING,
@@ -1969,29 +2088,66 @@ mod tests {
         let mut cfg2 = cfg.clone();
         cfg2.gpu_timeslice_max = 1.2;
         dispatch_tick(&pool, &cfg2).await.expect("dispatch tick 2");
-        let j2 = crate::services::job::get_job_unscoped(&pool, job2.id).await.expect("get j2");
-        assert_eq!(j2.status, job::status::RUNNING, "job2 must be admitted with timeslice_max=1.2");
+        let j2 = crate::services::job::get_job_unscoped(&pool, job2.id)
+            .await
+            .expect("get j2");
+        assert_eq!(
+            j2.status,
+            job::status::RUNNING,
+            "job2 must be admitted with timeslice_max=1.2"
+        );
 
         let d1 = allocation_device_ids_any_status(&pool, job1.id).await;
         let d2 = allocation_device_ids_any_status(&pool, job2.id).await;
         assert_eq!(d1.len(), 1, "job1 holds exactly one fractional allocation");
         assert_eq!(d2, d1, "both jobs must share the same physical device");
 
-        let ts = crate::metrics::scheduler_metrics().timeslice_allocations_total.get();
-        assert!(ts >= 2, "timeslice_allocations_total should count fractional allocations, got {ts}");
+        let ts = crate::metrics::scheduler_metrics()
+            .timeslice_allocations_total
+            .get();
+        assert!(
+            ts >= 2,
+            "timeslice_allocations_total should count fractional allocations, got {ts}"
+        );
 
         // 共享设备 gauge：同卡两份额 → ≥ 1。
-        let shared = crate::metrics::scheduler_metrics().shared_gpu_devices.get();
-        assert!(shared >= 1, "shared_gpu_devices should report the shared device, got {shared}");
+        // 注意：gauge 是进程级全局指标，而每个测试用独立内存库——并行测试中其他
+        // 测试的 release_gpu 会用它们各自的库把 gauge 刷成 0（交叉污染，非本功能
+        // 缺陷：生产单库下刷新值恒正确）。这里先用自身 pool 主动刷新再断言，
+        // 并带短重试以覆盖「刷新与读取之间被并发测试再次清零」的极小窗口。
+        let mut shared = 0i64;
+        for _ in 0..50 {
+            gpu::refresh_shared_devices_gauge(&pool)
+                .await
+                .expect("refresh shared devices gauge");
+            shared = crate::metrics::scheduler_metrics().shared_gpu_devices.get();
+            if shared >= 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            shared >= 1,
+            "shared_gpu_devices should report the shared device, got {shared}"
+        );
 
         // 完成后配额等量释放、分配全释放。
-        assert!(wait_for_status(&pool, job1.id, job::status::COMPLETED).await, "job1 completes");
-        assert!(wait_for_status(&pool, job2.id, job::status::COMPLETED).await, "job2 completes");
+        assert!(
+            wait_for_status(&pool, job1.id, job::status::COMPLETED).await,
+            "job1 completes"
+        );
+        assert!(
+            wait_for_status(&pool, job2.id, job::status::COMPLETED).await,
+            "job2 completes"
+        );
         let q = quota::find_quota_for_scope(&pool, 1, None)
             .await
             .expect("find quota")
             .expect("some quota");
-        assert_eq!(q.gpu_used, 0, "quota must be fully released after both complete");
+        assert_eq!(
+            q.gpu_used, 0,
+            "quota must be fully released after both complete"
+        );
     }
 
     /// P2-4 B 实耗采样：派发后 running 作业在模拟运行中点被采样，
@@ -2019,26 +2175,49 @@ mod tests {
                 gang_min_available: 1,
                 topology_affinity: String::new(),
             },
-            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
         )
         .await
         .expect("create job");
 
-        dispatch_tick(&pool, &dispatch_config()).await.expect("dispatch tick");
+        dispatch_tick(&pool, &dispatch_config())
+            .await
+            .expect("dispatch tick");
 
         // 等待采样（模拟运行 50ms，采样点在 ~25ms；completed 后条件不满足故先采样）。
-        assert!(wait_for_sampling(&pool, created.id).await, "job must be sampled while running");
-        let j = crate::services::job::get_job_unscoped(&pool, created.id).await.expect("get job");
+        assert!(
+            wait_for_sampling(&pool, created.id).await,
+            "job must be sampled while running"
+        );
+        let j = crate::services::job::get_job_unscoped(&pool, created.id)
+            .await
+            .expect("get job");
         let frac_a = j.gpu_fraction_actual.expect("gpu_fraction_actual sampled");
         let cpu_a = j.cpu_actual.expect("cpu_actual sampled");
         let mem_a = j.memory_gb_actual.expect("memory_gb_actual sampled");
-        assert!((frac_a - 0.75).abs() < 1e-9, "gpu_fraction_actual = 1.0 × 0.75, got {frac_a}");
-        assert!((cpu_a - 3.0).abs() < 1e-9, "cpu_actual = 4 × 0.75, got {cpu_a}");
-        assert!((mem_a - 6.0).abs() < 1e-9, "memory_gb_actual = 8 × 0.75, got {mem_a}");
+        assert!(
+            (frac_a - 0.75).abs() < 1e-9,
+            "gpu_fraction_actual = 1.0 × 0.75, got {frac_a}"
+        );
+        assert!(
+            (cpu_a - 3.0).abs() < 1e-9,
+            "cpu_actual = 4 × 0.75, got {cpu_a}"
+        );
+        assert!(
+            (mem_a - 6.0).abs() < 1e-9,
+            "memory_gb_actual = 8 × 0.75, got {mem_a}"
+        );
         assert!(j.usage_sampled_at.is_some(), "usage_sampled_at must be set");
 
         // 完成后采样值保留（历史账本），资源正常释放。
-        assert!(wait_for_status(&pool, created.id, job::status::COMPLETED).await, "completes");
+        assert!(
+            wait_for_status(&pool, created.id, job::status::COMPLETED).await,
+            "completes"
+        );
         let q = quota::find_quota_for_scope(&pool, 1, None)
             .await
             .expect("find quota")
@@ -2090,7 +2269,11 @@ mod tests {
                 gang_min_available: 1,
                 topology_affinity: String::new(),
             },
-            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
         )
         .await
         .expect("create job a");
@@ -2119,29 +2302,42 @@ mod tests {
                 gang_min_available: 1,
                 topology_affinity: String::new(),
             },
-            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
         )
         .await
         .expect("create job b");
         set_gpu_fraction(&pool, job_b.id, 0.25).await;
         dispatch_tick(&pool, &cfg).await.expect("dispatch tick b");
 
-        let jb = crate::services::job::get_job_unscoped(&pool, job_b.id).await.expect("get b");
+        let jb = crate::services::job::get_job_unscoped(&pool, job_b.id)
+            .await
+            .expect("get b");
         assert_eq!(
             jb.status,
             job::status::RUNNING,
             "fractional job must be admitted via reclaim (shortfall within reclaimable)"
         );
-        let reclaimed =
-            crate::metrics::scheduler_metrics().quota_reclaimed_admission_total.get();
-        assert!(reclaimed >= 1, "reclaimed_admission_total should be incremented, got {reclaimed}");
+        let reclaimed = crate::metrics::scheduler_metrics()
+            .quota_reclaimed_admission_total
+            .get();
+        assert!(
+            reclaimed >= 1,
+            "reclaimed_admission_total should be incremented, got {reclaimed}"
+        );
 
         // 申请账本：A 申请 1 卡 + B 申请 1 卡 = 2（> limit 1，超卖由实耗账本兜底）。
         let q = quota::find_quota_for_scope(&pool, 1, None)
             .await
             .expect("find quota")
             .expect("some quota");
-        assert_eq!(q.gpu_used, 2, "request ledger must accumulate raw card requests");
+        assert_eq!(
+            q.gpu_used, 2,
+            "request ledger must accumulate raw card requests"
+        );
 
         // B 与 A 共享同卡（0.75 + 0.25 = 1.0 ≤ timeslice_max 1.0）。
         let da = allocation_device_ids_any_status(&pool, job_a.id).await;
@@ -2174,7 +2370,11 @@ mod tests {
                 gang_min_available: 2,
                 topology_affinity: String::new(),
             },
-            crate::services::job::Actor { tenant_id: 1, user_id: 1, is_admin: true },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
         )
         .await
         .expect("create gang job");
@@ -2187,7 +2387,12 @@ mod tests {
         quota::allocate_resources_with_borrow(
             &pool,
             q.id,
-            QuotaRequest { gpu: 2, cpu: 0.0, memory_gb: 0.0, storage_gb: 0.0 },
+            QuotaRequest {
+                gpu: 2,
+                cpu: 0.0,
+                memory_gb: 0.0,
+                storage_gb: 0.0,
+            },
             2.0,
         )
         .await
@@ -2195,15 +2400,19 @@ mod tests {
 
         // 造 running + 过期 start_time + gang_fulfilled=0（崩溃窗口特征）。
         let sqlite = pool.as_sqlite().expect("test pool must be sqlite");
-        sqlx::query("UPDATE jobs SET status = 'running', start_time = ?, gang_fulfilled = 0 WHERE id = ?")
-            .bind(Utc::now() - ChronoDuration::seconds(400))
-            .bind(created.id)
-            .execute(sqlite)
-            .await
-            .expect("craft crash-window state");
+        sqlx::query(
+            "UPDATE jobs SET status = 'running', start_time = ?, gang_fulfilled = 0 WHERE id = ?",
+        )
+        .bind(Utc::now() - ChronoDuration::seconds(400))
+        .bind(created.id)
+        .execute(sqlite)
+        .await
+        .expect("craft crash-window state");
 
         // reconcile：孤儿（无 GPU 分配、超过宽限）→ 等量释放 2 副本配额并回退。
-        reconcile(&pool, &dispatch_config()).await.expect("reconcile");
+        reconcile(&pool, &dispatch_config())
+            .await
+            .expect("reconcile");
 
         let q = quota::find_quota_for_scope(&pool, 1, None)
             .await
@@ -2213,8 +2422,14 @@ mod tests {
             q.gpu_used, 0,
             "crash-window gang job must release the full 2-replica reservation (pre-fix leak: 1)"
         );
-        let j = crate::services::job::get_job_unscoped(&pool, created.id).await.expect("get job");
-        assert_eq!(j.status, job::status::PENDING, "orphan gang job must revert to pending");
+        let j = crate::services::job::get_job_unscoped(&pool, created.id)
+            .await
+            .expect("get job");
+        assert_eq!(
+            j.status,
+            job::status::PENDING,
+            "orphan gang job must revert to pending"
+        );
         assert_eq!(j.gang_fulfilled, 0, "revert must clear gang_fulfilled");
     }
 }
