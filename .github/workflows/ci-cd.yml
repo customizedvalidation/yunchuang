@@ -357,6 +357,16 @@ jobs:
         # 扫描失败（发现高危漏洞）时仍要上传报告，便于按 SARIF 定位修复
         if: always()
 
+      # 失败可诊断化（job logs 匿名 403、code-scanning alerts 要认证）：
+      # 把 SARIF 同步上传为 artifact，匿名环境拿不到日志时仍可确诊漏洞清单
+      - name: Upload Trivy sarif artifact (backend, on failure)
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: trivy-backend-sarif
+          path: trivy-backend-rust-results.sarif
+          retention-days: 14
+
   # ============================================================================
   # Job 4: 前端 Docker 镜像构建与推送
   # ============================================================================
@@ -427,6 +437,15 @@ jobs:
         with:
           sarif_file: 'trivy-frontend-results.sarif'
         if: always()
+
+      # 失败可诊断化：同 backend，匿名环境拿不到 job logs / code-scanning 时仍可确诊
+      - name: Upload Trivy sarif artifact (frontend, on failure)
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: trivy-frontend-sarif
+          path: trivy-frontend-results.sarif
+          retention-days: 14
 
   # ============================================================================
   # Job 5a: 部署到 Development（统一 GHCR 镜像，P1-1 收敛双路径）

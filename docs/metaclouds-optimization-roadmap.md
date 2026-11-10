@@ -16,6 +16,8 @@
 
 > ✅ **第五轮（2026-11-10 中午）**：CI 失败面 4 → 2 → 1 持续收窄（run 42757899459 / head 1f49c76）：**cargo audit 在 CI 上确认转绿**（本地同版本同豁免口径闭环成立），checkov / K8s 校验 / Rust 全链路稳定绿；唯余 Frontend `npm audit` critical —— 根因经 **OSV.dev querybatch 全量复现**（与 npm advisory 同源、本地 audit 端点被代理阻断时的等价诊断路径）确诊为 **vitest 2.1.9 自身 GHSA-5xrq-8626-4rwp（CVSS 9.8，Vitest UI server 任意文件读取）**，以真实升级修复：vitest 2.1.9 → 3.2.6（`@vitest/coverage-v8` 同步，60/60 单测 + type-check + build 全绿，OSV 复核 critical 清零）。详见修复报告 8.7。
 
+> ✅ **第六轮（2026-11-10 下午）**：run 42760541449（head e498600）——**8 个 job 全绿**（npm audit critical 已清零、Rust Coverage 首跑绿），唯余 2 个 Docker 镜像 job 的 **Trivy image 扫描**红（镜像构建/推送本身成功，两个 job 都精确死在扫描步骤）。结构性根因：**过时基础镜像**——前端 runtime `nginx:1.27-alpine`（1.27 分支 2025 年初停更，此后 CVE 修复全部在 1.28+）、后端 runtime `alpine:3.20`（2026-05 已 EOL）。修复：升 `nginx:1.30-alpine`（官方 stable 线）+ `alpine:3.24`（当前 stable），`pin-base-images.sh` 同步，Trivy 失败时上传 SARIF artifact 以便匿名确诊。诊断依据来自 `nginx/docker-nginx` 官方源仓库（沙箱内镜像仓库/NVD 全被代理阻断时的可行路径）。详见修复报告 8.8。
+
 ## 一、核心结论（2026-10-30 初始基线 · 历史留存）
 
 Metaclouds 立项时处于"**有数据模型、有配额/GPU 分配原语，但无真实调度闭环**"的状态：

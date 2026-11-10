@@ -1,6 +1,6 @@
 # ==============================================================================
 # Metaclouds Frontend (Vue 3) Dockerfile
-# 多阶段构建：node:22-alpine 构建产物 -> nginx:1.27-alpine 静态托管
+# 多阶段构建：node:22-alpine 构建产物 -> nginx:1.30-alpine 静态托管
 #
 # 基础镜像钉 digest（R6，待联网解析）：FROM 必须保持字面 tag（2026-11-10 回退变量化
 # 方案——checkov 无法解析 ${ARG}，误报 CKV_DOCKER_7 latest）。需要 digest 钉死时，
@@ -27,7 +27,9 @@ RUN npm run build
 
 # --- Runtime 阶段 ---
 # 钉具体 minor tag（避免 :alpine 浮动）；digest 钉死用 scripts/pin-base-images.sh --apply。
-FROM nginx:1.27-alpine
+# 2026-11-10: 1.27 -> 1.30（stable 分支，当前 1.30.6）。1.27 分支 2025 年初停更，
+# 此后所有 nginx CVE 修复（在 1.28+）在 1.27 tag 上持续暴露，Trivy HIGH/CRITICAL 门禁红。
+FROM nginx:1.30-alpine
 
 # Vite 默认输出目录 dist/
 COPY --from=builder /app/dist /usr/share/nginx/html

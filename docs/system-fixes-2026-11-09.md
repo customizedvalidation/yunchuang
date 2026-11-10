@@ -168,7 +168,7 @@ bash scripts/pre-push-check.sh --strict
 | R4 | P2-3 抢占分支回归与合并 | 🟡 | 新增 `docs/p2-3-preemption-backlog.md`：2 处 major、基线漂移清单、rebase 顺序、7 组必补测试、验收标准 | 建议与 R1 一并立项（在内存态模拟作业上验证「模拟互抢」价值有限） | 回归清单第五节全绿，默认关闭开关 | 分支 `park/p2-3-preemption` @ `d3ea543` |
 | R5 | PostgreSQL HA | 🔴 | 已标注单点 + CI 可配置硬门禁；本轮在 runbook 指向切换手册 | 托管 PG / CloudNativePG + 更新 `DATABASE_URL`；设 `REQUIRE_PG_HA=true` 升为硬门禁 | PG 故障切换演练通过，后端 3 副本不断服 | `docs/k8s-production-switch-runbook.md`、`17-postgresql.yaml` |
 | R6 | Dockerfile 基础镜像钉 digest | 🟡 | **第四轮口径修正**：第三轮的 ARG 参数化被回退（checkov 解析不了 `${ARG}` 报 CKV_DOCKER_7，且 CI 从未消费该机制）；现为字面 tag + `pin-base-images.sh --check/--resolve/--apply`，CI 两个 build job 新增可选 `BASE_IMAGE_DIGESTS` 注入步骤 | 联网环境 `--resolve` 生成 digest 并设为 GitHub Variable `BASE_IMAGE_DIGESTS` | `--check` 通过（FROM 字面 tag）；设 Variable 后构建的镜像 FROM 带 `@sha256:` | 两份 Dockerfile、`pin-base-images.sh`、`.github/workflows/ci-cd.yml` |
-| R7 | CI 首个完整 run | 🟡 | 三个 run 的失败面持续收窄：59f2827（4 job 红）→ ef979f6（2 job 红）→ **1f49c76 仅剩 npm audit 红，cargo audit 已 CI 转绿**（8.7）。npm audit 根因已确诊（vitest 2.1.9 critical GHSA-5xrq-8626-4rwp）并以真实升级修复（eeb7fcf，vitest 3.2.6，本地 60/60+OSV 复核 critical 清零） | 推送 eeb7fcf 触发新 run，观察全绿 | 全 job 实跑；主构建链路绿且 deploy job 状态语义正确 | 第八节、`pre-push-check.sh` |
+| R7 | CI 首个完整 run | 🟡 | 失败面 4→2→1→2（job 种类换血）：59f2827（4 红）→ ef979f6（2 红）→ 1f49c76（仅 npm audit，cargo audit 转绿）→ **e498600：8 job 全绿（含 npm audit 清零、Rust Coverage 首跑绿），唯余 2 个 Docker job 的 Trivy image 扫描红**——根因为过时基础镜像（nginx 1.27 停更线 / alpine 3.20 EOL），已升 `nginx:1.30-alpine` + `alpine:3.24` 并加 SARIF artifact 诊断（8.8） | 推送修复触发新 run，观察镜像 job 转绿；仍红则用 `trivy-*-sarif` artifact 精确确诊 | 全 job 实跑；主构建链路绿且 deploy job 状态语义正确 | 第八节、`pre-push-check.sh` |
 | R8 | 生产 Secret 注入 | 🟡 | 本轮打通路径：`render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**真实值仍须运维提供** | 运维注入 6 个 K8s secrets 或改用 External Secrets Operator / Sealed Secrets | Guard 校验渲染 Secret 无占位；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
@@ -344,3 +344,18 @@ zip 3.0.0 是 `utoipa-swagger-ui 9.0.2` 的 **build-dependency**：其 build.rs 
 **修复（eeb7fcf）**：vitest 2.1.9 → **3.2.6**（2.x 线的修复终点；另两条 @vitest/mocker 漏洞修复版需 4.1.11/4.1.12，severity 均为 moderate 不阻断，暂不跨大版本），`@vitest/coverage-v8` 同步 3.2.6，vite 5.4.21 满足 vitest 3 的 peer 约束。本地验证：**60/60 单测、type-check、vite build 全绿**；OSV 对新 lock 全量复核 **critical 清零**（12 包命中不变、无一条 ≥ critical）。
 
 **8.6 方法论修正**：npm 侧在 audit POST 端点被阻断时并非只能等 artifact——**OSV querybatch + GitHub Advisory severity 复核**即等价复现（一次 batch POST 携带 lock 全量包版本，服务端做区间匹配）；本轮即以此确诊，未消耗任何 CI 资源。
+
+### 8.8 第六轮（run 42760541449 / head e498600）：全链路 job 首次全绿，Trivy image 扫描成为最后失败面
+
+run 42760541449 结果：**8 个 job 全绿**（含首次实跑的 Rust Coverage、转绿的 Frontend Test & Build——npm audit critical 已在 CI 清零），仅剩 2 个 Docker 镜像 job 红：
+
+| job | 失败步骤 | 根因（结构性） |
+|---|---|---|
+| Build Frontend Docker Image | #9 Trivy image scan（构建+推送本身 ✅） | runtime 基础镜像 `nginx:1.27-alpine`：1.27 分支 2025 年初停更，此后所有 nginx CVE 修复（1.28+ 线）在该 tag 上持续暴露，且这些 CVE「有修复版本」不会被 `ignore-unfixed` 过滤 |
+| Build Rust Backend Docker Image | #9 Trivy image scan（同上） | runtime 基础镜像 `alpine:3.20`：2026-05 已 EOL，apk 包（busybox/openssl/musl 等）不再收安全更新 |
+
+**诊断依据**（job logs 403 / code-scanning 要认证 / NVD、Docker Hub、ghcr.io、nginx.org 均被代理阻断）：从 `nginx/docker-nginx` 官方源仓库（api.github.com contents/git-blob 可达）读到当前线为 **Alpine 3.24 + nginx mainline 1.31.8 / stable 1.30.6**——与我们钉的 1.27 / 3.20 差两个大版本线。builder 阶段的 `rust:1.96-alpine`（本地工具链 1.96.0）与 `node:22-alpine` 均为活跃 tag 且不进最终镜像，不动。
+
+**修复**：`nginx:1.27-alpine → nginx:1.30-alpine`（stable 分支，官方维护中）、`alpine:3.20 → alpine:3.24`（当前 stable，nginx 官方镜像同款基础）；`pin-base-images.sh` 清单同步；两个 Trivy step 新增失败时上传 SARIF 为 artifact（`trivy-frontend-sarif` / `trivy-backend-sarif`，匿名环境拿不到日志时仍可确诊漏洞清单）。
+
+**风险与验收**：基础镜像升级不可本地预验证（无 docker/trivy、镜像仓库全被阻断）；若新 run 仍红，artifact 里的 SARIF 将给出精确 CVE 清单再对症处理。这是「首次实跑暴露新失败面」模式的第三次出现（Element Plus 折叠组件 → 200 HTML 假就绪 → 镜像 Trivy），再次印证「本地门禁绿 ≠ CI 全绿」。

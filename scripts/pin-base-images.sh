@@ -13,7 +13,7 @@
 #   bash scripts/pin-base-images.sh --apply             # 按 BASE_IMAGE_DIGESTS 环境变量改写工作副本
 #
 # BASE_IMAGE_DIGESTS 格式（分号分隔；由 --resolve 输出或联网主机生成）：
-#   rust:1.96-alpine=sha256:abc...;alpine:3.20=sha256:def...;node:22-alpine=sha256:...;nginx:1.27-alpine=sha256:...
+#   rust:1.96-alpine=sha256:abc...;alpine:3.24=sha256:def...;node:22-alpine=sha256:...;nginx:1.30-alpine=sha256:...
 # 解析需要能访问镜像仓库（docker buildx imagetools / crane / registry API）。
 # 本仓库的离线 Windows 沙箱无法满足，脚本在工具/网络缺失时明确报错，**绝不伪造 digest**。
 # ==============================================================================
@@ -37,9 +37,9 @@ done
 # 镜像 ref | Dockerfile 路径（相对仓库根）
 BASES=(
   "rust:1.96-alpine|metaclouds-backend-rust/Dockerfile"
-  "alpine:3.20|metaclouds-backend-rust/Dockerfile"
+  "alpine:3.24|metaclouds-backend-rust/Dockerfile"
   "node:22-alpine|metaclouds-frontend-vue/Dockerfile"
-  "nginx:1.27-alpine|metaclouds-frontend-vue/Dockerfile"
+  "nginx:1.30-alpine|metaclouds-frontend-vue/Dockerfile"
 )
 
 if [ "$MODE" = "check" ]; then

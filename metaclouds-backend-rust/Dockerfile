@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 # ==============================================================================
 # Metaclouds Backend (Rust) - multi-stage build
-# Builder: rust:1.96-alpine (musl). Runtime: alpine:3.20.
+# Builder: rust:1.96-alpine (musl). Runtime: alpine:3.24.
+# 2026-11-10: 3.20 -> 3.24（Alpine 3.20 已于 2026-05 EOL，apk 包不再收安全更新；
+# 3.24 为当前 stable，nginx 官方镜像同款基础）。
 # Non-root UID 10001. Target binary ~35MB.
 # NOTE: toolchain must match CI (dtolnay/rust-toolchain@1.96.0) — deps like
 #       opentelemetry 0.27 / utoipa 5 / redis 0.27 require MSRV > 1.81.
@@ -44,7 +46,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     strip /out/metaclouds-backend-rust
 
 # ---- Stage 2: runtime ----
-FROM alpine:3.20
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata wget && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
