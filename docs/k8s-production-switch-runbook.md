@@ -11,7 +11,7 @@
 
 生产切换有两个已确认的坑，必须理解后再动手：
 
-1. **kustomize 占位覆盖**：`13-kustomization.yaml` 的 `resources` 引用了 `02-secret.yaml`。**只要 `02-secret.yaml` 仍在 kustomization 内**，`kubectl apply -k` / `scripts/deploy-k8s.sh` 就会用 `CHANGEME` 占位把集群里的 `metaclouds-secrets` 覆盖回占位值（集群侧无门禁，apply 会"成功"）。
+1. **kustomize 占位覆盖**：`kustomization.yaml` 的 `resources` 引用了 `02-secret.yaml`。**只要 `02-secret.yaml` 仍在 kustomization 内**，`kubectl apply -k` / `scripts/deploy-k8s.sh` 就会用 `CHANGEME` 占位把集群里的 `metaclouds-secrets` 覆盖回占位值（集群侧无门禁，apply 会"成功"）。
 2. **env 不热更新**：后端通过 env 形式 `secretKeyRef` 注入 `DATABASE_URL` 等（非 volume 挂载）。Secret 变更后 K8s **不会**自动重启 Pod，后端仍持旧值，会因 `database-url` 是占位而 **fail-closed 退出**。必须在改完 Secret 后 `kubectl rollout restart deployment/metaclouds-backend`。
 
 > CI 的 "Guard - reject placeholder secrets" 仅在 `apply` **之前**解析 `02-secret.yaml`，拒绝 `CHANGEME`；它**不能**保护"apply -k 把已注入的真实 Secret 覆盖回占位"这条运行期路径——那一步发生在集群侧，绕过了 CI。
@@ -20,7 +20,7 @@
 
 | 路径 | 做法 | 是否让 kustomize 管理 Secret | 覆盖风险 | 推荐度 |
 |------|------|------------------------------|----------|--------|
-| **A（推荐）** | 把 `02-secret.yaml` 从 `13-kustomization.yaml` 的 `resources` 移除，真实 Secret 由外部系统/手动独立管控 | 否 | 彻底消除覆盖 | ⭐ 生产首选 |
+| **A（推荐）** | 把 `02-secret.yaml` 从 `kustomization.yaml` 的 `resources` 移除，真实 Secret 由外部系统/手动独立管控 | 否 | 彻底消除覆盖 | ⭐ 生产首选 |
 | **B（最小改动）** | 保留 `02-secret.yaml` 在 kustomization；apply -k 后用真实值 upsert Secret，再重启后端 | 是 | 存在（已用回填兜底） | 临时/过渡 |
 
 ---
@@ -94,7 +94,7 @@ kubectl wait -n metaclouds pod -l app=postgresql --for=condition=Ready --timeout
 
 ### 步骤 1 — 把 `02-secret.yaml` 移出 kustomization（一次性配置变更）
 
-编辑 `metaclouds-backend-rust/k8s/13-kustomization.yaml`，删除 `resources` 列表中的 `- 02-secret.yaml` 这一行。
+编辑 `metaclouds-backend-rust/k8s/kustomization.yaml`，删除 `resources` 列表中的 `- 02-secret.yaml` 这一行。
 这样 `kubectl apply -k` 永远不会触碰 `metaclouds-secrets`，彻底消除占位覆盖。
 
 > 此改动应随代码提交（它不含任何凭据，只移除引用）。建议作为独立 commit。
@@ -224,6 +224,6 @@ kubectl delete -k metaclouds-backend-rust/k8s
 | 文件 | 说明 |
 | --- | --- |
 | `docs/k8s-production-switch-runbook.md` | 本 runbook（生产切换可执行步骤） |
-| `metaclouds-backend-rust/k8s/13-kustomization.yaml` | 路径 A 需删除其中 `- 02-secret.yaml` 一行（生产基线配置变更，无凭据） |
+| `metaclouds-backend-rust/k8s/kustomization.yaml` | 路径 A 需删除其中 `- 02-secret.yaml` 一行（生产基线配置变更，无凭据） |
 | `scripts/deploy-k8s.sh` | 钉版本部署入口（`GIT_SHA=...`） |
 | `docs/k8s-provision-with-test-data-2026-10-12.md` | 测试数据落地剧本（本 runbook 取代其第六节速查角色） |

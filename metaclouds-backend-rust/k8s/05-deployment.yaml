@@ -17,7 +17,7 @@
 #    `/metrics` 仅供 Prometheus scraper 抓取。
 #
 # 镜像 tag 通过 CI 注入（kustomize images.newTag=main，或 scripts/deploy-k8s.sh
-# 用 GIT_SHA 钉版本，见 13-kustomization.yaml）。禁止 latest。
+# 用 GIT_SHA 钉版本，见 kustomization.yaml）。禁止 latest。
 #
 # ✅ 已切到 PostgreSQL 多副本 HA：replicas=3、RollingUpdate、HPA 2/10、PDB
 #    minAvailable:2；SQLite 数据盘（19-backend-data-pvc.yaml）已删除，DATABASE_URL

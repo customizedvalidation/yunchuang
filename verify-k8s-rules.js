@@ -11,8 +11,11 @@ for (const fn of fs.readdirSync(dir).filter(f => f.endsWith('.yaml') || f.endsWi
     if (m && !imgRe.test(m[0].replace(/[,"']$/, ''))) errors.push(fn + ': non-hierarchical image ref: ' + m[0]);
   }
 }
-const kust = path.join(dir, '13-kustomization.yaml');
-if (fs.existsSync(kust)) {
+// kustomize 规范文件名（kubectl apply -k / kubectl kustomize 只认 kustomization.yaml）
+const kust = path.join(dir, 'kustomization.yaml');
+if (!fs.existsSync(kust)) {
+  errors.push('kustomization.yaml missing: kubectl apply -k requires the canonical filename');
+} else {
   const kt = fs.readFileSync(kust, 'utf8');
   const resLines = kt.split('\n').filter(l => /^\s*-\s+[0-9a-zA-Z\-_./]+\.yaml/.test(l));
   for (const l of resLines) {

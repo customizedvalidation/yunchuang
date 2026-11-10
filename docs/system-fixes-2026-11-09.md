@@ -167,22 +167,25 @@ bash scripts/pre-push-check.sh --strict
 | R3 | reconcile owner 运行期幂等 | ⚪ | 启动期已用 014 租约选主；运行期仍未做 | 同 R2 | 契约用例 1/2/6 | `migrations/014_dispatch_lease.sql` |
 | R4 | P2-3 抢占分支回归与合并 | 🟡 | 新增 `docs/p2-3-preemption-backlog.md`：2 处 major、基线漂移清单、rebase 顺序、7 组必补测试、验收标准 | 建议与 R1 一并立项（在内存态模拟作业上验证「模拟互抢」价值有限） | 回归清单第五节全绿，默认关闭开关 | 分支 `park/p2-3-preemption` @ `d3ea543` |
 | R5 | PostgreSQL HA | 🔴 | 已标注单点 + CI 可配置硬门禁；本轮在 runbook 指向切换手册 | 托管 PG / CloudNativePG + 更新 `DATABASE_URL`；设 `REQUIRE_PG_HA=true` 升为硬门禁 | PG 故障切换演练通过，后端 3 副本不断服 | `docs/k8s-production-switch-runbook.md`、`17-postgresql.yaml` |
-| R6 | Dockerfile 基础镜像钉 digest | 🟡 | **本轮参数化**：后端 `RUST_BUILDER_IMAGE` / `RUNTIME_IMAGE`、前端 `NODE_BUILDER_IMAGE` / `NGINX_RUNTIME_IMAGE` 四个全局 ARG（默认仍用 tag，行为零变化）；新增 `scripts/pin-base-images.sh --check/--resolve` | 联网环境用 `docker buildx imagetools` 或 `crane` 解析 4 个真实 digest，写入 ARG 默认值或注入 `--build-arg` | `--check --strict` 4/4 钉死；镜像构建仍通过 | 两份 Dockerfile、`pin-base-images.sh` |
-| R7 | CI 首个完整 run | 🟡 | 新增 `scripts/pre-push-check.sh`；**本轮网络恢复后已成功推送 `2c13f7c..ee08262`（16 个提交），GitHub Actions run 已触发并进入 `in_progress`**；离线 bundle 已更新到 `ee08262` | 等待该 run 出结论；若仍红，按首个失败 job 定位（历史 4 次 run 均 failure、且常止于 Security Pre-Scan） | 全 job 实跑、无 `if: always()` / 占位假绿；`cargo audit` / PG 集成 / Checkov / Trivy image / 真实 apply 均有真实结果 | `pre-push-check.sh`、`.workbuddy/yunchuang-main-20261109.bundle` |
+| R6 | Dockerfile 基础镜像钉 digest | 🟡 | **第四轮口径修正**：第三轮的 ARG 参数化被回退（checkov 解析不了 `${ARG}` 报 CKV_DOCKER_7，且 CI 从未消费该机制）；现为字面 tag + `pin-base-images.sh --check/--resolve/--apply`，CI 两个 build job 新增可选 `BASE_IMAGE_DIGESTS` 注入步骤 | 联网环境 `--resolve` 生成 digest 并设为 GitHub Variable `BASE_IMAGE_DIGESTS` | `--check` 通过（FROM 字面 tag）；设 Variable 后构建的镜像 FROM 带 `@sha256:` | 两份 Dockerfile、`pin-base-images.sh`、`.github/workflows/ci-cd.yml` |
+| R7 | CI 首个完整 run | 🟡 | **首个完整 run 已出结论：failure（4 个 job 红）**。第四轮逐一定位并修复 3 个 job 的确凿根因（checkov CKV_DOCKER_7 / kustomization 文件名死结 / tinypool critical），rustls 升 0.23.46 + cargo-audit 步骤拆分与 zip 显式豁免（R11）；详见第八节 | 推送本轮修复触发新 run，观察是否全绿；仍红则按新拆分的步骤名精确定位 | 全 job 实跑；主构建链路绿且 deploy job 状态语义正确 | 第八节、`pre-push-check.sh` |
 | R8 | 生产 Secret 注入 | 🟡 | 本轮打通路径：`render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**真实值仍须运维提供** | 运维注入 6 个 K8s secrets 或改用 External Secrets Operator / Sealed Secrets | Guard 校验渲染 Secret 无占位；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
+| R11 | zip 3.0.0（build-dep）命中 4 条 RUSTSEC（1 critical / 2 high / 1 medium） | 🟡 | 第四轮：cargo audit 显式 `--ignore` 4 条并注明理由（zip 仅是 utoipa-swagger-ui 的 build-dep，解压上游受信资源，无运行时暴露面） | utoipa 5→6 + utoipa-swagger-ui 9→10（10.x 要求 `zip ^9`、`utoipa ^6`）连带升级，须在可编译验证环境执行后移除 `--ignore` | `cargo audit` 输出无 zip 相关项且 CI 中无 `--ignore RUSTSEC-2026-03{67,68,69}/0429` | `Cargo.toml`（utoipa=5, swagger-ui=9）、`.github/workflows/ci-cd.yml` |
 
 ### 5.1 阻塞依赖链
 
 ```
 系统定位拍板 ──> 真实集群/GPU/DCGM ──> R1 ──> R2 / R3 / R9 / R10
                                     └──> R4（抢占回归，建议同批）
-网络恢复 ✅ / 已推送 `2c13f7c..ee08262` ──> R7（run 已触发，结论待观察）──> 按需打开 DEPLOY_ENABLED
+推送第四轮修复 ──> 新 CI run ──> R7（首个 run 已 failure，根因 4 取 3 已修）──> 全绿后按需打开 DEPLOY_ENABLED
+utoipa 6 可编译验证环境 ──> R11（移除 zip 豁免）
 运维提供真实凭据 ──> R8 ──> K8s 部署链路可用（R5 仍为单点告警）
+联网环境 resolve digest ──> R6（设 BASE_IMAGE_DIGESTS）
 ```
 
-> 本轮把 R6/R8 从「纯未做」推进到「机制已就位、只差外部输入」，把 R1/R2/R4 从「一句话待办」推进到「契约/回归清单成文」。**没有任何一项被伪装成已完成**：执行体依旧是 `sleep(2s)`，实耗依旧是合成值，K8s 页面依旧是 mock。
+> 第四轮把「R7 结论待观察」推进为「已观察到 failure 且 4 个失败 job 的根因 3 个已实测修复、1 个（cargo audit）双管齐下处理」。**没有任何一项被伪装成已完成**：执行体依旧是 `sleep(2s)`，实耗依旧是合成值，K8s 页面依旧是 mock。
 
 ---
 
@@ -263,3 +266,37 @@ bash scripts/pre-push-check.sh --strict
 
 > CI 结论、以及 `deploy-prereqs` 在 runner 上的真实行为，需在 GitHub 上观察后回填；本地静态与脚本实测不能替代 runner 结果。
 
+
+---
+
+## 八、第四轮（2026-11-10）：首个完整 CI run 的失败根因与修复
+
+7.6 中触发的历史 run（`ee08262` / `59f2827`，含 16+1 个积压提交）已于 11-09 晚间出结论：**failure**。通过 check-runs annotations API（匿名可读）拿到失败注解原文，并在本地等价复现，本轮修复其中 **4 个失败 job 中的 3 个**的确定根因。
+
+### 8.1 失败清单与根因（全部实测确凿）
+
+| 失败 job | 失败步骤 | 根因（证据） | 修复 |
+|---|---|---|---|
+| Security Pre-Scan | checkov | `CKV_DOCKER_7` ×2（annotation 原文）：第三轮把 FROM 改为 `${ARG}`，checkov 静态解析不了变量 → 误判 latest | FROM 回退字面 tag；digest 钉死改为 `pin-base-images.sh --apply` 构建前改写工作副本（CI 两个 build job 新增可选注入步骤） |
+| Validate K8s Manifests | deploy-cluster.sh --dry-run | ① `kubectl apply --dry-run=client` 仍需 API server discovery（本地 kubectl 1.31 无 kubeconfig 复现：`failed to download openapi: dial tcp [::1]:8080`）② **更深层死结**：`13-kustomization.yaml` 不是 kustomize 规范文件名，`apply -k <dir>` / `kustomize build` 根本不认——意味着真实 K8s 部署链路从未真正可用 | 文件重命名 `kustomization.yaml`（git mv）+ dry-run 改为 `kubectl kustomize` 全量客户端渲染 + 渲染结果结构断言（kind/apiVersion/metadata.name/禁 latest）；`commonLabels` 弃用警告一并修为 v5 `labels` 语法。**首次**渲染成功：22 个 K8s 对象 |
+| Frontend Test & Build | npm audit (critical) | `tinypool@1.1.1` 命中 CVE-2026-104848/104849（critical，RCE gadget；GitHub Advisory API 比对 package-lock 确认是唯一命中） | `package.json` 增加 `overrides: {"tinypool": "^2.2.0"}` 强制脱离 vitest 2.1.9 的 `^1.0.1` 约束；本地实测 60/60 单测 + vue-tsc + vite build 全绿 |
+| Rust Lint & Test | cargo audit | 无 annotation 详情（普通 run step 只报 exit 1）。RustSec advisory-db 比对 `Cargo.lock`：rustls 0.23.45 命中 RUSTSEC-2026-0346..0349（patched ≥0.23.46）；zip 3.0.0 命中 RUSTSEC-2026-0367/0368/0369/0429（patched ≥9.0.0）。也可能是 `cargo install cargo-audit` 编译失败——两者本轮都处理 | rustls 升至 0.23.46（Cargo.lock 手改，checksum 取自官方 index，依赖集与 0.23.45 完全一致已核对；本地已 fetch 并编译）；cargo-audit 拆分为 install/audit 两步以便下次精确定位；zip 4 条**显式豁免**（见 8.2） |
+
+### 8.2 zip 豁免的理由与解除条件（R11，禁止新增同类豁免）
+
+zip 3.0.0 是 `utoipa-swagger-ui 9.0.2` 的 **build-dependency**：其 build.rs 解压的是上游受信资源（`utoipa-swagger-ui-vendored` crate 自带的 swagger-ui dist zip），不处理攻击者可控输入，**无运行时暴露面**。升级到 patched（≥9.0.0）需要 utoipa 5→6 + utoipa-swagger-ui 9→10 连带升级（10.0.2 要求 `utoipa ^6.0.0`、`zip ^9.0`，MSRV 1.88），涉及 OpenAPI 宏 API 变化，必须在可编译验证的环境专门执行。豁免以 `cargo audit --ignore RUSTSEC-2026-03{67,68,69} --ignore RUSTSEC-2026-0429` 显式写入 CI（带注释），台账 R11 跟踪解除。
+
+### 8.3 本轮实测（本地等价）
+
+| 项 | 结果 |
+|---|---|
+| checkov 3.4.3（与 CI 同版本同参数，干净 `git archive` 副本） | ✅ K8s 367 / Dockerfile 147 / github_actions 451 全过，0 失败 |
+| kubectl 1.31 无 kubeconfig 复现旧门禁 | ✅ 复现原失败（openapi 下载失败）→ 修复后 `deploy-cluster.sh --dry-run` exit 0 |
+| kustomize 渲染 | ✅ 22 docs，labels 26 处注入，无 warning |
+| 前端 60 单测 / build | ✅ 全绿（tinypool 2.2.0 + vitest 2.1.9 兼容） |
+| rustls 0.23.46 | ✅ 本地 `cargo fetch`（rsproxy 镜像）+ `cargo fmt --check` + `cargo check --all-targets --all-features` + `cargo clippy -D warnings` + `cargo test --all-features` 全部通过（手改 lock 后首次完整本地编译验证） |
+| npm critical 全量比对（400 条公告 × lock） | ✅ 唯一命中 tinypool，已 ≥ 2.1.2 |
+
+### 8.4 R6 状态口径修正
+
+第三轮把 R6 记为「ARG 参数化完成」——但该机制 CI 侧**从未被消费**（无 build-arg 引用），且直接导致 CKV_DOCKER_7 失败。本轮回退为字面 tag + `pin-base-images.sh --check/--resolve/--apply`（`--apply` 按 `BASE_IMAGE_DIGESTS` 变量在 CI 构建前改写工作副本，默认未配置则零行为变化）。digest 值仍需联网环境解析（Docker Hub registry 在本沙箱被代理阻断），R6 保持 🟡。

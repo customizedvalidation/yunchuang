@@ -14,7 +14,7 @@
 #   ④.5 回填测试 secret（见下：抵消 apply -k 对 02-secret 占位的覆盖）
 #   ⑤ 验证：kubectl -n metaclouds get pods -l app=metaclouds + 后端 /health
 #
-# ⚠️ 关于 ④.5（回填测试 secret）：13-kustomization.yaml 引用了 02-secret.yaml，
+# ⚠️ 关于 ④.5（回填测试 secret）：kustomization.yaml 引用了 02-secret.yaml，
 #    步骤 ④ 的 `kubectl apply -k` 会按 02-secret.yaml 的 CHANGEME 占位把
 #    metaclouds-secrets 覆盖回占位值（集群侧无 CI 门禁，apply 会成功），导致后端
 #    启动因 database-url 仍是占位而 fail-closed。因此在 ④ 之后必须再次 upsert
@@ -23,10 +23,13 @@
 #
 # 用法：
 #   ./scripts/deploy-cluster.sh            # 真正执行（需 kubectl 已配置目标集群）
-#   ./scripts/deploy-cluster.sh --dry-run  # 预览所有命令（kubectl --dry-run=client 校验，不真正变更）
+#   ./scripts/deploy-cluster.sh --dry-run  # 静态门禁：kubectl kustomize 全量客户端渲染
+#                                          # + 结构断言（kind/apiVersion/name、禁 latest），
+#                                          # 不需要集群与 kubeconfig，可跑在 CI runner 上
 #
-# 前置：kubectl 已配置目标集群上下文；命名空间 metaclouds 本脚本会按需创建（缺失时）。
-# 说明：本沙箱无 kubectl/集群，仅用于静态校验语法；真实执行须在用户侧已配置 kubectl 的环境。
+# 前置：真正执行时 kubectl 已配置目标集群上下文；命名空间 metaclouds 本脚本会按需创建（缺失时）。
+# 说明：kustomization 必须使用规范文件名 kustomization.yaml（kubectl apply -k 只认这个名
+#       字，此前的 kustomization.yaml 会导致 apply -k / kustomize 全部失败）。
 # ==============================================================================
 set -euo pipefail
 
@@ -68,15 +71,12 @@ step() {
   echo "=================================================================="
 }
 
-# apply 类命令：DRY_RUN 下追加 --dry-run=client 真正跑校验；其余命令仅打印
+# apply 类命令：DRY_RUN 下仅打印（kubectl apply --dry-run=client 仍需连接 API server
+# 做 discovery/OpenAPI 校验，无 kubeconfig 的 CI runner 上必然失败，见 2026-11-10 修复）。
+# 真正的客户端全量校验由步骤 4/5 的 `kubectl kustomize` 完成（纯本地渲染，无需集群）。
 krun() {
   if [[ $DRY_RUN -eq 1 ]]; then
-    if [[ "$1" == "apply" ]]; then
-      echo "[DRY-RUN] kubectl $* --dry-run=client"
-      command kubectl "$@" --dry-run=client
-    else
-      echo "[DRY-RUN] kubectl $*"
-    fi
+    echo "[DRY-RUN] kubectl $*"
   else
     command kubectl "$@"
   fi
@@ -124,8 +124,38 @@ fi
 # 4/5 整包部署（复用已有 apply 入口；支持 GIT_SHA 钉版本）
 step "4/5 整包部署（deploy-k8s.sh / kubectl apply -k）"
 if [[ $DRY_RUN -eq 1 ]]; then
-  echo "[DRY-RUN] kubectl apply -k ${K8S_DIR} --dry-run=client"
-  command kubectl apply -k "${K8S_DIR}" --dry-run=client
+  echo "[DRY-RUN] kubectl kustomize ${K8S_DIR}（全量客户端渲染 + 结构校验，无需集群）"
+  RENDER_OUT="$(mktemp)"
+  if ! command kubectl kustomize "${K8S_DIR}" > "${RENDER_OUT}"; then
+    echo "ERROR: kubectl kustomize 渲染失败（kustomization 引用/语法错误）" >&2
+    rm -f "${RENDER_OUT}"
+    exit 1
+  fi
+  # 渲染产物结构断言：每个文档必须有 kind/apiVersion/metadata.name，镜像禁止 latest
+  python3 - "${RENDER_OUT}" <<'PY'
+import re, sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+docs = [d for d in text.split("\n---") if d.strip()]
+missing = []
+for d in docs:
+    kind = re.search(r"^kind:\s*(\S+)", d, re.M)
+    api = re.search(r"^apiVersion:\s*(\S+)", d, re.M)
+    name = re.search(r"^  name:\s*(\S+)", d, re.M)
+    if not (kind and api and name):
+        missing.append(kind.group(1) if kind else "<no kind>")
+latest = re.findall(r"image:\s*\S*:latest\b", text, re.M)
+if missing:
+    print("::error::rendered docs missing kind/apiVersion/metadata.name: %s" % missing[:10])
+    sys.exit(1)
+if latest:
+    print("::error::rendered manifests reference :latest images: %s" % latest)
+    sys.exit(1)
+print("kustomize render OK: %d docs, all have kind/apiVersion/metadata.name, no :latest" % len(docs))
+PY
+  RENDER_RC=$?
+  rm -f "${RENDER_OUT}"
+  if [ "${RENDER_RC}" -ne 0 ]; then exit 1; fi
 else
   if [[ -x "${DEPLOY_K8S}" ]]; then
     bash "${DEPLOY_K8S}"

@@ -87,7 +87,7 @@
 # 2) Deployment：DATABASE_URL 改回 secretKeyRef（05-deployment.yaml 里有现成注释块）
 #    replicas 1 → 3，strategy Recreate → RollingUpdate
 # 3) HPA 1/1 → 2/10；PDB maxUnavailable: 1 → minAvailable: 2
-# 4) 删除 19-backend-data-pvc.yaml，并从 13-kustomization.yaml 移除
+# 4) 删除 19-backend-data-pvc.yaml，并从 kustomization.yaml 移除
 # 5) Secret 的 database-url 指向 postgresql.metaclouds.svc.cluster.local（见 §2.2）
 ```
 
@@ -804,7 +804,7 @@ curl -f https://app.metaclouds.example.com/health
 
 ### 12.1 多租户资源配额（ResourceQuota / LimitRange）
 
-对应 `12-prometheusrule.yaml` 和 `13-kustomization.yaml`，为三个团队 Namespace 设置资源配额。
+对应 `12-prometheusrule.yaml` 和 `kustomization.yaml`，为三个团队 Namespace 设置资源配额。
 
 #### 部署前提
 
@@ -820,7 +820,7 @@ curl -f https://app.metaclouds.example.com/health
 kubectl apply -f 12-prometheusrule.yaml
 
 # 部署 LimitRange（单 Pod/Container 资源上下限与默认值）
-kubectl apply -f 13-kustomization.yaml
+kubectl apply -k metaclouds-backend-rust/k8s/
 ```
 
 #### 验证
@@ -1022,7 +1022,7 @@ kubectl get pvc metaclouds-training-data-ceph -n team-algorithm
 
 ### 12.5 Slurm / LSF / SGE 集成配置
 
-对应 `13-kustomization.yaml` 中的 Slurm 集成模板，通过 SlurmAdapter 将 Metaclouds 作业提交到外部调度器。
+对应 `kustomization.yaml` 中的 Slurm 集成模板，通过 SlurmAdapter 将 Metaclouds 作业提交到外部调度器。
 
 #### 部署前提
 

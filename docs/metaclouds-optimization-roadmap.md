@@ -12,6 +12,8 @@
 >
 > ✅ **第三轮（2026-11-09 傍晚）**：运维前置条件已闭环 —— CI 新增 `deploy-prereqs` 总闸与 `DEPLOY_ENABLED` / `DEPLOY_TARGETS` 显式开关，**推送代码不再被运维配置阻塞**（未启用时部署 job 明确 skipped，既不报绿也不报红）；`scripts/check-deploy-prereqs.sh` 成为变量与校验规则的唯一真源；修掉「`02-secret.yaml` 恒含 CHANGEME 导致 K8s Guard 必失败 / `apply -k` 覆盖真实 Secret」的死结，以及 `database-url` 与 `postgres-password` 不同源的部署陷阱。剩余未决项已台账化为修复报告第五节 R1–R10，并补齐 `docs/real-executor-contract.md`（真实执行器契约）、`docs/p2-3-preemption-backlog.md`（回归清单）；Docker 基础镜像已参数化为 4 个 ARG（待联网解析 digest）。完整 runbook：`docs/deployment-prerequisites.md`。**收尾**：网络恢复后已 `git push origin main`（`2c13f7c..ee08262`，16 个提交），远端与本地完全对齐，GitHub Actions 首个完整 run 已触发（`in_progress`，结论待观察）；剩余阻塞项状态见修复报告第五节 R1–R10 与第七节。
 
+> ✅ **第四轮（2026-11-10 上午）**：首个完整 CI run 出结论为 **failure（4 个 job 红）**，已逐一定位并修复（详见修复报告第八节）：① checkov `CKV_DOCKER_7` —— 回退第三轮的 Dockerfile ARG 变量化（扫描器无法解析 `${ARG}`），digest 钉死改为 `pin-base-images.sh --apply` 构建前改写工作副本；② K8s 静态门禁 —— 发现**真实部署死结**：`13-kustomization.yaml` 不是 kustomize 规范文件名（`apply -k`/`kustomize build` 从未可用过），已重命名为 `kustomization.yaml` 并首次完成全量渲染（22 个对象）；dry-run 改为纯客户端 `kubectl kustomize` + 结构断言；③ 前端 `npm audit` critical —— `tinypool@1.1.1` 命中 2 条 RCE 公告，`overrides` 强制升至 2.2.0（60 单测 + build 全绿）；④ `cargo audit` —— rustls 升至 0.23.46（清 4 条 RUSTSEC），zip 4 条以 build-dep 理由显式豁免并立台账 R11（utoipa 6 升级后移除）。剩余阻塞项状态见修复报告第五节 R1–R11。
+
 ## 一、核心结论（2026-10-30 初始基线 · 历史留存）
 
 Metaclouds 立项时处于"**有数据模型、有配额/GPU 分配原语，但无真实调度闭环**"的状态：

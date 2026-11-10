@@ -336,7 +336,7 @@ powershell -ExecutionPolicy Bypass -File metaclouds-backend-rust/scripts/cutover
 | 11 | `10-ingress.yaml` | HTTPS + `app.metaclouds.example.com` → `/api` → backend:8000 |
 | 12 | `11-servicemonitor.yaml` | Prometheus 15s 抓取 `/metrics` |
 | 13 | `12-prometheusrule.yaml` | 16 条告警规则（`metaclouds-alerts`） |
-| 14 | `13-kustomization.yaml` | Kustomize 统一引用（13 个资源 + 公共 labels + 镜像 tag 注入） |
+| 14 | `kustomization.yaml` | Kustomize 统一引用（13 个资源 + 公共 labels + 镜像 tag 注入） |
 
 > **探针说明**：Rust 版已提供根级 `GET /health`（无 JWT，返回 200），三探针（startup/liveness/readiness）统一使用 `/health`；`/metrics` 仅供 Prometheus 抓取。
 
@@ -392,7 +392,7 @@ kubectl apply -f metaclouds-backend-rust/k8s/12-prometheusrule.yaml
 kubectl -n metaclouds set image deployment/metaclouds-backend \
   metaclouds-backend=ghcr.io/customizedvalidation/yunchuang/backend-rust:${GIT_SHA}
 
-# 或修改 13-kustomization.yaml 的 images 段后重新 apply -k
+# 或修改 kustomization.yaml 的 images 段后重新 apply -k
 ```
 
 ### D.6 部署验证
