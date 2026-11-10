@@ -14,6 +14,8 @@
 
 > ✅ **第四轮（2026-11-10 上午）**：首个完整 CI run 出结论为 **failure（4 个 job 红）**，已逐一定位并修复（详见修复报告第八节）：① checkov `CKV_DOCKER_7` —— 回退第三轮的 Dockerfile ARG 变量化（扫描器无法解析 `${ARG}`），digest 钉死改为 `pin-base-images.sh --apply` 构建前改写工作副本；② K8s 静态门禁 —— 发现**真实部署死结**：`13-kustomization.yaml` 不是 kustomize 规范文件名（`apply -k`/`kustomize build` 从未可用过），已重命名为 `kustomization.yaml` 并首次完成全量渲染（22 个对象）；dry-run 改为纯客户端 `kubectl kustomize` + 结构断言；③ 前端 `npm audit` critical —— `tinypool@1.1.1` 命中 2 条 RCE 公告，`overrides` 强制升至 2.2.0（60 单测 + build 全绿）；④ `cargo audit` —— rustls 升至 0.23.46（清 4 条 RUSTSEC），zip 4 条以 build-dep 理由显式豁免并立台账 R11（utoipa 6 升级后移除）。剩余阻塞项状态见修复报告第五节 R1–R11。
 
+> ✅ **第五轮（2026-11-10 中午）**：CI 失败面 4 → 2 → 1 持续收窄（run 42757899459 / head 1f49c76）：**cargo audit 在 CI 上确认转绿**（本地同版本同豁免口径闭环成立），checkov / K8s 校验 / Rust 全链路稳定绿；唯余 Frontend `npm audit` critical —— 根因经 **OSV.dev querybatch 全量复现**（与 npm advisory 同源、本地 audit 端点被代理阻断时的等价诊断路径）确诊为 **vitest 2.1.9 自身 GHSA-5xrq-8626-4rwp（CVSS 9.8，Vitest UI server 任意文件读取）**，以真实升级修复：vitest 2.1.9 → 3.2.6（`@vitest/coverage-v8` 同步，60/60 单测 + type-check + build 全绿，OSV 复核 critical 清零）。详见修复报告 8.7。
+
 ## 一、核心结论（2026-10-30 初始基线 · 历史留存）
 
 Metaclouds 立项时处于"**有数据模型、有配额/GPU 分配原语，但无真实调度闭环**"的状态：

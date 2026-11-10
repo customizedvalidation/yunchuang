@@ -168,7 +168,7 @@ bash scripts/pre-push-check.sh --strict
 | R4 | P2-3 抢占分支回归与合并 | 🟡 | 新增 `docs/p2-3-preemption-backlog.md`：2 处 major、基线漂移清单、rebase 顺序、7 组必补测试、验收标准 | 建议与 R1 一并立项（在内存态模拟作业上验证「模拟互抢」价值有限） | 回归清单第五节全绿，默认关闭开关 | 分支 `park/p2-3-preemption` @ `d3ea543` |
 | R5 | PostgreSQL HA | 🔴 | 已标注单点 + CI 可配置硬门禁；本轮在 runbook 指向切换手册 | 托管 PG / CloudNativePG + 更新 `DATABASE_URL`；设 `REQUIRE_PG_HA=true` 升为硬门禁 | PG 故障切换演练通过，后端 3 副本不断服 | `docs/k8s-production-switch-runbook.md`、`17-postgresql.yaml` |
 | R6 | Dockerfile 基础镜像钉 digest | 🟡 | **第四轮口径修正**：第三轮的 ARG 参数化被回退（checkov 解析不了 `${ARG}` 报 CKV_DOCKER_7，且 CI 从未消费该机制）；现为字面 tag + `pin-base-images.sh --check/--resolve/--apply`，CI 两个 build job 新增可选 `BASE_IMAGE_DIGESTS` 注入步骤 | 联网环境 `--resolve` 生成 digest 并设为 GitHub Variable `BASE_IMAGE_DIGESTS` | `--check` 通过（FROM 字面 tag）；设 Variable 后构建的镜像 FROM 带 `@sha256:` | 两份 Dockerfile、`pin-base-images.sh`、`.github/workflows/ci-cd.yml` |
-| R7 | CI 首个完整 run | 🟡 | **首个完整 run 已出结论：failure（4 个 job 红）**。第四轮逐一定位并修复 3 个 job 的确凿根因（checkov CKV_DOCKER_7 / kustomization 文件名死结 / tinypool critical），rustls 升 0.23.46 + cargo-audit 步骤拆分与 zip 显式豁免（R11）；详见第八节 | 推送本轮修复触发新 run，观察是否全绿；仍红则按新拆分的步骤名精确定位 | 全 job 实跑；主构建链路绿且 deploy job 状态语义正确 | 第八节、`pre-push-check.sh` |
+| R7 | CI 首个完整 run | 🟡 | 三个 run 的失败面持续收窄：59f2827（4 job 红）→ ef979f6（2 job 红）→ **1f49c76 仅剩 npm audit 红，cargo audit 已 CI 转绿**（8.7）。npm audit 根因已确诊（vitest 2.1.9 critical GHSA-5xrq-8626-4rwp）并以真实升级修复（eeb7fcf，vitest 3.2.6，本地 60/60+OSV 复核 critical 清零） | 推送 eeb7fcf 触发新 run，观察全绿 | 全 job 实跑；主构建链路绿且 deploy job 状态语义正确 | 第八节、`pre-push-check.sh` |
 | R8 | 生产 Secret 注入 | 🟡 | 本轮打通路径：`render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**真实值仍须运维提供** | 运维注入 6 个 K8s secrets 或改用 External Secrets Operator / Sealed Secrets | Guard 校验渲染 Secret 无占位；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
@@ -179,13 +179,13 @@ bash scripts/pre-push-check.sh --strict
 ```
 系统定位拍板 ──> 真实集群/GPU/DCGM ──> R1 ──> R2 / R3 / R9 / R10
                                     └──> R4（抢占回归，建议同批）
-推送第四轮修复 ──> 新 CI run ──> R7（首个 run 已 failure，根因 4 取 3 已修）──> 全绿后按需打开 DEPLOY_ENABLED
+推送 eeb7fcf ──> 新 CI run ──> R7（失败面 4→2→1 持续收窄，唯余 npm audit 已修待验）──> 全绿后按需打开 DEPLOY_ENABLED
 utoipa 6 可编译验证环境 ──> R11（移除 zip 豁免）
 运维提供真实凭据 ──> R8 ──> K8s 部署链路可用（R5 仍为单点告警）
 联网环境 resolve digest ──> R6（设 BASE_IMAGE_DIGESTS）
 ```
 
-> 第四轮把「R7 结论待观察」推进为「已观察到 failure 且 4 个失败 job 的根因 3 个已实测修复、1 个（cargo audit）双管齐下处理」。**没有任何一项被伪装成已完成**：执行体依旧是 `sleep(2s)`，实耗依旧是合成值，K8s 页面依旧是 mock。
+> 第四轮把「R7 结论待观察」推进为「已观察到 failure 且 4 个失败 job 的根因 3 个已实测修复、1 个（cargo audit）双管齐下处理」。第五轮（8.7）进一步：cargo audit 已 CI 转绿、npm audit 根因确诊并真实修复。**没有任何一项被伪装成已完成**：执行体依旧是 `sleep(2s)`，实耗依旧是合成值，K8s 页面依旧是 mock。
 
 ---
 
@@ -328,3 +328,19 @@ zip 3.0.0 是 `utoipa-swagger-ui 9.0.2` 的 **build-dependency**：其 build.rs 
 | protobuf 2.28.0（RUSTSEC-2024-0437 递归 crash） | 豁免 | 仅 prometheus 0.13.4 依赖；本项目只用文本格式 /metrics，不解析外部 protobuf 输入 |
 
 **方法论沉淀**：npm/rust 漏洞排查不能只靠 GitHub Advisory API（数据与 RustSec/npm registry 不完全同步、分页在受限网络下会静默重复）；rust 侧唯一可信路径是本地跑同版本 cargo-audit + advisory-db。npm 侧等价能力被代理阻断（audit endpoint 502/405），故 npm audit 的最终根因仍需下次 run 的 artifact（`npm-audit-report`）确诊。
+
+### 8.7 第五轮收尾（run 42757899459 / head 1f49c76）：cargo audit CI 转绿，npm audit 根因确诊
+
+| job | 复跑 ef979f6 | 本轮 1f49c76 | 结论 |
+|---|---|---|---|
+| Rust Lint & Test / cargo audit | ❌ | ✅ | **cargo audit 在 CI 上确认转绿**（8.6 本地同口径闭环的预言成立：升级 + 8 条豁免 + artifact 诊断机制） |
+| Security Pre-Scan / Validate K8s / Rust Release / Rust PG / Preflight | ✅ | ✅ | 稳定（第二轮修复保持有效） |
+| Frontend / npm audit critical | ❌ | ❌ | **根因确诊（本节下文）**，修复见 eeb7fcf |
+
+部署 7 个 job 依旧 skipped（`DEPLOY_ENABLED` 未启用，语义正确）；镜像构建 2 个 job 因 Frontend 失败被跳过。
+
+**npm audit 根因确诊（artifact 之外的第二条路）**：`npm-audit-report` artifact 匿名不可下载（401），本地 npm audit 端点仍被代理阻断（npmjs/npmmirror 均 502、华为云 405）。改用 **OSV.dev querybatch API**（与 npm advisory 同源 GHSA，匿名可查）对 package-lock 全量 285 包复现，命中 12 包 30 条 advisory，逐条取 CVSS/官方 severity 标签后：**唯一 critical = vitest 2.1.9 自身（GHSA-5xrq-8626-4rwp / CVE-2026-47429，CVSS 3.1 = 9.8，Vitest UI server 监听时任意文件读取）**；其余最高 high（undici 7.4/7.5、source-map-js 7.5、follow-redirects high 等，属步骤 #11 非阻断警告口径）。
+
+**修复（eeb7fcf）**：vitest 2.1.9 → **3.2.6**（2.x 线的修复终点；另两条 @vitest/mocker 漏洞修复版需 4.1.11/4.1.12，severity 均为 moderate 不阻断，暂不跨大版本），`@vitest/coverage-v8` 同步 3.2.6，vite 5.4.21 满足 vitest 3 的 peer 约束。本地验证：**60/60 单测、type-check、vite build 全绿**；OSV 对新 lock 全量复核 **critical 清零**（12 包命中不变、无一条 ≥ critical）。
+
+**8.6 方法论修正**：npm 侧在 audit POST 端点被阻断时并非只能等 artifact——**OSV querybatch + GitHub Advisory severity 复核**即等价复现（一次 batch POST 携带 lock 全量包版本，服务端做区间匹配）；本轮即以此确诊，未消耗任何 CI 资源。
