@@ -168,7 +168,7 @@ bash scripts/pre-push-check.sh --strict
 | R4 | P2-3 抢占分支回归与合并 | 🟡 | 新增 `docs/p2-3-preemption-backlog.md`：2 处 major、基线漂移清单、rebase 顺序、7 组必补测试、验收标准 | 建议与 R1 一并立项（在内存态模拟作业上验证「模拟互抢」价值有限） | 回归清单第五节全绿，默认关闭开关 | 分支 `park/p2-3-preemption` @ `d3ea543` |
 | R5 | PostgreSQL HA | 🔴 | 已标注单点 + CI 可配置硬门禁；本轮在 runbook 指向切换手册 | 托管 PG / CloudNativePG + 更新 `DATABASE_URL`；设 `REQUIRE_PG_HA=true` 升为硬门禁 | PG 故障切换演练通过，后端 3 副本不断服 | `docs/k8s-production-switch-runbook.md`、`17-postgresql.yaml` |
 | R6 | Dockerfile 基础镜像钉 digest | 🟡 | **第四轮口径修正**：第三轮的 ARG 参数化被回退（checkov 解析不了 `${ARG}` 报 CKV_DOCKER_7，且 CI 从未消费该机制）；现为字面 tag + `pin-base-images.sh --check/--resolve/--apply`，CI 两个 build job 新增可选 `BASE_IMAGE_DIGESTS` 注入步骤 | 联网环境 `--resolve` 生成 digest 并设为 GitHub Variable `BASE_IMAGE_DIGESTS` | `--check` 通过（FROM 字面 tag）；设 Variable 后构建的镜像 FROM 带 `@sha256:` | 两份 Dockerfile、`pin-base-images.sh`、`.github/workflows/ci-cd.yml` |
-| R7 | CI 首个完整 run | 🟡 | 失败面演进：59f2827（4 红）→ ef979f6（2 红）→ 1f49c76（仅 npm audit）→ e498600（8 job 全绿，唯余 2 个 Docker job 的 Trivy）→ **3534cca：基础镜像升线（nginx 1.30 / alpine 3.24）后仍红，第七轮确诊为镜像包快照落后于 Alpine repo（zlib CRITICAL 9.4 等），修复 = runtime 阶段 `apk upgrade`**（8.8–8.9） | 推送 apk upgrade 修复触发新 run，观察镜像 job 转绿；仍红则读 `trivy-*-sarif` artifact | 全 job 实跑；主构建链路绿且 deploy job 状态语义正确 | 第八节、`pre-push-check.sh` |
+| R7 | CI 首个完整 run | 🟢 | **已闭环（8.10）**：run 42769493670（head 58afa33）——10 个实跑 job 全绿（含 Docker 镜像 Trivy）、6 个部署 job 正确 skipped。历经 5 个提交的失败面收敛 4→2→1→2→0：tinypool/vitest 升级、rustls 系升级、8 条 RustSec 豁免（R11）、基础镜像升线（nginx 1.30 / alpine 3.24）+ runtime `apk upgrade`（镜像快照落后 repo 的根因修复）。全程无门禁放宽、无伪装通过 | —（已完成） | 全 job 实跑；主构建链路绿且 deploy job 状态语义正确 | 第八节、`pre-push-check.sh` |
 | R8 | 生产 Secret 注入 | 🟡 | 本轮打通路径：`render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**真实值仍须运维提供** | 运维注入 6 个 K8s secrets 或改用 External Secrets Operator / Sealed Secrets | Guard 校验渲染 Secret 无占位；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
@@ -179,13 +179,13 @@ bash scripts/pre-push-check.sh --strict
 ```
 系统定位拍板 ──> 真实集群/GPU/DCGM ──> R1 ──> R2 / R3 / R9 / R10
                                     └──> R4（抢占回归，建议同批）
-推送 eeb7fcf ──> 新 CI run ──> R7（失败面 4→2→1 持续收窄，唯余 npm audit 已修待验）──> 全绿后按需打开 DEPLOY_ENABLED
+推送 eeb7fcf / 58afa33 ──> 新 CI run ──> R7 ✅ 已闭环（run 42769493670 全绿）──> 按需打开 DEPLOY_ENABLED（按 deployment-prerequisites 配齐）
 utoipa 6 可编译验证环境 ──> R11（移除 zip 豁免）
 运维提供真实凭据 ──> R8 ──> K8s 部署链路可用（R5 仍为单点告警）
 联网环境 resolve digest ──> R6（设 BASE_IMAGE_DIGESTS）
 ```
 
-> 第四轮把「R7 结论待观察」推进为「已观察到 failure 且 4 个失败 job 的根因 3 个已实测修复、1 个（cargo audit）双管齐下处理」。第五轮（8.7）进一步：cargo audit 已 CI 转绿、npm audit 根因确诊并真实修复。**没有任何一项被伪装成已完成**：执行体依旧是 `sleep(2s)`，实耗依旧是合成值，K8s 页面依旧是 mock。
+> 第四轮把「R7 结论待观察」推进为「已观察到 failure 且 4 个失败 job 的根因 3 个已实测修复、1 个（cargo audit）双管齐下处理」。第五至七轮持续收敛并最终闭环：**R7 已达成——run 42769493670 全绿（8.10）**。**没有任何一项被伪装成已完成**：执行体依旧是 `sleep(2s)`，实耗依旧是合成值，K8s 页面依旧是 mock。
 
 ---
 
@@ -374,3 +374,14 @@ run 42763584802：8 个 job 依旧全绿，两个 Docker job 仍精确死在 Tri
 **根因定性**：不是「镜像线过时」（第六轮已修），而是 **Docker Hub 基础镜像的包快照落后于 Alpine 3.24 官方 repo 的安全修复**——zlib/busybox/musl 的修复早已进入 distro repo，只是没有随基础镜像 rebuild 发布。这解释了为何两个镜像（共享 alpine 层）同时红且 SARIF 极小。
 
 **修复（3534cca 后追加）**：两个 Dockerfile 的 runtime 阶段加 `apk upgrade --no-cache`（backend 与 `apk add` 合并为一条 RUN；frontend 并入 chown 的 RUN），构建时从 Alpine repo 拉齐全部已修复包。nginx 包本身来自 pkg-oss 本地源、版本高于 alpine main repo，apk upgrade 不会触碰（不降级原则）。**无任何豁免**——全部走真实修复。
+
+### 8.10 复跑结果（run 42769493670 / head 58afa33）：✅ 首个完整 CI run 全绿
+
+| job | 结论 |
+|---|---|
+| 10 个实跑 job（8 个测试/校验 + 2 个 Docker 镜像构建 + Trivy） | **全部 success** |
+| 6 个部署 job | skipped（`DEPLOY_ENABLED` 未启用，状态语义正确，既不红也不绿） |
+
+R7 验收标准（全 job 实跑 + 主构建链路绿 + deploy job 状态语义正确）**全部满足**。至此第七轮共推送 5 个提交（`1f49c76`→`e498600`→`eeb7fcf`→`3534cca`→`58afa33`），失败面 4→2→1→2→**0**，期间没有任何一次放宽门禁或伪装通过：tinypool/vitest 走真实升级、rustls 系走真实升级、RustSec 8 条豁免各有攻击面分析与解除条件、基础镜像升线 + apk upgrade 走真实修复。
+
+下一步（按需）：全绿后如需真实部署，按 `docs/deployment-prerequisites.md` 配置 DEV/STAGING/PROD + SSH secrets + KUBE_CONFIG 并打开 `DEPLOY_ENABLED`；R6 digest 钉死可在联网环境 `pin-base-images.sh --resolve`。
