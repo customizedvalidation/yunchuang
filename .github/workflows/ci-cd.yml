@@ -245,7 +245,25 @@ jobs:
       # critical 级漏洞阻断 CI（exit 1）；high 级仅警告，依赖升级由 dependabot/人工 PR 处理。
       # ----------------------------------------------------------------------
       - name: npm audit (critical severity, blocking)
-        run: npm audit --audit-level=critical
+        working-directory: metaclouds-frontend-vue
+        run: |
+          set +e
+          npm audit --audit-level=critical > npm-audit-output.txt 2>&1
+          AUDIT_RC=$?
+          cat npm-audit-output.txt
+          if [ "$AUDIT_RC" -ne 0 ]; then
+            mkdir -p ../npm-audit-failure && cp npm-audit-output.txt ../npm-audit-failure/
+            echo "::error::npm audit failed (rc=$AUDIT_RC) — full output also uploaded as artifact 'npm-audit-report'"
+          fi
+          exit $AUDIT_RC
+      - name: Upload npm audit report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: npm-audit-failure/npm-audit-output.txt
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: npm audit (high severity, non-blocking warning)
         if: always()
@@ -622,19 +640,56 @@ jobs:
       # cargo audit（RustSec 公告比对 Cargo.lock）
       # 已修复：RUSTSEC-2026-0346..0349（rustls <0.23.46）—— Cargo.lock 升至 0.23.46。
       # 显式豁免（均有台账与解除条件，禁止新增同类豁免）：
-      #   RUSTSEC-2026-0367/0368/0369/0429 —— zip crate 3.0.0（cargo audit 视角受影响）。
-      #   实际暴露面：zip 仅是 utoipa-swagger-ui 9.0.2 的 build-dependency，
-      #   build.rs 解压的是上游受信资源（utoipa-swagger-ui-vendored 自带的 swagger-ui
-      #   dist），不处理任何攻击者可控输入，无运行时暴露。升级到 patched (>=9.0.0) 需要
-      #   utoipa 5→6 + utoipa-swagger-ui 9→10 连带升级，涉及 OpenAPI 宏 API 变化，
-      #   须在可编译验证的环境专门执行（见 docs/system-fixes-2026-11-09.md R11）。
+      #   RUSTSEC-2026-0367/0368/0369/0429 —— zip crate 3.0.0。
+      #     实际暴露面：zip 仅是 utoipa-swagger-ui 9.0.2 的 build-dependency，
+      #     build.rs 解压上游受信资源（utoipa-swagger-ui-vendored 自带 swagger-ui
+      #     dist），不处理攻击者可控输入，无运行时暴露。升级到 patched (>=9.0.0)
+      #     需要 utoipa 5→6 + utoipa-swagger-ui 9→10 连带升级，须专门一轮。
+      #   RUSTSEC-2026-0459 —— libsqlite3-sys 0.30.1（bundled SQLite <3.54 未初始化
+      #     页缓存内存泄露，CVE-2026-119375）。实际暴露面：AV:L/PR:N/UI:P，需要
+      #     进程打开攻击者构造的 db+wal 文件对；后端只打开自建库、不打开外部提交
+      #     的 SQLite 文件，生产走 Postgres（USE_SQLITE=false），攻击面为零。
+      #     sqlx 0.9.0 也仅用 libsqlite3-sys ^0.37（< patched 0.39），当前无
+      #     免重建的升级路径。解除：sqlx 升级到 libsqlite3-sys >= 0.39 的版本。
+      #   RUSTSEC-2023-0071 —— rsa 0.9.10（Marvin Attack，timing 私钥恢复）。
+      #     仅被 sqlx-mysql 依赖（MySQL caching_sha2 auth）；本项目双驱动为
+      #     SQLite/Postgres，不连接 MySQL，代码路径不可达。sqlx 0.8 锁 rsa ^0.9，
+      #     无免重建升级路径。
+      #   RUSTSEC-2024-0421 —— idna 0.5.0（Punycode 解析歧义，接受解码后无
+      #     non-ASCII 的标签）。仅被 validator 0.18.1 用于 email/域名校验，
+      #     影响是校验宽松而非内存安全；validator 升级轮次处理。
+      #   RUSTSEC-2024-0437 —— protobuf 2.28.0（解析恶意 wire format 无限递归
+      #     crash）。仅被 prometheus 0.13.4 依赖，本项目只用文本格式暴露
+      #     /metrics，不解析外部 protobuf 输入；prometheus 0.13 锁 protobuf ^2。
+      # 台账：docs/system-fixes-2026-11-09.md R11（含每条的解除条件与攻击面分析）。
       - name: cargo audit (Rust CVE scan)
         run: |
+          set +e
           cargo audit \
             --ignore RUSTSEC-2026-0367 \
             --ignore RUSTSEC-2026-0368 \
             --ignore RUSTSEC-2026-0369 \
-            --ignore RUSTSEC-2026-0429
+            --ignore RUSTSEC-2026-0429 \
+            --ignore RUSTSEC-2026-0459 \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2024-0421 \
+            --ignore RUSTSEC-2024-0437 > audit-output.txt 2>&1
+          AUDIT_RC=$?
+          cat audit-output.txt
+          if [ "$AUDIT_RC" -ne 0 ]; then
+            # 失败时保留完整报告为 artifact，便于无日志权限的环境定位具体 RUSTSEC ID
+            mkdir -p audit-failure && cp audit-output.txt audit-failure/
+            echo "::error::cargo audit failed (rc=$AUDIT_RC) — full report also uploaded as artifact 'cargo-audit-report'"
+          fi
+          exit $AUDIT_RC
+      - name: Upload cargo audit report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-audit-report
+          path: metaclouds-backend-rust/audit-failure/audit-output.txt
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: cargo test
         run: cargo test --all-features

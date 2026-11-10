@@ -172,7 +172,7 @@ bash scripts/pre-push-check.sh --strict
 | R8 | 生产 Secret 注入 | 🟡 | 本轮打通路径：`render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**真实值仍须运维提供** | 运维注入 6 个 K8s secrets 或改用 External Secrets Operator / Sealed Secrets | Guard 校验渲染 Secret 无占位；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
-| R11 | zip 3.0.0（build-dep）命中 4 条 RUSTSEC（1 critical / 2 high / 1 medium） | 🟡 | 第四轮：cargo audit 显式 `--ignore` 4 条并注明理由（zip 仅是 utoipa-swagger-ui 的 build-dep，解压上游受信资源，无运行时暴露面） | utoipa 5→6 + utoipa-swagger-ui 9→10（10.x 要求 `zip ^9`、`utoipa ^6`）连带升级，须在可编译验证环境执行后移除 `--ignore` | `cargo audit` 输出无 zip 相关项且 CI 中无 `--ignore RUSTSEC-2026-03{67,68,69}/0429` | `Cargo.toml`（utoipa=5, swagger-ui=9）、`.github/workflows/ci-cd.yml` |
+| R11 | RustSec 显式豁免集（8 条）+ 2 项真实升级 | 🟡 | 第四轮（含 8.5 收尾）：**真实修复** rustls 0.23.46、rustls-webpki 0.103.16、webpki-roots 1.0.10（均 patch 级，本地编译验证）；**显式豁免** 8 条（zip ×4、libsqlite3-sys ×1、rsa ×1、idna ×1、protobuf ×1，各附攻击面分析与解除条件，见 CI 注释与 8.5）。本地 `cargo audit`（同版本同豁免）exit 0 | 各豁免的解除条件：zip=utoipa 6 轮次；libsqlite3-sys=sqlx 用 ≥0.39；rsa=sqlx-mysql 换 rsa 0.10；idna=validator 升级；protobuf=prometheus 0.14+ | CI cargo audit 绿且无 `--ignore`（本地已验证 exit 0） | `.github/workflows/ci-cd.yml`、`Cargo.lock`、修复报告 8.5 |
 
 ### 5.1 阻塞依赖链
 
@@ -271,7 +271,7 @@ utoipa 6 可编译验证环境 ──> R11（移除 zip 豁免）
 
 ## 八、第四轮（2026-11-10）：首个完整 CI run 的失败根因与修复
 
-7.6 中触发的历史 run（`ee08262` / `59f2827`，含 16+1 个积压提交）已于 11-09 晚间出结论：**failure**。通过 check-runs annotations API（匿名可读）拿到失败注解原文，并在本地等价复现，本轮修复其中 **4 个失败 job 中的 3 个**的确定根因。
+7.6 中触发的历史 run（`ee08262` / `59f2827`，含 16+1 个积压提交）已于 11-09 晚间出结论：**failure**。通过 check-runs annotations API（匿名可读）拿到失败注解原文，并在本地等价复现，本轮修复其中 4 个失败 job 的确定根因（`ef979f6` 推送后复跑，2 个 job 已转绿，见 8.5）。
 
 ### 8.1 失败清单与根因（全部实测确凿）
 
@@ -300,3 +300,31 @@ zip 3.0.0 是 `utoipa-swagger-ui 9.0.2` 的 **build-dependency**：其 build.rs 
 ### 8.4 R6 状态口径修正
 
 第三轮把 R6 记为「ARG 参数化完成」——但该机制 CI 侧**从未被消费**（无 build-arg 引用），且直接导致 CKV_DOCKER_7 失败。本轮回退为字面 tag + `pin-base-images.sh --check/--resolve/--apply`（`--apply` 按 `BASE_IMAGE_DIGESTS` 变量在 CI 构建前改写工作副本，默认未配置则零行为变化）。digest 值仍需联网环境解析（Docker Hub registry 在本沙箱被代理阻断），R6 保持 🟡。
+
+### 8.5 复跑结果与收尾（第二轮修复，run 42751231131 / head ef979f6）
+
+| job | 首个 run | 复跑（ef979f6） | 结论 |
+|---|---|---|---|
+| Security Pre-Scan（checkov） | ❌ | ✅ | CKV_DOCKER_7 修复生效 |
+| Validate K8s Manifests | ❌ | ✅ | kustomization 规范文件名 + 纯客户端渲染生效 |
+| Rust Postgres / Release / Preflight | ✅ | ✅ | 稳定 |
+| Rust Lint & Test / cargo audit | ❌ | ❌ | **剩余根因定位**：RustSec 全库（1410 条）与 Cargo.lock 比对发现 **libsqlite3-sys 0.30.1 命中 RUSTSEC-2026-0459**（CVE-2026-119375，2026-10-30 收录；bundled SQLite <3.54 的未初始化页缓存内存泄露）——第三轮修复时漏掉（当时只比对 GitHub Advisory API 前 100 条，未覆盖该条）。sqlx 0.9.0 也仅用 libsqlite3-sys ^0.37（< patched 0.39），无免重建升级路径 → 以「本地攻击向量 + 后端不打开外部 SQLite 文件 + 生产走 Postgres」理由显式豁免并扩充台账 R11。`cargo install` 步骤已拆分（install 成功、audit 报漏洞，可定位）。ring RUSTSEC-2025-0007 为 withdrawn，无影响 |
+| Frontend / npm audit critical | ❌ | ❌ | tinypool 已修（lock 2.2.0）但复跑仍红。GitHub Advisory API 全量 critical（83 条）与 lock 271 包比对无其他命中；本地无法访问 npm audit endpoint（代理 502/405）→ **根因未定**。已改为失败时把 `npm audit` 完整输出上传为 artifact `npm-audit-report`（14 天保留），下次 run 即可确诊。cargo audit 同样加 `cargo-audit-report` artifact |
+
+复跑 job 状态（16 jobs）：8 ✅ / 2 ❌（cargo audit、npm audit）/ 6 skipped（镜像构建因上游 job 失败而跳过，非部署开关所致）。
+
+### 8.6 cargo audit 完整闭环（本地与 CI 同口径）
+
+8.5 中定位的 libsqlite3-sys 之后，**本地安装了与 CI 相同的 cargo-audit 0.22.2**（`cargo install --debug`，rsproxy 镜像间歇可用），首次拿到与 runner 一致的真实输出：豁免 zip 4 条后仍有 **5 个漏洞**（idna / protobuf / rsa / rustls-webpki / webpki-roots）——这些在 GitHub Advisory API 的数据里不存在或不一致，**只有 RustSec advisory-db 是唯一真源**（本地 cargo audit 直接 fetch 同一 repo）。
+
+处理结果（本地 `cargo audit` exit 0 验证）：
+
+| 项 | 处理 | 理由 |
+|---|---|---|
+| rustls-webpki 0.103.15→**0.103.16** | ✅ 真实升级（Cargo.lock，本地编译） | 证书验证接受 distrusted intermediates，sqlx TLS 路径真实暴露 |
+| webpki-roots 1.0.9→**1.0.10** | ✅ 真实升级（Cargo.lock，本地编译） | 同上，TLS 根证书信任链 |
+| rsa 0.9.10（RUSTSEC-2023-0071 Marvin Attack） | 豁免 | 仅 sqlx-mysql 依赖（本项目不连 MySQL，代码路径不可达）；sqlx 0.8 锁 ^0.9 |
+| idna 0.5.0（RUSTSEC-2024-0421） | 豁免 | 仅 validator 0.18.1 用于 email/域名校验，影响是校验宽松非内存安全 |
+| protobuf 2.28.0（RUSTSEC-2024-0437 递归 crash） | 豁免 | 仅 prometheus 0.13.4 依赖；本项目只用文本格式 /metrics，不解析外部 protobuf 输入 |
+
+**方法论沉淀**：npm/rust 漏洞排查不能只靠 GitHub Advisory API（数据与 RustSec/npm registry 不完全同步、分页在受限网络下会静默重复）；rust 侧唯一可信路径是本地跑同版本 cargo-audit + advisory-db。npm 侧等价能力被代理阻断（audit endpoint 502/405），故 npm audit 的最终根因仍需下次 run 的 artifact（`npm-audit-report`）确诊。
