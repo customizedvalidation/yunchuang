@@ -40,7 +40,10 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # 非 root 运行（对齐 K8s runAsUser: 101）：
 #  - 站点文件、nginx 运行时目录（缓存/pid/log）归 uid 101
 #  - 容器默认不再以 root 启动，满足非特权容器基线
-RUN chown -R 101:101 /usr/share/nginx/html \
+# apk upgrade：基础镜像快照可能落后于 Alpine 3.24 repo 的安全修复
+# （zlib CVE-2026-4738 CRITICAL 9.4 / CVE-2026-85091 HIGH 8.3 等，同 backend Dockerfile）
+RUN apk upgrade --no-cache && \
+    chown -R 101:101 /usr/share/nginx/html \
     && chown -R 101:101 /var/cache/nginx /var/run /tmp /var/log/nginx
 USER 101
 

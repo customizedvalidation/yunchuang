@@ -48,7 +48,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ---- Stage 2: runtime ----
 FROM alpine:3.24
 
-RUN apk add --no-cache ca-certificates tzdata wget && \
+# apk upgrade：基础镜像快照可能落后于 Alpine 3.24 repo 的安全修复
+# （2026-11-10 实测：zlib CVE-2026-4738 CRITICAL 9.4 / CVE-2026-85091 HIGH 8.3、
+# musl 1.2.6-r1/r2/r3、busybox 1.37.0-r27 均为 repo 内已有但镜像未带的修复）。
+RUN apk upgrade --no-cache && \
+    apk add --no-cache ca-certificates tzdata wget && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
     addgroup -g 10001 appgroup && \

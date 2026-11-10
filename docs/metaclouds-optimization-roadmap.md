@@ -18,6 +18,8 @@
 
 > ✅ **第六轮（2026-11-10 下午）**：run 42760541449（head e498600）——**8 个 job 全绿**（npm audit critical 已清零、Rust Coverage 首跑绿），唯余 2 个 Docker 镜像 job 的 **Trivy image 扫描**红（镜像构建/推送本身成功，两个 job 都精确死在扫描步骤）。结构性根因：**过时基础镜像**——前端 runtime `nginx:1.27-alpine`（1.27 分支 2025 年初停更，此后 CVE 修复全部在 1.28+）、后端 runtime `alpine:3.20`（2026-05 已 EOL）。修复：升 `nginx:1.30-alpine`（官方 stable 线）+ `alpine:3.24`（当前 stable），`pin-base-images.sh` 同步，Trivy 失败时上传 SARIF artifact 以便匿名确诊。诊断依据来自 `nginx/docker-nginx` 官方源仓库（沙箱内镜像仓库/NVD 全被代理阻断时的可行路径）。详见修复报告 8.8。
 
+> ✅ **第七轮（2026-11-10 傍晚）**：升线后 run 42763584802 的两个 Docker job 仍红（SARIF artifact 仅 ~1.3KB → 命中极少但匿名下载 401）。数据源推演确诊（OSV `Alpine:v3.24` + cvelistV5）：**真正根因是基础镜像的包快照落后于 Alpine 3.24 repo**——zlib 命中 CVE-2026-4738（**CRITICAL 9.4**，修复 1.4-r0）与 CVE-2026-85091（**HIGH 8.3**，修复 1.3.2-r1），musl/busybox 亦有 repo 内已修复未发布的版本；nginx 1.30.6 本体相关 CVE 已全修复（非命中源）。修复：两个 Dockerfile runtime 阶段加 `apk upgrade --no-cache` 构建时拉齐 repo 修复，无任何豁免。详见修复报告 8.9。
+
 ## 一、核心结论（2026-10-30 初始基线 · 历史留存）
 
 Metaclouds 立项时处于"**有数据模型、有配额/GPU 分配原语，但无真实调度闭环**"的状态：

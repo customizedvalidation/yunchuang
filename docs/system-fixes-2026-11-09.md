@@ -168,7 +168,7 @@ bash scripts/pre-push-check.sh --strict
 | R4 | P2-3 抢占分支回归与合并 | 🟡 | 新增 `docs/p2-3-preemption-backlog.md`：2 处 major、基线漂移清单、rebase 顺序、7 组必补测试、验收标准 | 建议与 R1 一并立项（在内存态模拟作业上验证「模拟互抢」价值有限） | 回归清单第五节全绿，默认关闭开关 | 分支 `park/p2-3-preemption` @ `d3ea543` |
 | R5 | PostgreSQL HA | 🔴 | 已标注单点 + CI 可配置硬门禁；本轮在 runbook 指向切换手册 | 托管 PG / CloudNativePG + 更新 `DATABASE_URL`；设 `REQUIRE_PG_HA=true` 升为硬门禁 | PG 故障切换演练通过，后端 3 副本不断服 | `docs/k8s-production-switch-runbook.md`、`17-postgresql.yaml` |
 | R6 | Dockerfile 基础镜像钉 digest | 🟡 | **第四轮口径修正**：第三轮的 ARG 参数化被回退（checkov 解析不了 `${ARG}` 报 CKV_DOCKER_7，且 CI 从未消费该机制）；现为字面 tag + `pin-base-images.sh --check/--resolve/--apply`，CI 两个 build job 新增可选 `BASE_IMAGE_DIGESTS` 注入步骤 | 联网环境 `--resolve` 生成 digest 并设为 GitHub Variable `BASE_IMAGE_DIGESTS` | `--check` 通过（FROM 字面 tag）；设 Variable 后构建的镜像 FROM 带 `@sha256:` | 两份 Dockerfile、`pin-base-images.sh`、`.github/workflows/ci-cd.yml` |
-| R7 | CI 首个完整 run | 🟡 | 失败面 4→2→1→2（job 种类换血）：59f2827（4 红）→ ef979f6（2 红）→ 1f49c76（仅 npm audit，cargo audit 转绿）→ **e498600：8 job 全绿（含 npm audit 清零、Rust Coverage 首跑绿），唯余 2 个 Docker job 的 Trivy image 扫描红**——根因为过时基础镜像（nginx 1.27 停更线 / alpine 3.20 EOL），已升 `nginx:1.30-alpine` + `alpine:3.24` 并加 SARIF artifact 诊断（8.8） | 推送修复触发新 run，观察镜像 job 转绿；仍红则用 `trivy-*-sarif` artifact 精确确诊 | 全 job 实跑；主构建链路绿且 deploy job 状态语义正确 | 第八节、`pre-push-check.sh` |
+| R7 | CI 首个完整 run | 🟡 | 失败面演进：59f2827（4 红）→ ef979f6（2 红）→ 1f49c76（仅 npm audit）→ e498600（8 job 全绿，唯余 2 个 Docker job 的 Trivy）→ **3534cca：基础镜像升线（nginx 1.30 / alpine 3.24）后仍红，第七轮确诊为镜像包快照落后于 Alpine repo（zlib CRITICAL 9.4 等），修复 = runtime 阶段 `apk upgrade`**（8.8–8.9） | 推送 apk upgrade 修复触发新 run，观察镜像 job 转绿；仍红则读 `trivy-*-sarif` artifact | 全 job 实跑；主构建链路绿且 deploy job 状态语义正确 | 第八节、`pre-push-check.sh` |
 | R8 | 生产 Secret 注入 | 🟡 | 本轮打通路径：`render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**真实值仍须运维提供** | 运维注入 6 个 K8s secrets 或改用 External Secrets Operator / Sealed Secrets | Guard 校验渲染 Secret 无占位；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
@@ -359,3 +359,18 @@ run 42760541449 结果：**8 个 job 全绿**（含首次实跑的 Rust Coverage
 **修复**：`nginx:1.27-alpine → nginx:1.30-alpine`（stable 分支，官方维护中）、`alpine:3.20 → alpine:3.24`（当前 stable，nginx 官方镜像同款基础）；`pin-base-images.sh` 清单同步；两个 Trivy step 新增失败时上传 SARIF 为 artifact（`trivy-frontend-sarif` / `trivy-backend-sarif`，匿名环境拿不到日志时仍可确诊漏洞清单）。
 
 **风险与验收**：基础镜像升级不可本地预验证（无 docker/trivy、镜像仓库全被阻断）；若新 run 仍红，artifact 里的 SARIF 将给出精确 CVE 清单再对症处理。这是「首次实跑暴露新失败面」模式的第三次出现（Element Plus 折叠组件 → 200 HTML 假就绪 → 镜像 Trivy），再次印证「本地门禁绿 ≠ CI 全绿」。
+
+### 8.9 第七轮（run 42763584802 / head 3534cca）：基础镜像升线后仍红，真正根因 = 镜像快照落后于 Alpine repo
+
+run 42763584802：8 个 job 依旧全绿，两个 Docker job 仍精确死在 Trivy 扫描步骤（构建/推送成功）。**SARIF artifact 机制生效**（`trivy-frontend-sarif` / `trivy-backend-sarif` 已上传，各仅 ~1.3KB → 命中极少），但 artifact 匿名下载 401、code-scanning 要认证 → 改用**数据源推演**完成确诊：
+
+| 排查对象 | 结果（OSV `Alpine:v3.24` 生态 + CVEProject/cvelistV5 严重度） |
+|---|---|
+| nginx 1.30.6（升级后的前端 runtime） | 相关 2026 CVE 修复版本均 ≤ 1.30.6 → **已修复，非命中源** |
+| **zlib** | **命中源 ①**：CVE-2026-4738（**CRITICAL 9.4**，修复 1.4-r0）、CVE-2026-85091（**HIGH 8.3**，修复 1.3.2-r1）——修复版本**已在 Alpine 3.24 repo**，但基础镜像快照未带 |
+| musl | 命中源 ②（推断）：CVE-2026-107891/40200/6042 修复于 1.2.6-r1/r2/r3 |
+| busybox | 命中源 ③（推断）：CVE-2024-58251 / CVE-2025-46394 修复于 1.37.0-r24/r27 |
+
+**根因定性**：不是「镜像线过时」（第六轮已修），而是 **Docker Hub 基础镜像的包快照落后于 Alpine 3.24 官方 repo 的安全修复**——zlib/busybox/musl 的修复早已进入 distro repo，只是没有随基础镜像 rebuild 发布。这解释了为何两个镜像（共享 alpine 层）同时红且 SARIF 极小。
+
+**修复（3534cca 后追加）**：两个 Dockerfile 的 runtime 阶段加 `apk upgrade --no-cache`（backend 与 `apk add` 合并为一条 RUN；frontend 并入 chown 的 RUN），构建时从 Alpine repo 拉齐全部已修复包。nginx 包本身来自 pkg-oss 本地源、版本高于 alpine main repo，apk upgrade 不会触碰（不降级原则）。**无任何豁免**——全部走真实修复。
