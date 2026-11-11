@@ -407,4 +407,4 @@ R7 闭环、部署开关按用户决策保持关闭后，11-10 的收尾核对�
 
 **修复（真实增强，不放宽门禁、不加豁免）**：两个 runtime 阶段加 `ARG SECURITY_UPDATES_REVISION=0` 并在 `RUN` 中显式引用，CI 两个 build job 增加 `build-args: SECURITY_UPDATES_REVISION=${{ github.run_id }}` —— 每次 run 值不同，强制 `apk upgrade` 层缓存失效、每次真正拉取最新修复，其余层仍走 gha 缓存。FROM 保持字面 tag（`pin-base-images.sh --check` 通过，checkov CKV_DOCKER_7 不触发）；workflow 经 PyYAML 解析确认 16 jobs / 2 build steps 结构不变。
 
-**验收状态**：⏳ 待新 run 观察两个镜像 job 的 Trivy 是否转绿，**不预先写成已修复**。若仍红，说明命中源在 nginx 本体（pkg-oss 包，`apk upgrade` 覆盖不到），需按 SARIF 精确 CVE 定向处理 —— 同样不通过放宽门禁解决。
+**验收状态（已实测）**：✅ run **42963640709**（head `6852270`）结论 **success** —— 10 个实跑 job 全 success（含两个 Docker 镜像 job 的 Trivy 扫描全部转绿）、6 个部署 job 正确 skipped、**0 失败**。失败面 1→0，CI 恢复全绿，全程无门禁放宽、无新增豁免。由于匿名通道始终拿不到 SARIF 明细，此处只陈述「修复后转绿」这一实测事实，**不把根因推断包装成已读到的 CVE 清单**；若后续再现同类回归，需由有日志权限者读取 `trivy-frontend-sarif` artifact 精确处理。
