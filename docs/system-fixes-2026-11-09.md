@@ -172,7 +172,7 @@ bash scripts/pre-push-check.sh --strict
 | R8 | 生产 Secret 注入 | 🟡 | 第三轮打通 `render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**第八轮（8.11）补齐工具链缺口**：新增 `--all-gh-commands` 全量注入命令生成与 `--verify-gh` GitHub 侧键集核验；**真实值仍须运维提供**（gh 未登录、无 kubeconfig、无三套主机） | 运维注入全量 Variables/Secrets（不再是只注 6 个）或改用 External Secrets Operator / Sealed Secrets | 本地 `--strict` + 全量注入 + `--verify-gh` 三者全绿；CI `--ci` preflight 通过；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§2.5/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
-| R11 | RustSec 显式豁免集 + 真实升级 | ⚪ | 第四轮：**真实修复** rustls 0.23.46、rustls-webpki 0.103.16、webpki-roots 1.0.10；**显式豁免** 8 条（zip ×4、libsqlite3-sys ×1、rsa ×1、idna ×1、protobuf ×1）。**第九轮（8.13）已真实解除 zip ×4**：utoipa 5.5.0→6.0.0、utoipa-swagger-ui 9.0.2→10.0.2，连带 build-dep `zip 3.0.0→9.5.1`；旧 lock 去掉 4 条豁免实测报 4 漏洞（exit 1）、新 lock 同样不加豁免实测 exit 0，CI 的 4 条 `--ignore` 已删除（**不是放宽门禁**）。本地 `cargo check --all-targets` / fmt / clippy / test 与最新 advisory-db（1446 条）审计均通过 | **剩余 4 条**豁免的解除条件：libsqlite3-sys=sqlx 用 ≥0.39；rsa=sqlx-mysql 换 rsa 0.10；idna=validator 升级；protobuf=prometheus 0.14+ | zip 部分**已达成**：CI cargo audit 绿且无 zip 豁免；整体闭环仍需剩余 4 条全解除 | `.github/workflows/ci-cd.yml`、`metaclouds-backend-rust/Cargo.toml`/`Cargo.lock`、修复报告 8.2 / 8.13 |
+| R11 | RustSec 显式豁免集 + 真实升级 | ⚪ | 第四轮：**真实修复** rustls 0.23.46、rustls-webpki 0.103.16、webpki-roots 1.0.10；**显式豁免** 8 条（zip ×4、libsqlite3-sys ×1、rsa ×1、idna ×1、protobuf ×1）。**第九轮（8.13）已真实解除 zip ×4**：utoipa 5.5.0→6.0.0、utoipa-swagger-ui 9.0.2→10.0.2，连带 build-dep `zip 3.0.0→9.5.1`；旧 lock 去掉 4 条豁免实测报 4 漏洞（exit 1）、新 lock 同样不加豁免实测 exit 0，CI 的 4 条 `--ignore` 已删除（**不是放宽门禁**）。本地 `cargo check --all-targets` / fmt / clippy / test 与最新 advisory-db（1446 条）审计均通过 | **剩余 4 条**豁免的解除条件：libsqlite3-sys=sqlx 用 ≥0.39；rsa=sqlx-mysql 换 rsa 0.10；idna=validator 升级；protobuf=prometheus 0.14+ | zip 部分**已达成**：run 42975752306 的 CI `cargo audit` 在无 zip 豁免配置下 success（10 实跑 job 全绿、6 部署 skipped，见 8.14）；整体闭环仍需剩余 4 条全解除 | `.github/workflows/ci-cd.yml`、`metaclouds-backend-rust/Cargo.toml`/`Cargo.lock`、修复报告 8.2 / 8.13 |
 
 ### 5.1 阻塞依赖链
 
@@ -461,4 +461,33 @@ R7 闭环、部署开关按用户决策保持关闭后，11-10 的收尾核对�
 
 **⑤ 口径**
 
-本轮**没有**改变任何既有限制：执行体仍是 `sleep(2s)`、实耗仍是合成值、K8s 仍是 `MockK8sClient`、`DEPLOY_ENABLED` 仍关闭、真实凭据仍缺、R6 digest 仍待联网环境。也没有放宽任何门禁——恰恰相反，是**收紧**（少豁免 4 条）。CI 侧验收以本轮提交触发的 run 为准，结论见本节后续补记。
+本轮**没有**改变任何既有限制：执行体仍是 `sleep(2s)`、实耗仍是合成值、K8s 仍是 `MockK8sClient`、`DEPLOY_ENABLED` 仍关闭、真实凭据仍缺、R6 digest 仍待联网环境。也没有放宽任何门禁——恰恰相反，是**收紧**（少豁免 4 条）。CI 侧验收经历一次 clippy 失败、一轮诊断增强后闭环，见 **8.14**。
+
+### 8.14 第九轮续：CI 验收（run 42973989417 → 42975752306）
+
+**① 首个 run `42973989417`（head `c783d61`）：failure，唯一红 job = `Rust Lint & Test` / `cargo clippy`（exit 101）**
+
+| 项 | 实测 |
+|---|---|
+| 16 个 job | 7 个实跑 success（含 `Rust Release Build`、`Rust Postgres Dual-Driver Tests`、`Frontend Test & Build`、`Validate K8s`、`Security Pre-Scan`、`Deployment Preflight`）；`Rust Lint & Test` failure；8 个下游正确 skipped |
+| 失败步骤 | `cargo clippy --all-targets -- -D warnings` → exit 101；其后的 `Install cargo-audit` / `cargo audit` / `cargo test` / `cargo build` 全部 skipped，**不是** cargo audit 变红 |
+| 本地复现 | 用**最终提交的代码**重跑同一条命令 → **exit 0**，无法复现 |
+
+诊断通道全部试过：job logs API `403 Must have admin rights`；check-runs annotations 只有通用 `Process completed with exit code 101`（另两条是 Node 20 deprecation 与 ubuntu-latest 迁移 notice）；`rustup target add x86_64-unknown-linux-gnu` 经 rsproxy 四次均被代理 tunnel error 阻断；WSL 被沙箱安全策略禁止。**因此拿不到 Linux 侧的具体 lint/编译错误，不猜测、不编造错误清单。**
+
+**② 诊断增强（`7b6c9d8`，不改门禁语义）**
+
+clippy 步骤改为：失败时 `tee` 输出并 grep 诊断行，以 `::error::` workflow command 写成 check-run annotations（该 API 匿名可读）。`-D warnings` 不变、末尾 `exit "$CLIPPY_RC"` 原样保留、不放宽任何门禁。补的是「无日志权限环境下无法定位」这一结构性缺口，不是绕过失败。
+
+**③ 验收 run `42975752306`（head `7b6c9d8`）：✅ success**
+
+| 项 | 结果 |
+|---|---|
+| 结论 | **success** —— 16 个 job = **10 个实跑全 success** + **6 个部署 job 正确 skipped**，0 失败 |
+| `Rust Lint & Test` 逐步 | fmt ✅ / **clippy ✅** / install cargo-audit ✅ / **`cargo audit (Rust CVE scan)` ✅（命令里已无 zip 4 条 `--ignore`）** / `cargo test` ✅ / `cargo build` ✅ |
+| 镜像 job | 前端与后端 Docker 镜像构建 + Trivy image scan 均 success（后端在 `rust:1.96-alpine` / musl 上完整编译 utoipa 6 + zip 9.5.1 通过） |
+| 诊断脚本 | 未输出任何 `::error::` annotation → clippy 本次无错误 |
+
+**④ 诚实口径**
+
+第一次 run 的 clippy exit 101 **根因未确证**：在无代码逻辑变更、只多一个诊断步骤的前提下第二次通过。可疑方向是 `actions/cache` 的 `restore-keys: <runner.os>-cargo-` 前缀恢复把旧依赖（utoipa 5）的 `target` 产物混入首次构建，或偶发编译故障；**没有日志证据，禁止写成确诊结论**。故本轮不宣称「修复了第一次的红」，只陈述两个 run 的实测事实，并保留诊断增强：若再现，annotations 会给出精确错误。R11 核心验收不受影响 —— **`cargo audit` 在 CI 上以「无 zip 豁免」配置实跑通过**，与本地对照实验结论一致。
