@@ -64,8 +64,11 @@ opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }
 opentelemetry-semantic-conventions = "0.27"
 tracing-opentelemetry = "0.28"
 # P3-05 OpenAPI
-utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
+# R11：utoipa 6 / utoipa-swagger-ui 10（MSRV 1.88，CI 固定 rustc 1.96）。
+# 连带把 build-dependency `zip` 从 ^3.0 提升到 ^9.0，真实消除
+# RUSTSEC-2026-0367/0368/0369/0429 四条豁免（见 docs/system-fixes-2026-11-09.md）。
+utoipa = { version = "6", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "10", features = ["axum", "vendored"] }
 
 # 传递依赖修复（非业务依赖，勿删）：
 #   opentelemetry-otlp(grpc-tonic) → tonic 0.12 → tower 0.4.13 → indexmap 1.9.3

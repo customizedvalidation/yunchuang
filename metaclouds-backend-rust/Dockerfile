@@ -6,7 +6,7 @@
 # 3.24 为当前 stable，nginx 官方镜像同款基础）。
 # Non-root UID 10001. Target binary ~35MB.
 # NOTE: toolchain must match CI (dtolnay/rust-toolchain@1.96.0) — deps like
-#       opentelemetry 0.27 / utoipa 5 / redis 0.27 require MSRV > 1.81.
+#       opentelemetry 0.27 / utoipa 6 (MSRV 1.88) / redis 0.27 require MSRV > 1.81.
 # ==============================================================================
 
 # 基础镜像钉 digest（R6，待联网解析）：FROM 必须保持字面 tag（2026-11-10 回退变量化

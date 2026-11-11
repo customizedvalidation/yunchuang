@@ -172,7 +172,7 @@ bash scripts/pre-push-check.sh --strict
 | R8 | 生产 Secret 注入 | 🟡 | 第三轮打通 `render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**第八轮（8.11）补齐工具链缺口**：新增 `--all-gh-commands` 全量注入命令生成与 `--verify-gh` GitHub 侧键集核验；**真实值仍须运维提供**（gh 未登录、无 kubeconfig、无三套主机） | 运维注入全量 Variables/Secrets（不再是只注 6 个）或改用 External Secrets Operator / Sealed Secrets | 本地 `--strict` + 全量注入 + `--verify-gh` 三者全绿；CI `--ci` preflight 通过；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§2.5/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
-| R11 | RustSec 显式豁免集（8 条）+ 2 项真实升级 | 🟡 | 第四轮（含 8.5 收尾）：**真实修复** rustls 0.23.46、rustls-webpki 0.103.16、webpki-roots 1.0.10（均 patch 级，本地编译验证）；**显式豁免** 8 条（zip ×4、libsqlite3-sys ×1、rsa ×1、idna ×1、protobuf ×1，各附攻击面分析与解除条件，见 CI 注释与 8.5）。本地 `cargo audit`（同版本同豁免）exit 0 | 各豁免的解除条件：zip=utoipa 6 轮次；libsqlite3-sys=sqlx 用 ≥0.39；rsa=sqlx-mysql 换 rsa 0.10；idna=validator 升级；protobuf=prometheus 0.14+ | CI cargo audit 绿且无 `--ignore`（本地已验证 exit 0） | `.github/workflows/ci-cd.yml`、`Cargo.lock`、修复报告 8.5 |
+| R11 | RustSec 显式豁免集 + 真实升级 | ⚪ | 第四轮：**真实修复** rustls 0.23.46、rustls-webpki 0.103.16、webpki-roots 1.0.10；**显式豁免** 8 条（zip ×4、libsqlite3-sys ×1、rsa ×1、idna ×1、protobuf ×1）。**第九轮（8.13）已真实解除 zip ×4**：utoipa 5.5.0→6.0.0、utoipa-swagger-ui 9.0.2→10.0.2，连带 build-dep `zip 3.0.0→9.5.1`；旧 lock 去掉 4 条豁免实测报 4 漏洞（exit 1）、新 lock 同样不加豁免实测 exit 0，CI 的 4 条 `--ignore` 已删除（**不是放宽门禁**）。本地 `cargo check --all-targets` / fmt / clippy / test 与最新 advisory-db（1446 条）审计均通过 | **剩余 4 条**豁免的解除条件：libsqlite3-sys=sqlx 用 ≥0.39；rsa=sqlx-mysql 换 rsa 0.10；idna=validator 升级；protobuf=prometheus 0.14+ | zip 部分**已达成**：CI cargo audit 绿且无 zip 豁免；整体闭环仍需剩余 4 条全解除 | `.github/workflows/ci-cd.yml`、`metaclouds-backend-rust/Cargo.toml`/`Cargo.lock`、修复报告 8.2 / 8.13 |
 
 ### 5.1 阻塞依赖链
 
@@ -180,7 +180,7 @@ bash scripts/pre-push-check.sh --strict
 系统定位拍板 ──> 真实集群/GPU/DCGM ──> R1 ──> R2 / R3 / R9 / R10
                                     └──> R4（抢占回归，建议同批）
 推送 eeb7fcf / 58afa33 ──> 新 CI run ──> R7 ✅ 已闭环（run 42769493670 全绿）──> 按需打开 DEPLOY_ENABLED（按 deployment-prerequisites 配齐）
-utoipa 6 可编译验证环境 ──> R11（移除 zip 豁免）
+第九轮（rustc 1.96 + rsproxy 可达）──> R11 zip ×4 已解除 ✅（8.13）──> 剩余 4 条豁免按各自解除条件
 运维提供真实凭据 ──> R8 ──> K8s 部署链路可用（R5 仍为单点告警）
 联网环境 resolve digest ──> R6（设 BASE_IMAGE_DIGESTS）
 ```
@@ -282,9 +282,11 @@ utoipa 6 可编译验证环境 ──> R11（移除 zip 豁免）
 | Frontend Test & Build | npm audit (critical) | `tinypool@1.1.1` 命中 CVE-2026-104848/104849（critical，RCE gadget；GitHub Advisory API 比对 package-lock 确认是唯一命中） | `package.json` 增加 `overrides: {"tinypool": "^2.2.0"}` 强制脱离 vitest 2.1.9 的 `^1.0.1` 约束；本地实测 60/60 单测 + vue-tsc + vite build 全绿 |
 | Rust Lint & Test | cargo audit | 无 annotation 详情（普通 run step 只报 exit 1）。RustSec advisory-db 比对 `Cargo.lock`：rustls 0.23.45 命中 RUSTSEC-2026-0346..0349（patched ≥0.23.46）；zip 3.0.0 命中 RUSTSEC-2026-0367/0368/0369/0429（patched ≥9.0.0）。也可能是 `cargo install cargo-audit` 编译失败——两者本轮都处理 | rustls 升至 0.23.46（Cargo.lock 手改，checksum 取自官方 index，依赖集与 0.23.45 完全一致已核对；本地已 fetch 并编译）；cargo-audit 拆分为 install/audit 两步以便下次精确定位；zip 4 条**显式豁免**（见 8.2） |
 
-### 8.2 zip 豁免的理由与解除条件（R11，禁止新增同类豁免）
+### 8.2 zip 豁免的理由与解除条件（R11，禁止新增同类豁免）—— ✅ 第九轮已解除，见 8.13
 
-zip 3.0.0 是 `utoipa-swagger-ui 9.0.2` 的 **build-dependency**：其 build.rs 解压的是上游受信资源（`utoipa-swagger-ui-vendored` crate 自带的 swagger-ui dist zip），不处理攻击者可控输入，**无运行时暴露面**。升级到 patched（≥9.0.0）需要 utoipa 5→6 + utoipa-swagger-ui 9→10 连带升级（10.0.2 要求 `utoipa ^6.0.0`、`zip ^9.0`，MSRV 1.88），涉及 OpenAPI 宏 API 变化，必须在可编译验证的环境专门执行。豁免以 `cargo audit --ignore RUSTSEC-2026-03{67,68,69} --ignore RUSTSEC-2026-0429` 显式写入 CI（带注释），台账 R11 跟踪解除。
+> **状态更新（2026-11-11 第九轮）**：本节描述的 4 条 zip 豁免**已全部移除**，方式是真实升级依赖而非放宽门禁。以下保留原始理由作为决策留痕；实际解除过程、对照实验与验收见 **8.13**。CI `cargo audit` 现在只剩 4 条豁免（libsqlite3-sys / rsa / idna / protobuf）。
+
+zip 3.0.0 是 `utoipa-swagger-ui 9.0.2` 的 **build-dependency**：其 build.rs 解压的是上游受信资源（`utoipa-swagger-ui-vendored` crate 自带的 swagger-ui dist zip），不处理攻击者可控输入，**无运行时暴露面**。升级到 patched（≥9.0.0）需要 utoipa 5→6 + utoipa-swagger-ui 9→10 连带升级（10.0.2 要求 `utoipa ^6.0.0`、`zip ^9.0`，MSRV 1.88），涉及 OpenAPI 宏 API 变化，必须在可编译验证的环境专门执行。当时豁免以 `cargo audit --ignore RUSTSEC-2026-03{67,68,69} --ignore RUSTSEC-2026-0429` 显式写入 CI（带注释），台账 R11 跟踪解除。
 
 ### 8.3 本轮实测（本地等价）
 
@@ -408,3 +410,55 @@ R7 闭环、部署开关按用户决策保持关闭后，11-10 的收尾核对�
 **修复（真实增强，不放宽门禁、不加豁免）**：两个 runtime 阶段加 `ARG SECURITY_UPDATES_REVISION=0` 并在 `RUN` 中显式引用，CI 两个 build job 增加 `build-args: SECURITY_UPDATES_REVISION=${{ github.run_id }}` —— 每次 run 值不同，强制 `apk upgrade` 层缓存失效、每次真正拉取最新修复，其余层仍走 gha 缓存。FROM 保持字面 tag（`pin-base-images.sh --check` 通过，checkov CKV_DOCKER_7 不触发）；workflow 经 PyYAML 解析确认 16 jobs / 2 build steps 结构不变。
 
 **验收状态（已实测）**：✅ run **42963640709**（head `6852270`）结论 **success** —— 10 个实跑 job 全 success（含两个 Docker 镜像 job 的 Trivy 扫描全部转绿）、6 个部署 job 正确 skipped、**0 失败**。失败面 1→0，CI 恢复全绿，全程无门禁放宽、无新增豁免。由于匿名通道始终拿不到 SARIF 明细，此处只陈述「修复后转绿」这一实测事实，**不把根因推断包装成已读到的 CVE 清单**；若后续再现同类回归，需由有日志权限者读取 `trivy-frontend-sarif` artifact 精确处理。
+
+### 8.13 第九轮（2026-11-11）：R11 的 utoipa 6 升级，真实移除 4 条 zip 豁免
+
+8.2 曾把 zip ×4 判为「须在可编译验证环境专门执行」的显式豁免。本轮条件具备（本地 `rustc 1.96.0` / `cargo-audit 0.22.2`、rsproxy sparse index 实测可达），**按解除条件把它真正做掉**，不改 CI 行为以外的任何门禁语义。
+
+**① 版本与 MSRV 实读（rsproxy sparse index，非推测）**
+
+| crate | 原版本 | 新版本 | MSRV | 关键依赖约束 |
+|---|---|---|---|---|
+| `utoipa` | 5.5.0 | **6.0.0** | 1.75 → **1.88** | `utoipa-gen ^6.0.0` |
+| `utoipa-gen` | 5.5.0 | **6.0.1** | — | — |
+| `utoipa-swagger-ui` | 9.0.2 | **10.0.2** | 1.75 → **1.88** | `utoipa ^6.0.0`、**`zip ^9.0`**（9.0.2 是 `zip ^3.0`） |
+| `utoipa-swagger-ui-vendored` | 0.1.2 | 0.2.0 | — | — |
+| `zip`（build-dep） | **3.0.0** | **9.5.1** | 1.88 | 当前 9.x 最新 |
+
+工具链一致性已核对：CI `dtolnay/rust-toolchain@1.96.0`、Docker builder `rust:1.96-alpine`，均 ≥ 1.88。`utoipa 6` 的 `axum_extras` / `chrono` / `uuid` 与 swagger-ui 10 的 `axum` / `vendored` feature 均仍存在（`axum` 是 optional dep 的隐式 feature，index 的 `features2` 不列它，9.x 同样如此），故 `Cargo.toml` 只改两行版本约束。
+
+**② 依赖解析与源码适配**
+
+`cargo update -p utoipa -p utoipa-swagger-ui` 只锁 11 个包：新增 `base64 0.23.1` / `typed-path 0.13.0` / `nix 0.31.3` 等，移除 `rust-embed*` / `walkdir` / `sha2 0.11` 等旧 build 链。`cargo check --all-targets` **一次通过（3m19s）**：项目里 100+ 处 `#[derive(utoipa::ToSchema)]`、`#[utoipa::path]`、`#[derive(OpenApi)]` 与 `Modify` / `SecurityAddon` 写法在 6.x 下**零源码改动**，`SwaggerUi::new(...).url(...)` 亦兼容。`src/openapi/mod.rs` 仅把文档注释的「utoipa 5 / OpenAPI 3.0」订正为 6 / 3.x。
+
+**这里有一处真实的对外契约变化，不能略过**：utoipa 6 的 `OpenApiVersion` 默认值是 `Version31`（源码 `#[serde(rename = "3.1.0")] #[default]`），而 5.x 输出 3.0.3 —— 即 `/api-docs/openapi.json` 从 **OpenAPI 3.0 变为 3.1**。Swagger UI 10 支持 3.1，`components.schemas` / `securitySchemes` 结构在现有测试覆盖范围内保持不变。为不让契约静默漂移，`tests/p3_openapi_test.rs::spec_covers_key_domains` 的断言由「以 `3.` 开头」**收紧为** `assert_eq!(openapi_ver, "3.1.0")`，并把 `README.md`、`docs/runbook-v2-rust.md`、后端 `Dockerfile` 的 MSRV/版本注释同步为 utoipa 6 / OpenAPI 3.1。
+
+**③ 对照实验（排除「公告库陈旧的假阴性」）**
+
+| 场景 | lockfile | 命令（均**不带** zip 豁免） | 结果 |
+|---|---|---|---|
+| 对照组 | `git show HEAD:Cargo.lock`（zip 3.0.0，383 deps） | `cargo audit -f old-Cargo.lock -n --stale --ignore <其余4条>` | **exit 1**，明确报 `RUSTSEC-2026-0367/0368/0369/0429` 共 4 条漏洞 |
+| 实验组 | 新 `Cargo.lock`（zip 9.5.1，374 deps） | `cargo audit -n --stale --ignore <其余4条>` | **exit 0**，仅 3 条 allowed warnings（`proc-macro-error` unmaintained、`tokio` unsound、`yoke-derive` yanked） |
+
+本地 advisory-db 从 11-09 的 `d9cb059f`（1430 条）刷新到 `origin/main` `28d73fc9`（11-10，**1446 条**）后重跑实验组，仍是 **exit 0**。两条证据合起来说明：4 条豁免消失是**依赖真实升级**的结果，不是数据库没更新、更不是把漏洞藏起来。
+
+**③-bis 本地质量门禁（与 CI 同口径，全部实跑）**
+
+| 门禁 | 实测结果 |
+|---|---|
+| `cargo fmt --all -- --check` | ✅ 通过 |
+| `cargo clippy --all-targets -- -D warnings` | ✅ 0 warning |
+| `cargo check --all-targets` | ✅ 一次通过（3m19s） |
+| `cargo test --test p3_openapi_test -- --nocapture` | ✅ **5/5**，含新增的 `3.1.0` 精确断言、`components.schemas` / 路径数 / Swagger UI 可达性 |
+| `cargo test --all-features`（与 CI 步骤一致） | ✅ **48 个套件 / 380 passed / 0 failed / 2 ignored**（Postgres 冒烟与集成测试按设计忽略，需 service 容器） |
+| `cargo audit`（1446 条公告，仅剩 4 条豁免） | ✅ exit 0 |
+
+首次全量 `cargo test` 在本沙箱遇到一次 rustc 进程僵死（卡在 `md-5` 的 `--emit=metadata`、累计 CPU≈0），终止残留进程后重跑正常完成，**非代码问题、未跳过任何测试、未降低任何参数**。
+
+**④ CI 与台账改动**
+
+`.github/workflows/ci-cd.yml` 删掉 4 条 `--ignore RUSTSEC-2026-03{67,68,69}` / `0429`，注释改为「已真实修复，勿回退成 --ignore」并写明对照实验；**保留** libsqlite3-sys / rsa / idna / protobuf 4 条豁免及其攻击面分析。豁免总数 **8 → 4**。第五节 R11 状态由 🟡 改 ⚪（部分完成：zip 已解除、其余 4 条仍待各自解除条件），8.2 加「已解除」状态块并保留原始理由作决策留痕。
+
+**⑤ 口径**
+
+本轮**没有**改变任何既有限制：执行体仍是 `sleep(2s)`、实耗仍是合成值、K8s 仍是 `MockK8sClient`、`DEPLOY_ENABLED` 仍关闭、真实凭据仍缺、R6 digest 仍待联网环境。也没有放宽任何门禁——恰恰相反，是**收紧**（少豁免 4 条）。CI 侧验收以本轮提交触发的 run 为准，结论见本节后续补记。

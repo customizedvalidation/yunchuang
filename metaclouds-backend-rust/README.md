@@ -136,7 +136,7 @@ cookie is present; Bearer-token clients are exempt.
 - tokio-cron-scheduler 0.13 (P3-02)
 - prometheus 0.13 (CounterVec / HistogramVec / Gauge, P3-03)
 - tracing + tracing-subscriber + opentelemetry + opentelemetry_sdk (P3-04)
-- utoipa 5 + utoipa-swagger-ui 9 (P3-05)
+- utoipa 6 + utoipa-swagger-ui 10 (P3-05, OpenAPI 3.1)
 - thiserror 2 + anyhow 1
 - dotenvy 0.15, chrono 0.4, uuid 1
 

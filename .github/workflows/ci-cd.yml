@@ -663,13 +663,13 @@ jobs:
         run: cargo install cargo-audit --locked --quiet
 
       # cargo audit（RustSec 公告比对 Cargo.lock）
-      # 已修复：RUSTSEC-2026-0346..0349（rustls <0.23.46）—— Cargo.lock 升至 0.23.46。
-      # 显式豁免（均有台账与解除条件，禁止新增同类豁免）：
-      #   RUSTSEC-2026-0367/0368/0369/0429 —— zip crate 3.0.0。
-      #     实际暴露面：zip 仅是 utoipa-swagger-ui 9.0.2 的 build-dependency，
-      #     build.rs 解压上游受信资源（utoipa-swagger-ui-vendored 自带 swagger-ui
-      #     dist），不处理攻击者可控输入，无运行时暴露。升级到 patched (>=9.0.0)
-      #     需要 utoipa 5→6 + utoipa-swagger-ui 9→10 连带升级，须专门一轮。
+      # 已真实修复（不是豁免，勿回退成 --ignore）：
+      #   RUSTSEC-2026-0346..0349 —— rustls <0.23.46 → Cargo.lock 升至 0.23.46；
+      #   RUSTSEC-2026-0367/0368/0369/0429 —— zip 3.0.0 → utoipa 6.0.0 /
+      #     utoipa-swagger-ui 10.0.2 连带把 build-dep zip 升至 9.5.1（R11 第九轮）。
+      #     对照实验：旧 Cargo.lock 去掉 4 条豁免后实测报 4 条漏洞（exit 1），
+      #     新 Cargo.lock 同样不加豁免实测 exit 0 —— 是依赖真实升级，非门禁放宽。
+      # 显式豁免（剩余 4 条，均有台账与解除条件，禁止新增同类豁免）：
       #   RUSTSEC-2026-0459 —— libsqlite3-sys 0.30.1（bundled SQLite <3.54 未初始化
       #     页缓存内存泄露，CVE-2026-119375）。实际暴露面：AV:L/PR:N/UI:P，需要
       #     进程打开攻击者构造的 db+wal 文件对；后端只打开自建库、不打开外部提交
@@ -691,10 +691,6 @@ jobs:
         run: |
           set +e
           cargo audit \
-            --ignore RUSTSEC-2026-0367 \
-            --ignore RUSTSEC-2026-0368 \
-            --ignore RUSTSEC-2026-0369 \
-            --ignore RUSTSEC-2026-0429 \
             --ignore RUSTSEC-2026-0459 \
             --ignore RUSTSEC-2023-0071 \
             --ignore RUSTSEC-2024-0421 \

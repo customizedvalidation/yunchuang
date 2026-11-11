@@ -1,4 +1,4 @@
-//! P3-05 OpenAPI 3.0 文档构建（utoipa 5）。
+//! P3-05 OpenAPI 3.x 文档构建（utoipa 6）。
 //!
 //! 聚合所有业务 handler 的 `#[utoipa::path]` 注解与请求/响应 schema，
 //! 对外提供 [`ApiDoc`]（可序列化 OpenAPI JSON）与统一错误响应 schema

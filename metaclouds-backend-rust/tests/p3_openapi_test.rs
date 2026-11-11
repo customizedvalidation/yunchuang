@@ -78,10 +78,12 @@ async fn spec_covers_key_domains() {
     let (_status, _ct, body) = get(&mut app, "/api-docs/openapi.json").await;
     let spec: serde_json::Value = serde_json::from_str(&body).expect("valid openapi json");
 
+    // utoipa 6 默认输出 OpenAPI 3.1.0（5.x 为 3.0.3）。用精确断言把这次
+    // 大版本升级带来的契约变化钉死：后续依赖再变默认版本会显式失败，而非静默漂移。
     let openapi_ver = spec["openapi"].as_str().unwrap_or_default();
-    assert!(
-        openapi_ver.starts_with("3."),
-        "openapi version should be 3.x, got {openapi_ver}"
+    assert_eq!(
+        openapi_ver, "3.1.0",
+        "utoipa 6 should emit OpenAPI 3.1.0, got {openapi_ver}"
     );
     let paths = spec["paths"].as_object().expect("paths object");
 

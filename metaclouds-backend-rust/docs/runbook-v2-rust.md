@@ -23,7 +23,7 @@
 | 指标 | prometheus 0.13 | Prometheus 文本格式 /metrics 端点 |
 | 链路追踪 | tracing 0.1 + opentelemetry 0.27 + OTLP gRPC | 结构化日志 + 可选 OTel 导出 |
 | 定时任务 | tokio-cron-scheduler 0.10 | 指标采集 / 调度循环 |
-| API 文档 | utoipa 5.x + utoipa-swagger-ui 9.x | OpenAPI 3.0 + Swagger UI |
+| API 文档 | utoipa 6.x + utoipa-swagger-ui 10.x | OpenAPI 3.1 + Swagger UI |
 | 配置 | dotenvy 0.15 | .env 文件加载（生产直接读环境变量） |
 | 校验 | validator 0.18 | 请求体字段校验 |
 
