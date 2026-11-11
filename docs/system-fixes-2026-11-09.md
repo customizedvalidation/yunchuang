@@ -398,3 +398,13 @@ R7 闭环、部署开关按用户决策保持关闭后，11-10 的收尾核对�
 **实测（本地，含 mock `gh` 四场景）**：两个脚本 `bash -n` 通过；`--all-gh-commands` 在当前 `.env.deploy` 上生成 6 条、SKIP 15 项并告警；单引号值正确转义为 `'\''`、多行 PEM 自动改走 quoted heredoc + stdin、生成脚本 `bash -n` 通过；`K8S_DATABASE_URL` 与 `K8S_POSTGRES_PASSWORD` 不同源时 `exit 2`；与 `--gh-commands` 互斥时 `exit 2`；`--out` / `--gh-commands` 旧模式无回归（6 个键 / 6 条命令）。`--verify-gh`：未认证 `exit 1` + 离线预览；dev 全配齐 → 4 checks / 0 FAIL / `exit 0`；`--target all` 只配 dev → 15 FAIL / `exit 1`；Variable 值与 `--env-file` 不一致 → 精确报 `value differs`。既有 `--list` / `--report` / `--strict` / `--ci`(disabled) 退出码全部不变。
 
 **口径**：`--verify-gh` 只验「名称存在」，最终验收仍是 CI 的 `--ci` preflight（runner 注入 secrets 后校验）；运维顺序固化为 **本地 strict → 全量注入 → verify-gh → 人工开开关 → 看 CI**，见 `deployment-prerequisites.md` §2.5。本轮**没有**改变任何事实：执行体仍 `sleep(2s)`、实耗仍合成、K8s 仍 mock、`DEPLOY_ENABLED` 仍关闭、CI 仍全绿、真实凭据仍缺。
+
+### 8.12 第八轮续（run 42960451955 / head aaa8e04）：Trivy 回归与构建缓存冻结
+
+推送 `aaa8e04`（纯脚本/文档改动）触发的 run 结论 **failure**，唯一红 job = `Build Frontend Docker Image` 的 **Trivy image scan (frontend)**（#9），镜像构建/推送本身成功；其余 9 个实跑 job 全绿（含后端镜像 Trivy、Deployment Preflight、Validate K8s），6 个部署 job 正确 skipped。SARIF artifact 1792 B 但匿名下载 401；check-run 注解只有 Node 20/CodeQL v3 deprecation 警告；code-scanning alerts API `Requires authentication`；Alpine secdb / OSV 通道被代理 502 —— **无法直接读到命中 CVE**。
+
+**根因判断（结构性缺陷，非空泛猜测）**：`docker/build-push-action@v5` 两个 job 都用 `cache-from: type=gha` + `cache-to: mode=max`，而两个 Dockerfile 的 `RUN apk upgrade --no-cache` 都是 runtime 阶段第一条 RUN。该层一旦被缓存命中就**不会重跑**，镜像包快照永远停在首次构建时刻；之后 Alpine repo 发布新修复、Trivy 漏洞库同步更新，就会出现「代码零改动，昨天绿、今天红」。后端镜像（`alpine:3.24`）绿、前端（`nginx:1.30-alpine`）红，差异正是 nginx 镜像特有的包集。官方 `stable/alpine` 的 Dockerfile blob 与 11-10 完全相同（仍 1.30.6）、Trivy 设了 `ignore-unfixed: true`（无修复版本的 CVE 会被过滤），均指向「repo 已有修复但镜像没拉到」，而非 nginx 本体无解漏洞。
+
+**修复（真实增强，不放宽门禁、不加豁免）**：两个 runtime 阶段加 `ARG SECURITY_UPDATES_REVISION=0` 并在 `RUN` 中显式引用，CI 两个 build job 增加 `build-args: SECURITY_UPDATES_REVISION=${{ github.run_id }}` —— 每次 run 值不同，强制 `apk upgrade` 层缓存失效、每次真正拉取最新修复，其余层仍走 gha 缓存。FROM 保持字面 tag（`pin-base-images.sh --check` 通过，checkov CKV_DOCKER_7 不触发）；workflow 经 PyYAML 解析确认 16 jobs / 2 build steps 结构不变。
+
+**验收状态**：⏳ 待新 run 观察两个镜像 job 的 Trivy 是否转绿，**不预先写成已修复**。若仍红，说明命中源在 nginx 本体（pkg-oss 包，`apk upgrade` 覆盖不到），需按 SARIF 精确 CVE 定向处理 —— 同样不通过放宽门禁解决。

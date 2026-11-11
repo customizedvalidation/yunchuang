@@ -41,8 +41,14 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 #  - 站点文件、nginx 运行时目录（缓存/pid/log）归 uid 101
 #  - 容器默认不再以 root 启动，满足非特权容器基线
 # apk upgrade：基础镜像快照可能落后于 Alpine 3.24 repo 的安全修复
-# （zlib CVE-2026-4738 CRITICAL 9.4 / CVE-2026-85091 HIGH 8.3 等，同 backend Dockerfile）
-RUN apk upgrade --no-cache && \
+# （zlib CVE-2026-4738 CRITICAL 9.4 / CVE-2026-85091 HIGH 8.3 等，同 backend Dockerfile）。
+# 2026-11-11: CI 的 docker/build-push-action 用 cache-from: type=gha，会把这一层
+# 整个复用 —— 之后 Alpine repo 再发布安全修复也进不了镜像，Trivy 漏洞库更新后
+# 即出现「昨天绿、今天红」的回归。SECURITY_UPDATES_REVISION 由 CI 每次 run
+# 传不同值，强制本层缓存失效、每次真正拉取最新修复（其余层仍可缓存）。
+ARG SECURITY_UPDATES_REVISION=0
+RUN test -n "${SECURITY_UPDATES_REVISION}" && \
+    apk upgrade --no-cache && \
     chown -R 101:101 /usr/share/nginx/html \
     && chown -R 101:101 /var/cache/nginx /var/run /tmp /var/log/nginx
 USER 101

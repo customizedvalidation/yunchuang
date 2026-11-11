@@ -51,7 +51,12 @@ FROM alpine:3.24
 # apk upgrade：基础镜像快照可能落后于 Alpine 3.24 repo 的安全修复
 # （2026-11-10 实测：zlib CVE-2026-4738 CRITICAL 9.4 / CVE-2026-85091 HIGH 8.3、
 # musl 1.2.6-r1/r2/r3、busybox 1.37.0-r27 均为 repo 内已有但镜像未带的修复）。
-RUN apk upgrade --no-cache && \
+# 2026-11-11: 同前端 Dockerfile，CI 的 gha 构建缓存会冻结本层，导致 repo 后续
+# 发布的安全修复永远进不了镜像。CI 每次 run 传不同的
+# SECURITY_UPDATES_REVISION 强制本层重跑（其余层仍走缓存）。
+ARG SECURITY_UPDATES_REVISION=0
+RUN test -n "${SECURITY_UPDATES_REVISION}" && \
+    apk upgrade --no-cache && \
     apk add --no-cache ca-certificates tzdata wget && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
