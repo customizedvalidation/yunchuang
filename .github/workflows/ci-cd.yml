@@ -657,7 +657,20 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: |
+          set +e
+          cargo clippy --all-targets -- -D warnings 2>&1 | tee clippy-output.txt
+          CLIPPY_RC=${PIPESTATUS[0]}
+          if [ "$CLIPPY_RC" -ne 0 ]; then
+            # 失败时把诊断行写成 check-run annotations：job logs 需 admin 权限，
+            # 而 annotations API 匿名可读，便于无日志权限的环境精确定位 lint/编译错误。
+            # 只做诊断增强，不放宽 -D warnings、不改变退出码。
+            grep -E '^(error|warning)(\[|:)|could not compile|panicked at|^ *--> ' clippy-output.txt \
+              | head -40 | while IFS= read -r line; do
+                  echo "::error::clippy: $line"
+                done
+          fi
+          exit "$CLIPPY_RC"
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked --quiet
