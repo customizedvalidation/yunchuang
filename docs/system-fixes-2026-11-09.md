@@ -169,7 +169,7 @@ bash scripts/pre-push-check.sh --strict
 | R5 | PostgreSQL HA | 🔴 | 已标注单点 + CI 可配置硬门禁；本轮在 runbook 指向切换手册 | 托管 PG / CloudNativePG + 更新 `DATABASE_URL`；设 `REQUIRE_PG_HA=true` 升为硬门禁 | PG 故障切换演练通过，后端 3 副本不断服 | `docs/k8s-production-switch-runbook.md`、`17-postgresql.yaml` |
 | R6 | Dockerfile 基础镜像钉 digest | 🟡 | **第四轮口径修正**：第三轮的 ARG 参数化被回退（checkov 解析不了 `${ARG}` 报 CKV_DOCKER_7，且 CI 从未消费该机制）；现为字面 tag + `pin-base-images.sh --check/--resolve/--apply`，CI 两个 build job 新增可选 `BASE_IMAGE_DIGESTS` 注入步骤 | 联网环境 `--resolve` 生成 digest 并设为 GitHub Variable `BASE_IMAGE_DIGESTS` | `--check` 通过（FROM 字面 tag）；设 Variable 后构建的镜像 FROM 带 `@sha256:` | 两份 Dockerfile、`pin-base-images.sh`、`.github/workflows/ci-cd.yml` |
 | R7 | CI 首个完整 run | 🟢 | **已闭环（8.10）**：run 42769493670（head 58afa33）——10 个实跑 job 全绿（含 Docker 镜像 Trivy）、6 个部署 job 正确 skipped。历经 5 个提交的失败面收敛 4→2→1→2→0：tinypool/vitest 升级、rustls 系升级、8 条 RustSec 豁免（R11）、基础镜像升线（nginx 1.30 / alpine 3.24）+ runtime `apk upgrade`（镜像快照落后 repo 的根因修复）。全程无门禁放宽、无伪装通过 | —（已完成） | 全 job 实跑；主构建链路绿且 deploy job 状态语义正确 | 第八节、`pre-push-check.sh` |
-| R8 | 生产 Secret 注入 | 🟡 | 本轮打通路径：`render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**真实值仍须运维提供** | 运维注入 6 个 K8s secrets 或改用 External Secrets Operator / Sealed Secrets | Guard 校验渲染 Secret 无占位；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§4 |
+| R8 | 生产 Secret 注入 | 🟡 | 第三轮打通 `render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**第八轮（8.11）补齐工具链缺口**：新增 `--all-gh-commands` 全量注入命令生成与 `--verify-gh` GitHub 侧键集核验；**真实值仍须运维提供**（gh 未登录、无 kubeconfig、无三套主机） | 运维注入全量 Variables/Secrets（不再是只注 6 个）或改用 External Secrets Operator / Sealed Secrets | 本地 `--strict` + 全量注入 + `--verify-gh` 三者全绿；CI `--ci` preflight 通过；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§2.5/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
 | R11 | RustSec 显式豁免集（8 条）+ 2 项真实升级 | 🟡 | 第四轮（含 8.5 收尾）：**真实修复** rustls 0.23.46、rustls-webpki 0.103.16、webpki-roots 1.0.10（均 patch 级，本地编译验证）；**显式豁免** 8 条（zip ×4、libsqlite3-sys ×1、rsa ×1、idna ×1、protobuf ×1，各附攻击面分析与解除条件，见 CI 注释与 8.5）。本地 `cargo audit`（同版本同豁免）exit 0 | 各豁免的解除条件：zip=utoipa 6 轮次；libsqlite3-sys=sqlx 用 ≥0.39；rsa=sqlx-mysql 换 rsa 0.10；idna=validator 升级；protobuf=prometheus 0.14+ | CI cargo audit 绿且无 `--ignore`（本地已验证 exit 0） | `.github/workflows/ci-cd.yml`、`Cargo.lock`、修复报告 8.5 |
@@ -385,3 +385,16 @@ run 42763584802：8 个 job 依旧全绿，两个 Docker job 仍精确死在 Tri
 R7 验收标准（全 job 实跑 + 主构建链路绿 + deploy job 状态语义正确）**全部满足**。至此第七轮共推送 5 个提交（`1f49c76`→`e498600`→`eeb7fcf`→`3534cca`→`58afa33`），失败面 4→2→1→2→**0**，期间没有任何一次放宽门禁或伪装通过：tinypool/vitest 走真实升级、rustls 系走真实升级、RustSec 8 条豁免各有攻击面分析与解除条件、基础镜像升线 + apk upgrade 走真实修复。
 
 下一步（按需）：全绿后如需真实部署，按 `docs/deployment-prerequisites.md` 配置 DEV/STAGING/PROD + SSH secrets + KUBE_CONFIG 并打开 `DEPLOY_ENABLED`；R6 digest 钉死可在联网环境 `pin-base-images.sh --resolve`。
+
+### 8.11 第八轮（2026-11-11）：补齐部署落地链路的两处工具缺口
+
+R7 闭环、部署开关按用户决策保持关闭后，11-10 的收尾核对暴露出两处**会让运维「照着流程做仍然红」**的口径缺口，本轮用工具补齐（不改 CI 行为、不打开开关、不编造任何凭据）：
+
+| 缺口 | 实测证据 | 本轮修复 |
+|---|---|---|
+| `generate-deploy-secrets.sh --gh-commands` 只生成 **6 条** K8s Secret 注入命令，而本地 `--strict --target all` 的 **13 项 FAIL** 全在其覆盖范围之外 | `lines=6`；13 项 = DEV/STAGING/PROD 各 4 项 + `KUBE_CONFIG` | 新增 `--all-gh-commands`：从 `.env.deploy` 生成全量命令（3 个 `*_BASE_URL` + 12 项环境 Secret + `DEPLOY_DIR` + `KUBE_CONFIG` + 6 个 K8s Secret + 可选 `K8S_BASE_URL`）；缺失项显式 `# SKIP` + `::warning::`，**不用新随机值偷偷补齐**；总闸三项刻意不生成 |
+| `--strict` 读本地 `--env-file`，`gh secret` 又不能回读明文 → 本地绿证明不了 GitHub 已配好 | 脚本 `set -a; . "$ENV_FILE"`，全部分支只读进程环境 | 新增 `--verify-gh`：`gh api` 只列 Variables/Secrets **名称**（绝不读 Secret 值），按 `--target` 核对期望键集，比对非敏感 Variables 值，打印 `DEPLOY_ENABLED` / `DEPLOY_TARGETS` 实际值；未认证时打印期望键集后 `exit 1` |
+
+**实测（本地，含 mock `gh` 四场景）**：两个脚本 `bash -n` 通过；`--all-gh-commands` 在当前 `.env.deploy` 上生成 6 条、SKIP 15 项并告警；单引号值正确转义为 `'\''`、多行 PEM 自动改走 quoted heredoc + stdin、生成脚本 `bash -n` 通过；`K8S_DATABASE_URL` 与 `K8S_POSTGRES_PASSWORD` 不同源时 `exit 2`；与 `--gh-commands` 互斥时 `exit 2`；`--out` / `--gh-commands` 旧模式无回归（6 个键 / 6 条命令）。`--verify-gh`：未认证 `exit 1` + 离线预览；dev 全配齐 → 4 checks / 0 FAIL / `exit 0`；`--target all` 只配 dev → 15 FAIL / `exit 1`；Variable 值与 `--env-file` 不一致 → 精确报 `value differs`。既有 `--list` / `--report` / `--strict` / `--ci`(disabled) 退出码全部不变。
+
+**口径**：`--verify-gh` 只验「名称存在」，最终验收仍是 CI 的 `--ci` preflight（runner 注入 secrets 后校验）；运维顺序固化为 **本地 strict → 全量注入 → verify-gh → 人工开开关 → 看 CI**，见 `deployment-prerequisites.md` §2.5。本轮**没有**改变任何事实：执行体仍 `sleep(2s)`、实耗仍合成、K8s 仍 mock、`DEPLOY_ENABLED` 仍关闭、CI 仍全绿、真实凭据仍缺。

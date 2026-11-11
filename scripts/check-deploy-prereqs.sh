@@ -36,6 +36,8 @@ Usage: check-deploy-prereqs.sh [options]
   --target <name>   development | staging | production | k8s | all (default: all)
   --report          仅报告，不因缺配置失败（默认；适合推送前自检）
   --strict          校验指定 target，任一前置条件不满足则 exit 1
+  --verify-gh       通过 gh api 核验 GitHub 侧 Variables/Secrets 是否已配齐
+                    （只列名称、绝不读取 secret 值；需要 gh 已登录）
   --ci              CI 模式：按 DEPLOY_ENABLED / DEPLOY_TARGETS 决定开关并写 $GITHUB_OUTPUT
   --env-file <path> 从本地 env 文件加载变量（该文件不得提交到 Git）
   --list            打印全部变量清单与用途后退出
@@ -51,6 +53,7 @@ while [ $# -gt 0 ]; do
     --env-file=*)   ENV_FILE="${1#*=}"; shift ;;
     --report)       MODE="report"; shift ;;
     --strict)       MODE="strict"; shift ;;
+    --verify-gh)    MODE="verify-gh"; shift ;;
     --ci)           MODE="ci"; shift ;;
     --list)         SHOW_LIST=1; shift ;;
     -h|--help)      usage; exit 0 ;;
@@ -106,6 +109,109 @@ cat_catalog() {
                          JWT_SECRET / DEFAULT_ADMIN_PASSWORD / ALLOW_SIMULATED_EXECUTION
   git pull --ff-only     目标机仓库可拉取（CI 只取编排文件，不在机上编译）
 EOF
+}
+
+# ---------------------------------------------------------------------------
+# --verify-gh：GitHub 侧配置存在性核验（2026-11-11 第八轮）
+#
+# 背景：--strict 读的是本地 --env-file，无法证明「值真的注入了 GitHub」；
+# gh secret 也不能回读明文。本模式用 gh api 只列名称（绝不读取 secret 值）
+# 核对期望键集，并可比对非敏感 Variables 的值是否与本地 env 文件一致。
+# CI 的 --ci 模式（runner 把 secrets 注入环境变量后校验）仍是最终验收。
+# ---------------------------------------------------------------------------
+verify_gh_expected() {
+  case "$1" in
+    development)
+      printf 'variable:DEV_BASE_URL\nsecret:DEV_SSH_KEY\nsecret:DEV_HOST\nsecret:DEV_USER\n' ;;
+    staging)
+      printf 'variable:STAGING_BASE_URL\nsecret:STAGING_SSH_KEY\nsecret:STAGING_HOST\nsecret:STAGING_USER\n' ;;
+    production)
+      printf 'variable:PROD_BASE_URL\nsecret:PROD_SSH_KEY\nsecret:PROD_HOST\nsecret:PROD_USER\n' ;;
+    k8s)
+      printf 'secret:KUBE_CONFIG\nsecret:K8S_JWT_SECRET\nsecret:K8S_DATABASE_URL\n'
+      printf 'secret:K8S_REDIS_PASSWORD\nsecret:K8S_DEFAULT_ADMIN_PASSWORD\n'
+      printf 'secret:K8S_POSTGRES_PASSWORD\nsecret:K8S_PROTECTED_ENDPOINTS_TOKEN\n' ;;
+  esac
+}
+
+run_verify_gh() {
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "::error::gh CLI not found - install GitHub CLI and run 'gh auth login' first" >&2
+    exit 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "::error::gh is not authenticated - run 'gh auth login' (or set GH_TOKEN with Variables/Secrets write access)" >&2
+    printf 'Expected key set for target(s) %s (offline preview):\n' "$TARGET" >&2
+    for t in $(resolve_targets "$TARGET"); do
+      printf '  %-14s %s\n' "$t" "$(verify_gh_expected "$t" | tr '\n' ' ')" >&2
+    done
+    exit 1
+  fi
+
+  local var_lines sec_lines err vfile sfile
+  vfile="/tmp/verify-gh-vars.$$.err"; sfile="/tmp/verify-gh-secs.$$.err"
+  if ! var_lines="$(gh api --paginate 'repos/{owner}/{repo}/actions/variables?per_page=100' \
+        --jq '.variables[] | "\(.name)\t\(.value)"' 2>"$vfile")"; then
+    err="$(cat "$vfile" 2>/dev/null)"; rm -f "$vfile" "$sfile"
+    echo "::error::cannot list GitHub Actions Variables (needs repo admin / Variables read): $err" >&2
+    exit 1
+  fi
+  if ! sec_lines="$(gh api --paginate 'repos/{owner}/{repo}/actions/secrets?per_page=100' \
+        --jq '.secrets[].name' 2>"$sfile")"; then
+    err="$(cat "$sfile" 2>/dev/null)"; rm -f "$vfile" "$sfile"
+    echo "::error::cannot list GitHub Actions Secrets (needs repo admin / Secrets read): $err" >&2
+    exit 1
+  fi
+  rm -f "$vfile" "$sfile"
+
+  declare -A GH_VARS=() GH_SECRETS=()
+  local n v
+  while IFS=$'\t' read -r n v; do
+    [ -n "$n" ] && GH_VARS["$n"]="$v"
+  done <<< "$var_lines"
+  while IFS= read -r n; do
+    [ -n "$n" ] && GH_SECRETS["$n"]=1
+  done <<< "$sec_lines"
+
+  printf '\n=== GitHub-side configuration (names only; secret values are NEVER read) ===\n'
+  printf 'repository: %s\n' "$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo '{owner}/{repo}')"
+  printf 'switches:   DEPLOY_ENABLED=%s | DEPLOY_TARGETS=%s\n' \
+    "${GH_VARS[DEPLOY_ENABLED]:-<not set>}" "${GH_VARS[DEPLOY_TARGETS]:-<not set>}"
+
+  local t kind name local_val gh_val
+  for t in $(resolve_targets "$TARGET"); do
+    printf '\n--- %s ---\n' "$t"
+    while IFS=: read -r kind name; do
+      [ -z "$name" ] && continue
+      if [ "$kind" = variable ]; then
+        gh_val="${GH_VARS[$name]:-}"
+        if [ -z "$gh_val" ]; then
+          fail "$name" "missing GitHub Variable" "gh variable set $name --body '<real-url>'"
+          continue
+        fi
+        local_val="${!name:-}"
+        if [ -n "${ENV_FILE:-}" ] && [ -n "$local_val" ] && [ "$local_val" != "$gh_val" ]; then
+          fail "$name" "value differs from --env-file" "re-run: gh variable set $name --body <value from $ENV_FILE>"
+        else
+          pass "$name" "GitHub Variable present"
+        fi
+      else
+        if [ -z "${GH_SECRETS[$name]:-}" ]; then
+          fail "$name" "missing GitHub Secret" "gh secret set $name < <value-file>  (or --body)"
+        else
+          pass "$name" "GitHub Secret present (value not read)"
+        fi
+      fi
+    done < <(verify_gh_expected "$t")
+  done
+
+  # 可选键只报告存在性，不算失败
+  local opt
+  for opt in DEPLOY_DIR K8S_BASE_URL REQUIRE_PG_HA; do
+    if [ -n "${GH_SECRETS[$opt]:-}" ] || [ -n "${GH_VARS[$opt]:-}" ]; then
+      printf '  [INFO] %-38s optional key present\n' "$opt"
+    fi
+  done
 }
 
 if [ "$SHOW_LIST" -eq 1 ]; then
@@ -313,6 +419,18 @@ print_summary() {
 # ---------------------------------------------------------------------------
 # 模式分派
 # ---------------------------------------------------------------------------
+if [ "$MODE" = "verify-gh" ]; then
+  run_verify_gh
+  print_summary
+  if [ "$FAILED" -gt 0 ]; then
+    echo "::error::verify-gh FAILED ($FAILED missing/invalid GitHub-side prerequisite(s))" >&2
+    echo "::notice::re-run 'generate-deploy-secrets.sh --from-env .env.deploy --all-gh-commands' to produce the full injection script" >&2
+    exit 1
+  fi
+  echo "::notice::verify-gh PASSED - names present. Final acceptance is the CI --ci preflight after enabling DEPLOY_ENABLED."
+  exit 0
+fi
+
 if [ "$MODE" = "ci" ]; then
   ENABLED="${DEPLOY_ENABLED:-}"
   TARGETS_CSV="${DEPLOY_TARGETS:-staging}"

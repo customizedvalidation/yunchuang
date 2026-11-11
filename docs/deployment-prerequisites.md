@@ -82,6 +82,43 @@ CI 只通过 SSH 执行 `git pull --ff-only` 取编排文件，然后 `docker co
 4. 新版前端 nginx 镜像（含 `location /health/` 反代）+ 新版 Ingress（`/health` → backend）。只更新后端镜像会让 `verify-deployment.sh` 拿到 SPA 回退的 `index.html`，验收按设计失败。
 5. 迁移 014（`dispatch_lease`）/ 015（`usage_source`）为纯增量，双驱动各一份，apply 前确认方言目录。
 
+### 2.5 全量注入与注入后核验（2026-11-11 补）
+
+> ⚠️ **两个曾导致「照着做仍然红」的口径缺口，本节已用工具补齐**：
+> 1. `generate-deploy-secrets.sh --gh-commands` **只输出 6 个 K8s Secret**，而 `--strict --target all` 实测的 13 项 FAIL 全在它覆盖范围之外（三环境 12 项 + `KUBE_CONFIG`）。以为「注入同一套凭据就配齐了」而直接打开开关，preflight 会立刻 `exit 1`。
+> 2. `--strict` 读的是本地 `--env-file`，**不是 GitHub 上的值**；`gh secret` 也不能回读明文。本地 strict 绿只能证明「这一套值本身齐全」，证明不了「已注入 GitHub」。
+
+正确顺序（四步，前两步都不能省）：
+
+```bash
+# ① 本地预检：这一套值本身齐不齐（读 .env.deploy，不碰 GitHub）
+bash scripts/check-deploy-prereqs.sh --env-file .env.deploy --strict --target all   # 必须 exit 0
+
+# ② 全量注入：生成覆盖全部配置类变量的命令，先审阅再执行
+bash scripts/generate-deploy-secrets.sh --from-env .env.deploy --all-gh-commands > /tmp/inject.sh
+less /tmp/inject.sh        # 明文只在这个本地文件里；不要提交、不要贴进日志
+bash /tmp/inject.sh
+
+# ③ 注入后核验：只列名称，绝不读取任何 Secret 的值
+bash scripts/check-deploy-prereqs.sh --verify-gh --target all                       # 必须 exit 0
+#    带 --env-file 时还会比对非敏感 Variables 的值是否与本地一致
+
+# ④ 人工打开开关（脚本刻意不代开，避免误开把全绿 CI 变红）
+gh variable set DEPLOY_TARGETS --body 'development,staging,production,k8s'
+gh variable set DEPLOY_ENABLED --body true
+#    最终验收是 CI 的 deploy-prereqs job（--ci 模式，runner 注入 secrets 后校验）
+```
+
+工具行为约定：
+
+| 模式 | 覆盖范围 | 缺失值处理 | 是否触碰总闸 |
+|---|---|---|---|
+| `--gh-commands` | 6 个 K8s Secret | 缺 1 个即 `exit 2` | 否 |
+| `--all-gh-commands` | 3 个 `*_BASE_URL` + 可选 `K8S_BASE_URL` + 12 项环境 Secret + `DEPLOY_DIR` + `KUBE_CONFIG` + 6 个 K8s Secret | 显式 `# SKIP` + `::warning::`，**绝不用新随机值偷偷补齐** | 否 |
+| `--verify-gh` | 按 `--target` 核对期望键集；打印 `DEPLOY_ENABLED` / `DEPLOY_TARGETS` 实际值 | 缺失即 `exit 1`，一次报全 | 只读 |
+
+`--all-gh-commands` 会强制校验 `K8S_DATABASE_URL` 与 `K8S_POSTGRES_PASSWORD` 同源，多行值（SSH 私钥 PEM）自动改用 quoted heredoc 走 stdin，单行值做单引号转义。`--verify-gh` 在 `gh` 未安装 / 未认证时打印期望键集后 `exit 1`，不会误报通过。
+
 ---
 
 ## 三、最小可用配置：只启用 staging
