@@ -172,7 +172,7 @@ bash scripts/pre-push-check.sh --strict
 | R8 | 生产 Secret 注入 | 🟡 | 第三轮打通 `render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**第八轮（8.11）补齐工具链缺口**：新增 `--all-gh-commands` 全量注入命令生成与 `--verify-gh` GitHub 侧键集核验；**真实值仍须运维提供**（gh 未登录、无 kubeconfig、无三套主机） | 运维注入全量 Variables/Secrets（不再是只注 6 个）或改用 External Secrets Operator / Sealed Secrets | 本地 `--strict` + 全量注入 + `--verify-gh` 三者全绿；CI `--ci` preflight 通过；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§2.5/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
-| R11 | RustSec 显式豁免集 + 真实升级 | ⚪ | 第四轮：**真实修复** rustls 0.23.46、rustls-webpki 0.103.16、webpki-roots 1.0.10；**显式豁免** 8 条（zip ×4、libsqlite3-sys ×1、rsa ×1、idna ×1、protobuf ×1）。**第九轮（8.13）解除 zip ×4**：utoipa 5.5.0→6.0.0 / swagger-ui 9.0.2→10.0.2 连带 `zip 3.0.0→9.5.1`。**第十轮（8.15）再解除 2 条**：validator 0.18.1→0.20.0 带 `idna 0.5.0→1.1.0`、prometheus 0.13.4→0.14.0 带 `protobuf 2.28.0→3.7.2`，CI 豁免 **8 → 4 → 2**。两轮均以「旧 lock 去豁免报 N 漏洞（exit 1）/ 新 lock 去豁免 exit 0」对照实验证明是真实升级而非放宽门禁；本地 check / fmt / clippy / test 与 advisory-db 1446 条审计全过 | **剩余 2 条**：libsqlite3-sys（sqlx 0.9.0 的 sqlx-sqlite 仍锁 `<0.38.0`，无 ≥0.39 路径，等上游）、rsa（需 sqlx 0.8→0.9 跨大版本：`query*()` 改 `SqlSafeStr`、`Arguments` 去 lifetime，307 处用法需专门一轮） | zip 部分**已达成**：run 42975752306 的 CI `cargo audit` 无 zip 豁免 success；第十轮验收见 8.15 补记；整体闭环仍需剩余 2 条全解除 | `.github/workflows/ci-cd.yml`、`metaclouds-backend-rust/Cargo.toml`/`Cargo.lock`、修复报告 8.2 / 8.13 / 8.15 |
+| R11 | RustSec 显式豁免集 + 真实升级 | ⚪ | 第四轮：**真实修复** rustls 0.23.46、rustls-webpki 0.103.16、webpki-roots 1.0.10；**显式豁免** 8 条（zip ×4、libsqlite3-sys ×1、rsa ×1、idna ×1、protobuf ×1）。**第九轮（8.13）解除 zip ×4**：utoipa 5.5.0→6.0.0 / swagger-ui 9.0.2→10.0.2 连带 `zip 3.0.0→9.5.1`。**第十轮（8.15）再解除 2 条**：validator 0.18.1→0.20.0 带 `idna 0.5.0→1.1.0`、prometheus 0.13.4→0.14.0 带 `protobuf 2.28.0→3.7.2`，CI 豁免 **8 → 4 → 2**。两轮均以「旧 lock 去豁免报 N 漏洞（exit 1）/ 新 lock 去豁免 exit 0」对照实验证明是真实升级而非放宽门禁；本地 check / fmt / clippy / test 与 advisory-db 1446 条审计全过 | **剩余 2 条**：libsqlite3-sys（sqlx 0.9.0 的 sqlx-sqlite 仍锁 `<0.38.0`，无 ≥0.39 路径，等上游）、rsa（需 sqlx 0.8→0.9 跨大版本：`query*()` 改 `SqlSafeStr`、`Arguments` 去 lifetime，307 处用法需专门一轮） | zip 部分**已达成**：run 42975752306 的 CI `cargo audit` 无 zip 豁免 success；第十轮 run `43152085857` **success**（10 实跑全绿 / 6 部署 skipped），CI `cargo audit` 在只剩 2 条豁免配置下通过，见 8.15；整体闭环仍需剩余 2 条全解除 | `.github/workflows/ci-cd.yml`、`metaclouds-backend-rust/Cargo.toml`/`Cargo.lock`、修复报告 8.2 / 8.13 / 8.15 |
 
 ### 5.1 阻塞依赖链
 
@@ -528,5 +528,16 @@ sqlx 0.9.0 的 MSRV 是 **1.94.0**（≤ 1.96），且 `sqlx-mysql` 已改用 `r
 **⑤ 本地门禁与一个环境阻塞（如实记录）**
 
 `cargo fmt --all -- --check` ✅、`cargo clippy --all-targets -- -D warnings` ✅、`cargo check --all-targets` ✅。首次 `cargo test --all-features` 却 **exit 101**：11 个测试 binary 全部同一错误 `ld.exe: final link failed: No space left on device` —— **D 盘只剩 0.19 GB**，与代码无关（idna 1.x 引入 ICU 数据集使每个测试 exe 涨到约 330 MB，`target/debug/deps` 累积 316 个历史 exe 共 103.63 GB）。清理 11/11 之前的陈旧测试 exe、并清空 D 盘回收站（其内容经 `$I` 元数据解析确认全为项目构建产物，非项目文件仅 1 项、0 字节）后 D 盘恢复到 **35.49 GB**，重跑 `cargo test --all-features` **exit 0：48 套件 / 380 passed / 0 failed / 2 ignored**（Postgres 2 项按设计 ignored，需 service 容器），与上一轮数字一致。**这是环境资源阻塞，不是代码或依赖升级引入的回归**，未跳过任何测试、未降级任何门禁。
+
+**⑥ CI 验收（run `43152085857` / head `192e99e`）：✅ success**
+
+| 项 | 结果 |
+|---|---|
+| 结论 | 16 个 job = **10 个实跑全 success** + **6 个部署 job 正确 skipped**，0 失败 |
+| `Rust Lint & Test` 逐步 | fmt ✅ / clippy ✅ / install cargo-audit ✅ / **`cargo audit (Rust CVE scan)` ✅（命令只剩 2 条 `--ignore`：libsqlite3-sys、rsa）** / cargo test ✅ / cargo build ✅ |
+| 镜像 job | 前端与后端 Docker 镜像构建 + Trivy image scan 均 success；后端在 `rust:1.96-alpine` / musl 上完整编译 validator 0.20 + prometheus 0.14 + protobuf 3.7.2 通过 |
+| 其它 | Rust Postgres 双驱动、Release Build、Coverage、Frontend、K8s 校验、Security Pre-Scan、Deployment Preflight 全绿 |
+
+本轮**没有**放宽任何门禁：豁免是减少 2 条（4→2）而非新增；`-D warnings`、Trivy image scan、npm audit、K8s guard 全部保持原样。
 
 **根本事实未变**：执行体仍 `sleep(2s)`、实耗仍合成、K8s 仍 `MockK8sClient`、`DEPLOY_ENABLED` 仍关闭、真实凭据仍缺、R6 digest 仍待联网环境。
