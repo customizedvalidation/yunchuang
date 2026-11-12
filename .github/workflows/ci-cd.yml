@@ -680,34 +680,33 @@ jobs:
       #   RUSTSEC-2026-0346..0349 —— rustls <0.23.46 → Cargo.lock 升至 0.23.46；
       #   RUSTSEC-2026-0367/0368/0369/0429 —— zip 3.0.0 → utoipa 6.0.0 /
       #     utoipa-swagger-ui 10.0.2 连带把 build-dep zip 升至 9.5.1（R11 第九轮）。
-      #     对照实验：旧 Cargo.lock 去掉 4 条豁免后实测报 4 条漏洞（exit 1），
-      #     新 Cargo.lock 同样不加豁免实测 exit 0 —— 是依赖真实升级，非门禁放宽。
-      # 显式豁免（剩余 4 条，均有台账与解除条件，禁止新增同类豁免）：
+      #   RUSTSEC-2024-0421 / RUSTSEC-2024-0437 —— idna 0.5.0→1.1.0（validator
+      #     0.18.1→0.20.0 依赖 idna ^1）、protobuf 2.28.0→3.7.2（prometheus
+      #     0.13.4→0.14.0 依赖 protobuf ^3.7.2），R11 第十轮。
+      #   对照实验：旧 Cargo.lock 去掉相应豁免分别实测报 4 条 / 2 条漏洞（exit 1），
+      #   新 Cargo.lock 同样不加豁免实测 exit 0 —— 是依赖真实升级，非门禁放宽。
+      # 显式豁免（剩余 2 条，均有台账与解除条件，禁止新增同类豁免）：
       #   RUSTSEC-2026-0459 —— libsqlite3-sys 0.30.1（bundled SQLite <3.54 未初始化
       #     页缓存内存泄露，CVE-2026-119375）。实际暴露面：AV:L/PR:N/UI:P，需要
       #     进程打开攻击者构造的 db+wal 文件对；后端只打开自建库、不打开外部提交
       #     的 SQLite 文件，生产走 Postgres（USE_SQLITE=false），攻击面为零。
-      #     sqlx 0.9.0 也仅用 libsqlite3-sys ^0.37（< patched 0.39），当前无
-      #     免重建的升级路径。解除：sqlx 升级到 libsqlite3-sys >= 0.39 的版本。
+      #     解除需 sqlx 用 libsqlite3-sys >= 0.39；sparse index 实读：sqlx 0.9.0 的
+      #     sqlx-sqlite 仍锁 ">=0.30.1, <0.38.0"，当前无版本可满足，[patch] 强升
+      #     会与约束冲突 —— 确无免重建的升级路径，等上游放宽约束。
       #   RUSTSEC-2023-0071 —— rsa 0.9.10（Marvin Attack，timing 私钥恢复）。
       #     仅被 sqlx-mysql 依赖（MySQL caching_sha2 auth）；本项目双驱动为
-      #     SQLite/Postgres，不连接 MySQL，代码路径不可达。sqlx 0.8 锁 rsa ^0.9，
-      #     无免重建升级路径。
-      #   RUSTSEC-2024-0421 —— idna 0.5.0（Punycode 解析歧义，接受解码后无
-      #     non-ASCII 的标签）。仅被 validator 0.18.1 用于 email/域名校验，
-      #     影响是校验宽松而非内存安全；validator 升级轮次处理。
-      #   RUSTSEC-2024-0437 —— protobuf 2.28.0（解析恶意 wire format 无限递归
-      #     crash）。仅被 prometheus 0.13.4 依赖，本项目只用文本格式暴露
-      #     /metrics，不解析外部 protobuf 输入；prometheus 0.13 锁 protobuf ^2。
-      # 台账：docs/system-fixes-2026-11-09.md R11（含每条的解除条件与攻击面分析）。
+      #     SQLite/Postgres，不连接 MySQL，代码路径不可达。sqlx 0.9.0 的 sqlx-mysql
+      #     已改用 rsa ^0.10.0-rc.18（稳定版 0.10.0 满足），但 0.8→0.9 是跨大版本：
+      #     query*() 改要求 impl SqlSafeStr、Arguments trait 去掉 lifetime（本项目
+      #     db.rs 直接引用 Database::Arguments<'q>，307 处 sqlx:: 用法需逐一适配），
+      #     需专门一轮，不在本轮硬改。
+      # 台账：docs/system-fixes-2026-11-09.md R11 / 8.15（含解除条件与攻击面分析）。
       - name: cargo audit (Rust CVE scan)
         run: |
           set +e
           cargo audit \
             --ignore RUSTSEC-2026-0459 \
-            --ignore RUSTSEC-2023-0071 \
-            --ignore RUSTSEC-2024-0421 \
-            --ignore RUSTSEC-2024-0437 > audit-output.txt 2>&1
+            --ignore RUSTSEC-2023-0071 > audit-output.txt 2>&1
           AUDIT_RC=$?
           cat audit-output.txt
           if [ "$AUDIT_RC" -ne 0 ]; then

@@ -29,7 +29,7 @@ jsonwebtoken = "9"
 argon2 = "0.5"
 tower-cookies = { version = "0.11", features = ["axum-core"] }
 futures-util = "0.3"
-validator = { version = "0.18", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 thiserror = "2"
@@ -52,7 +52,7 @@ ipnet = "2"
 # P3-01 Redis 会话/缓存
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "script"] }
 # P3-03 Prometheus 指标
-prometheus = "0.13"
+prometheus = "0.14"
 # P3-02 定时任务
 tokio-cron-scheduler = "0.10"
 # P3-04 tracing + OpenTelemetry

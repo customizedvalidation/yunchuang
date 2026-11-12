@@ -172,7 +172,7 @@ bash scripts/pre-push-check.sh --strict
 | R8 | 生产 Secret 注入 | 🟡 | 第三轮打通 `render-k8s-secret.sh` + `generate-deploy-secrets.sh` + 渲染后 Guard；**第八轮（8.11）补齐工具链缺口**：新增 `--all-gh-commands` 全量注入命令生成与 `--verify-gh` GitHub 侧键集核验；**真实值仍须运维提供**（gh 未登录、无 kubeconfig、无三套主机） | 运维注入全量 Variables/Secrets（不再是只注 6 个）或改用 External Secrets Operator / Sealed Secrets | 本地 `--strict` + 全量注入 + `--verify-gh` 三者全绿；CI `--ci` preflight 通过；后端正常连库/签发 JWT | `docs/deployment-prerequisites.md` §2.3/§2.5/§4 |
 | R9 | K8s 客户端仍是 `MockK8sClient` | 🔴 | 第二轮已让 `K8S_SIMULATION_MODE=false` 时读端点 fail-closed 拒绝 mock，不再冒充真实集群 | 与 R1 同（真实集群 + kube-rs 客户端） | `/api/v1/system/mode` 返回 `simulated=false`；节点/Pod 数据来自 API Server | `src/handlers/k8s.rs` |
 | R10 | 生产仍在跑模拟执行 | 🔴 | 第二轮已显式化并有 fail-closed；本轮在 runbook 列为上线复核第 1 项 | R1 完成 + 关闭 `ALLOW_SIMULATED_EXECUTION` / `DISPATCH_ENABLED` | 生产 `validate()` 通过且模式接口不再报模拟 | `src/config.rs`、`01-configmap.yaml` |
-| R11 | RustSec 显式豁免集 + 真实升级 | ⚪ | 第四轮：**真实修复** rustls 0.23.46、rustls-webpki 0.103.16、webpki-roots 1.0.10；**显式豁免** 8 条（zip ×4、libsqlite3-sys ×1、rsa ×1、idna ×1、protobuf ×1）。**第九轮（8.13）已真实解除 zip ×4**：utoipa 5.5.0→6.0.0、utoipa-swagger-ui 9.0.2→10.0.2，连带 build-dep `zip 3.0.0→9.5.1`；旧 lock 去掉 4 条豁免实测报 4 漏洞（exit 1）、新 lock 同样不加豁免实测 exit 0，CI 的 4 条 `--ignore` 已删除（**不是放宽门禁**）。本地 `cargo check --all-targets` / fmt / clippy / test 与最新 advisory-db（1446 条）审计均通过 | **剩余 4 条**豁免的解除条件：libsqlite3-sys=sqlx 用 ≥0.39；rsa=sqlx-mysql 换 rsa 0.10；idna=validator 升级；protobuf=prometheus 0.14+ | zip 部分**已达成**：run 42975752306 的 CI `cargo audit` 在无 zip 豁免配置下 success（10 实跑 job 全绿、6 部署 skipped，见 8.14）；整体闭环仍需剩余 4 条全解除 | `.github/workflows/ci-cd.yml`、`metaclouds-backend-rust/Cargo.toml`/`Cargo.lock`、修复报告 8.2 / 8.13 |
+| R11 | RustSec 显式豁免集 + 真实升级 | ⚪ | 第四轮：**真实修复** rustls 0.23.46、rustls-webpki 0.103.16、webpki-roots 1.0.10；**显式豁免** 8 条（zip ×4、libsqlite3-sys ×1、rsa ×1、idna ×1、protobuf ×1）。**第九轮（8.13）解除 zip ×4**：utoipa 5.5.0→6.0.0 / swagger-ui 9.0.2→10.0.2 连带 `zip 3.0.0→9.5.1`。**第十轮（8.15）再解除 2 条**：validator 0.18.1→0.20.0 带 `idna 0.5.0→1.1.0`、prometheus 0.13.4→0.14.0 带 `protobuf 2.28.0→3.7.2`，CI 豁免 **8 → 4 → 2**。两轮均以「旧 lock 去豁免报 N 漏洞（exit 1）/ 新 lock 去豁免 exit 0」对照实验证明是真实升级而非放宽门禁；本地 check / fmt / clippy / test 与 advisory-db 1446 条审计全过 | **剩余 2 条**：libsqlite3-sys（sqlx 0.9.0 的 sqlx-sqlite 仍锁 `<0.38.0`，无 ≥0.39 路径，等上游）、rsa（需 sqlx 0.8→0.9 跨大版本：`query*()` 改 `SqlSafeStr`、`Arguments` 去 lifetime，307 处用法需专门一轮） | zip 部分**已达成**：run 42975752306 的 CI `cargo audit` 无 zip 豁免 success；第十轮验收见 8.15 补记；整体闭环仍需剩余 2 条全解除 | `.github/workflows/ci-cd.yml`、`metaclouds-backend-rust/Cargo.toml`/`Cargo.lock`、修复报告 8.2 / 8.13 / 8.15 |
 
 ### 5.1 阻塞依赖链
 
@@ -491,3 +491,42 @@ clippy 步骤改为：失败时 `tee` 输出并 grep 诊断行，以 `::error::`
 **④ 诚实口径**
 
 第一次 run 的 clippy exit 101 **根因未确证**：在无代码逻辑变更、只多一个诊断步骤的前提下第二次通过。可疑方向是 `actions/cache` 的 `restore-keys: <runner.os>-cargo-` 前缀恢复把旧依赖（utoipa 5）的 `target` 产物混入首次构建，或偶发编译故障；**没有日志证据，禁止写成确诊结论**。故本轮不宣称「修复了第一次的红」，只陈述两个 run 的实测事实，并保留诊断增强：若再现，annotations 会给出精确错误。R11 核心验收不受影响 —— **`cargo audit` 在 CI 上以「无 zip 豁免」配置实跑通过**，与本地对照实验结论一致。
+
+### 8.15 第十轮（2026-11-12）：R11 再解除 2 条豁免（idna / protobuf），豁免 4 → 2
+
+**① 先查真源，不猜升级路径**
+
+从本地 RustSec advisory-db（1446 条）读出剩余 4 条豁免的精确修复线，再用 rsproxy sparse index 逐个解析上层依赖的真实约束：
+
+| 豁免 | patched | 上层依赖实读 | 结论 |
+|---|---|---|---|
+| RUSTSEC-2024-0421 `idna 0.5.0` | `>= 1.0.0` | validator 0.18.1 锁 `idna ^0.5`；**0.19.0 / 0.20.0 起改 `idna ^1`** | ✅ 可升 |
+| RUSTSEC-2024-0437 `protobuf 2.28.0` | `>= 3.7.2` | prometheus 0.13.4 锁 `protobuf ^2.0`；**0.14.0 改 `protobuf ^3.7.2`** | ✅ 可升 |
+| RUSTSEC-2023-0071 `rsa 0.9.10` | `>= 0.10.0` | sqlx 0.8.6 的 sqlx-mysql 锁 `rsa ^0.9`；**sqlx 0.9.0 改 `^0.10.0-rc.18`** | ⚠️ 跨大版本 |
+| RUSTSEC-2026-0459 `libsqlite3-sys 0.30.1` | `>= 0.39.0` | sqlx 0.8.6 锁 `^0.30.1`；**sqlx 0.9.0 仍锁 `>=0.30.1, <0.38.0`** | ❌ 无路径 |
+
+**② 本轮改动（只做低风险且有实读证据的两条）**
+
+- `Cargo.toml`：`validator 0.18 → 0.20`（MSRV 1.81）、`prometheus 0.13 → 0.14`（MSRV 1.81），CI `dtolnay/rust-toolchain@1.96.0` 与 Docker `rust:1.96-alpine` 均满足。
+- `Cargo.lock`：连带 `idna 0.5.0 → 1.1.0`、`protobuf 2.28.0 → 3.7.2`；另外 `proc-macro-error 1.0.4`（unmaintained，RUSTSEC-2024-0370）随 validator 0.20 改用 `proc-macro-error3` 一并消失；共 10 包重锁。
+- `ci-cd.yml`：删除 `RUSTSEC-2024-0421` / `RUSTSEC-2024-0437` 两条 `--ignore`，豁免 **4 → 2**，注释换成剩余 2 条的定量化解除条件（**收紧门禁，不是放宽**）。
+- 源码零改动：99 处 validator 用法、128 处 prometheus 用法在 0.20 / 0.14 下 `cargo check --all-targets` 一次通过（1m13s，0 error）。
+
+**③ 对照实验（排除「公告库陈旧的假阴性」）**
+
+同样只保留 2 条豁免（`RUSTSEC-2026-0459` / `RUSTSEC-2023-0071`）：旧 `Cargo.lock` **exit 1，精确报出 idna / protobuf 两条漏洞**；新 lock **exit 0**（仅 2 条 allowed warnings：tokio unsound、yoke-derive yanked）。advisory-db 复核（1446 条）结论不变 → 是依赖真实升级，不是把漏洞藏起来。
+
+**④ 剩余 2 条为什么这轮不做（定量依据，不是「以后再说」）**
+
+sqlx 0.9.0 的 MSRV 是 **1.94.0**（≤ 1.96），且 `sqlx-mysql` 已改用 `rsa ^0.10.0-rc.18`（稳定版 0.10.0 满足），理论上能消掉 rsa 豁免。但 0.9.0 CHANGELOG 与 `sqlx-core` 源码实读确认两项 breaking：
+
+- 所有 `query*()` 改签名 `sql: impl SqlSafeStr`（仅对 `&'static str` 与 `AssertSqlSafe` 实现）→ 本项目的动态 SQL（`Cow<str>`、`pg_placeholders()`）需逐处包 `AssertSqlSafe()`；
+- `Arguments` trait 去掉 lifetime：`pub fn query_as<'q, DB, O>(sql: impl SqlSafeStr) -> QueryAs<'q, DB, O, <DB as Database>::Arguments>`（**无 `<'q>`**）→ 本项目 `src/db.rs` 的 `query_as_db` / `query_scalar_db` 直接写了 `<DB as sqlx::Database>::Arguments<'q>`，会直接编译失败。
+
+项目共 **307 处 `sqlx::` 用法、48 个测试套件**，属需单独一轮的迁移，**本轮不硬改、不降门禁**。更关键的是：即使完成 0.9 迁移，`sqlx-sqlite 0.9.0` 仍锁 `<0.38.0`，`libsqlite3-sys` 到不了 patched 0.39；`[patch]` 强升会与 `^0.30` 约束冲突 → **该豁免当前确无免重建的升级路径，只能等上游放宽约束**，原攻击面分析（后端不打开外部 SQLite 文件、生产走 PG）保持不变。
+
+**⑤ 本地门禁与一个环境阻塞（如实记录）**
+
+`cargo fmt --all -- --check` ✅、`cargo clippy --all-targets -- -D warnings` ✅、`cargo check --all-targets` ✅。首次 `cargo test --all-features` 却 **exit 101**：11 个测试 binary 全部同一错误 `ld.exe: final link failed: No space left on device` —— **D 盘只剩 0.19 GB**，与代码无关（idna 1.x 引入 ICU 数据集使每个测试 exe 涨到约 330 MB，`target/debug/deps` 累积 316 个历史 exe 共 103.63 GB）。清理 11/11 之前的陈旧测试 exe、并清空 D 盘回收站（其内容经 `$I` 元数据解析确认全为项目构建产物，非项目文件仅 1 项、0 字节）后 D 盘恢复到 **35.49 GB**，重跑 `cargo test --all-features` **exit 0：48 套件 / 380 passed / 0 failed / 2 ignored**（Postgres 2 项按设计 ignored，需 service 容器），与上一轮数字一致。**这是环境资源阻塞，不是代码或依赖升级引入的回归**，未跳过任何测试、未降级任何门禁。
+
+**根本事实未变**：执行体仍 `sleep(2s)`、实耗仍合成、K8s 仍 `MockK8sClient`、`DEPLOY_ENABLED` 仍关闭、真实凭据仍缺、R6 digest 仍待联网环境。
