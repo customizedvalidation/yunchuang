@@ -56,7 +56,7 @@
         @retry="refreshJobs"
       >
         <el-table :data="pagedJobs" stripe style="width: 100%" row-key="id">
-          <el-table-column prop="id" label="ID" width="80">
+          <el-table-column prop="id" label="ID" min-width="80">
             <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
           </el-table-column>
           <el-table-column label="名称" min-width="160">
@@ -64,48 +64,48 @@
               <el-button type="primary" link @click="openDetail(row)">{{ row.name }}</el-button>
             </template>
           </el-table-column>
-          <el-table-column prop="type" label="类型" width="90">
+          <el-table-column prop="type" label="类型" min-width="90">
             <template #default="{ row }">{{ row.type || '-' }}</template>
           </el-table-column>
-          <el-table-column label="状态" width="110">
+          <el-table-column label="状态" min-width="110">
             <template #default="{ row }">
               <span class="mc-status" :class="statusClass(row.status)">
                 <i class="mc-status-dot" />{{ statusText(row.status) }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column prop="priority" label="优先级" width="90">
+          <el-table-column prop="priority" label="优先级" min-width="90">
             <template #default="{ row }">
               <el-tag v-if="row.priority != null" :type="priorityTagType(row.priority)">{{ priorityText(row.priority) }}</el-tag>
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="gpus" label="GPU数" width="80">
+          <el-table-column prop="gpus" label="GPU数" min-width="80">
             <template #default="{ row }"><span class="mc-num">{{ row.gpus ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column prop="cpus" label="CPU数" width="80">
+          <el-table-column prop="cpus" label="CPU数" min-width="80">
             <template #default="{ row }"><span class="mc-num">{{ row.cpus ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column prop="memory" label="内存(GB)" width="100">
+          <el-table-column prop="memory" label="内存(GB)" min-width="100">
             <template #default="{ row }"><span class="mc-num">{{ row.memory ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="进度" width="160">
+          <el-table-column label="进度" min-width="160">
             <template #default="{ row }">
               <el-progress v-if="row.status === 'running' || row.status === 'pending'"
                 :percentage="row.progress ?? 0" :stroke-width="10" />
               <span v-else class="mc-num">{{ row.progress ?? 0 }}%</span>
             </template>
           </el-table-column>
-          <el-table-column label="分区" width="120">
+          <el-table-column label="分区" min-width="120">
             <template #default="{ row }">{{ partitionName(row.partition_id) }}</template>
           </el-table-column>
-          <el-table-column label="调度器" width="120">
+          <el-table-column label="调度器" min-width="120">
             <template #default="{ row }">
               <el-tag v-if="schedulerLabel(row.scheduler_type)">{{ schedulerLabel(row.scheduler_type) }}</el-tag>
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="created_at" label="创建时间" width="170">
+          <el-table-column prop="created_at" label="创建时间" min-width="170">
             <template #default="{ row }">{{ row.created_at || '-' }}</template>
           </el-table-column>
           <el-table-column v-if="activeTab === '/job/history'" label="错误信息" min-width="160">
@@ -382,18 +382,18 @@
           Checkpoint 记录<span v-if="latestCheckpoint" class="mc-num" style="margin-left:8px">最新：step {{ latestCheckpoint.step ?? '-' }} · {{ latestCheckpoint.size_mb ?? '-' }} MB</span>
         </el-divider>
         <el-table :data="checkpoints" size="small" stripe>
-          <el-table-column prop="id" label="ID" width="70" />
+          <el-table-column prop="id" label="ID" min-width="70" />
           <el-table-column prop="path" label="路径" min-width="200" show-overflow-tooltip />
-          <el-table-column prop="step" label="Step" width="80" />
-          <el-table-column prop="epoch" label="Epoch" width="80" />
-          <el-table-column prop="size_mb" label="大小(MB)" width="100" />
-          <el-table-column prop="format" label="格式" width="110" />
-          <el-table-column label="状态" width="110">
+          <el-table-column prop="step" label="Step" min-width="80" />
+          <el-table-column prop="epoch" label="Epoch" min-width="80" />
+          <el-table-column prop="size_mb" label="大小(MB)" min-width="100" />
+          <el-table-column prop="format" label="格式" min-width="110" />
+          <el-table-column label="状态" min-width="110">
             <template #default="{ row }">
               <el-tag :type="checkpointTagType(row.status)">{{ row.status || '-' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="最新" width="80">
+          <el-table-column label="最新" min-width="80">
             <template #default="{ row }">
               <el-tag v-if="row.is_latest" type="success">最新</el-tag>
             </template>
@@ -701,7 +701,7 @@ async function openDetail(row: Job) {
 /* 窄屏弹窗兜底：EP width 属性保持，max-width 约束溢出 */
 :deep(.el-dialog) { max-width: 92vw; }
 /* 操作列 link 按钮触控目标扩容（视觉紧凑，命中区≥32px） */
-:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }
+:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 44px; }
 
 .auto-refresh-hint {
   display: inline-flex;

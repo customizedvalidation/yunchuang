@@ -52,33 +52,33 @@
       >
         <el-table :data="pagedResources" row-key="id" stripe style="width: 100%">
           <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip />
-          <el-table-column label="类型" width="100">
+          <el-table-column label="类型" min-width="100">
             <template #default="{ row }">
               <el-tag type="info" size="small">
                 {{ typeLabel(row.type) }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="100">
+          <el-table-column label="状态" min-width="100">
             <template #default="{ row }">
               <el-tag :type="statusTagType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="总量" width="100" align="right">
+          <el-table-column label="总量" min-width="100" align="right">
             <template #default="{ row }"><span class="mc-num">{{ row.total ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="已用" width="100" align="right">
+          <el-table-column label="已用" min-width="100" align="right">
             <template #default="{ row }"><span class="mc-num">{{ row.used ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="可用" width="100" align="right">
+          <el-table-column label="可用" min-width="100" align="right">
             <template #default="{ row }"><span class="mc-num">{{ row.available ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="利用率" width="160">
+          <el-table-column label="利用率" min-width="160">
             <template #default="{ row }">
               <el-progress :percentage="Math.round(row.utilization ?? 0)" :stroke-width="10" :show-text="true" />
             </template>
           </el-table-column>
-          <el-table-column label="厂商" width="110">
+          <el-table-column label="厂商" min-width="110">
             <template #default="{ row }">
               <el-tag v-if="row.vendor" :type="vendorTagType(row.vendor)" size="small">
                 {{ vendorLabel(row.vendor) }}
@@ -86,7 +86,7 @@
               <el-tag v-else size="small">通用</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="gpu_model" label="型号" width="130">
+          <el-table-column prop="gpu_model" label="型号" min-width="130">
             <template #default="{ row }">{{ row.gpu_model || '-' }}</template>
           </el-table-column>
           <el-table-column label="操作" width="100" fixed="right">
@@ -148,6 +148,7 @@
 </template>
 
 <script setup lang="ts">
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { computed, reactive, ref, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -163,48 +164,16 @@ const { data, loading, error, refetch } = useFetch<Resource[]>(() => resourceApi
 const resourcesData = computed(() => data.value ?? [])
 
 // ---------- 自动轮询（动态呈现：数据按周期自动刷新，复用 useFetch 的 refetch） ----------
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
+// 倒计时 / setInterval / visibilitychange / 生命周期清理统一收口到 useAutoRefresh。
+const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(refetch)
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
 
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refetch()
-    }
-  }, 1000)
-}
 
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refetch()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
 
 onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 // ---------- 搜索 / 类型筛选 ----------
@@ -343,7 +312,7 @@ function statusTagType(status?: string): 'success' | 'warning' | 'danger' | 'inf
   gap: var(--mc-gap);
 }
 .gpu-stat-label { font-size: 13px; color: var(--mc-text-3); margin-bottom: 6px; }
-.gpu-stat-value { font-size: 28px; font-weight: 680; color: var(--mc-text-1); }
+.gpu-stat-value { font-size: 28px; font-weight: var(--mc-fw-semibold); color: var(--mc-text-1); }
 .gpu-stat-unit { font-size: 14px; font-weight: 400; color: var(--mc-text-3); margin-left: 4px; }
 
 .toolbar { display: flex; gap: var(--mc-gap); margin-bottom: var(--mc-gap); flex-wrap: wrap; }

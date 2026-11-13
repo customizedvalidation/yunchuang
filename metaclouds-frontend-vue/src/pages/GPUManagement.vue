@@ -123,50 +123,50 @@
         @retry="refreshAll"
       >
         <el-table :data="pagedData" stripe border style="width: 100%">
-          <el-table-column prop="id" label="ID" width="70">
+          <el-table-column prop="id" label="ID" min-width="70">
             <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
           </el-table-column>
-          <el-table-column label="节点名" width="150">
+          <el-table-column label="节点名" min-width="150">
             <template #default="{ row }">
               <el-button link type="primary" @click="detailDevice = row">{{ row.node_name }}</el-button>
             </template>
           </el-table-column>
-          <el-table-column label="厂商" width="110">
+          <el-table-column label="厂商" min-width="110">
             <template #default="{ row }">
               <el-tag :type="vendorTagType(row.vendor)" size="small">{{ vendorLabel(row.vendor) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="model" label="型号" width="110" />
-          <el-table-column label="索引" width="80">
+          <el-table-column prop="model" label="型号" min-width="110" />
+          <el-table-column label="索引" min-width="80">
             <template #default="{ row }"><span class="mc-num">{{ row.index ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="总显存(GB)" width="110">
+          <el-table-column label="总显存(GB)" min-width="110">
             <template #default="{ row }"><span class="mc-num">{{ row.total_memory_gb ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="已用显存(GB)" width="120">
+          <el-table-column label="已用显存(GB)" min-width="120">
             <template #default="{ row }"><span class="mc-num">{{ row.used_memory_gb ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="MIG" width="80">
+          <el-table-column label="MIG" min-width="80">
             <template #default="{ row }">
               <el-tag :type="row.mig_enabled ? 'primary' : 'info'" size="small">{{ row.mig_enabled ? '开启' : '关闭' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="driver_version" label="驱动版本" width="110" />
-          <el-table-column prop="cuda_version" label="CUDA版本" width="100" />
-          <el-table-column label="状态" width="100">
+          <el-table-column prop="driver_version" label="驱动版本" min-width="110" />
+          <el-table-column prop="cuda_version" label="CUDA版本" min-width="100" />
+          <el-table-column label="状态" min-width="100">
             <template #default="{ row }">
               <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="利用率" width="140">
+          <el-table-column label="利用率" min-width="140">
             <template #default="{ row }">
               <el-progress :percentage="row.utilization ?? 0" :stroke-width="8" />
             </template>
           </el-table-column>
-          <el-table-column label="温度(°C)" width="90">
+          <el-table-column label="温度(°C)" min-width="90">
             <template #default="{ row }"><span class="mc-num">{{ row.temperature ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="功耗(W)" width="90">
+          <el-table-column label="功耗(W)" min-width="90">
             <template #default="{ row }"><span class="mc-num">{{ row.power_draw ?? '-' }}</span></template>
           </el-table-column>
           <el-table-column label="操作" width="240" fixed="right">
@@ -337,28 +337,28 @@
     <el-drawer v-model="allocDrawerVisible" title="GPU 分配记录" size="720px">
       <el-alert v-if="currentAllocations.length === 0" type="info" :closable="false" title="暂无分配记录" />
       <el-table v-else :data="currentAllocations" size="small" stripe>
-        <el-table-column prop="device_id" label="设备ID" width="90" />
-        <el-table-column prop="job_id" label="作业ID" width="90" />
-        <el-table-column label="分配粒度" width="110">
+        <el-table-column prop="device_id" label="设备ID" min-width="90" />
+        <el-table-column prop="job_id" label="作业ID" min-width="90" />
+        <el-table-column label="分配粒度" min-width="110">
           <template #default="{ row }">
             <el-tag type="primary" size="small">
               {{ row.fraction >= 1 ? '1 GPU' : row.fraction === 0.5 ? '1/2 GPU' : row.fraction === 0.25 ? '1/4 GPU' : `${row.fraction} GPU` }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="显存(GB)" width="100">
+        <el-table-column label="显存(GB)" min-width="100">
           <template #default="{ row }"><span class="mc-num">{{ row.memory_gb ?? '-' }}</span></template>
         </el-table-column>
-        <el-table-column prop="mig_profile" label="MIG Profile" width="130">
+        <el-table-column prop="mig_profile" label="MIG Profile" min-width="130">
           <template #default="{ row }">{{ row.mig_profile ?? '-' }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column label="状态" min-width="100">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="started_at" label="开始时间" width="170" />
-        <el-table-column label="操作" width="90">
+        <el-table-column prop="started_at" label="开始时间" min-width="170" />
+        <el-table-column label="操作" min-width="90">
           <template #default="{ row }">
             <Can v-if="row.status === 'active'" :roles="['admin', 'manager']">
               <el-popconfirm title="释放该分配？" confirm-button-text="释放" cancel-button-text="取消" @confirm="releaseAllocation(row)">
@@ -386,6 +386,7 @@
 </template>
 
 <script setup lang="ts">
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -518,55 +519,23 @@ const fracHalf = computed(() => allocationsData.value.filter((a) => a.fraction =
 const fracQuarter = computed(() => allocationsData.value.filter((a) => a.fraction === 0.25).length)
 
 // ---------- 自动轮询（动态呈现：表格与统计按周期自动刷新） ----------
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
+// 倒计时 / setInterval / visibilitychange / 生命周期清理统一收口到 useAutoRefresh。
+const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(refreshAll)
 
 function refreshAll() {
   devices.refetch()
   allocations.refetch()
   // 手动/自动刷新均重置自动刷新倒计时
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  resetCountdown()
 }
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
 
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refreshAll()
-    }
-  }, 1000)
-}
 
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refreshAll()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
 
 onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 /** 设为维护模式 */
@@ -754,7 +723,7 @@ const detailRows = computed(() => {
 <style scoped>
 .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .stat-label { font-size: 12.5px; color: var(--mc-text-3); margin-bottom: 6px; }
-.stat-value { font-size: 24px; font-weight: 660; color: var(--mc-text-1); }
+.stat-value { font-size: 24px; font-weight: var(--mc-fw-semibold); color: var(--mc-text-1); }
 .stat-unit { font-size: 12px; font-weight: 500; color: var(--mc-text-3); }
 .auto-refresh-hint {
   display: inline-flex;
@@ -793,5 +762,5 @@ const detailRows = computed(() => {
 :deep(.el-dialog) { max-width: 92vw; }
 :deep(.el-drawer) { max-width: 92vw; }
 /* 操作列 link 按钮触控目标扩容 */
-:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }
+:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 44px; }
 </style>

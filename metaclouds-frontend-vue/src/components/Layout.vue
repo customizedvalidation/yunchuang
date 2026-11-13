@@ -3,7 +3,7 @@
     <Sidebar :collapsed="collapsed" @collapse="collapsed = $event" />
     <div class="mc-app-main">
       <Topbar @menu-click="mobileOpen = true" @refresh="refreshPage" />
-      <main class="mc-app-content">
+      <main id="mc-main" class="mc-app-content" tabindex="-1">
         <ErrorBoundary>
           <router-view v-slot="{ Component }">
             <transition name="fade" mode="out-in">
@@ -53,6 +53,7 @@ function refreshPage() {
 </script>
 
 <style scoped>
-.fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.fade-enter-active, .fade-leave-active { transition: opacity var(--mc-t-fast) var(--mc-ease), transform var(--mc-t-fast) var(--mc-ease); }
+.fade-enter-from { opacity: 0; transform: translateY(4px); }
+.fade-leave-to { opacity: 0; }
 </style>

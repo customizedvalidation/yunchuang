@@ -1,6 +1,8 @@
 <template>
   <!-- 按需注册后语言包经 ConfigProvider 注入（原全量 install 的 locale 选项） -->
   <el-config-provider :locale="zhCn">
+    <!-- 键盘用户的第一个可聚焦元素：跳过整条侧边栏直达内容区 -->
+    <a class="mc-skip-link" href="#mc-main">跳到主要内容</a>
     <!-- 常驻演示模式横幅：由后端 /system/mode 驱动，覆盖登录页与全部业务页 -->
     <ModeBanner />
     <router-view />

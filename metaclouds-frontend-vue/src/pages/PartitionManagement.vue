@@ -36,52 +36,52 @@
         @retry="refreshPartitions"
       >
         <el-table :data="pagedData" stripe border style="width: 100%">
-          <el-table-column label="ID" width="70">
+          <el-table-column label="ID" min-width="70">
             <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
           </el-table-column>
-          <el-table-column prop="name" label="名称" width="140" />
-          <el-table-column label="集群" width="120">
+          <el-table-column prop="name" label="名称" min-width="140" />
+          <el-table-column label="集群" min-width="120">
             <template #default="{ row }">{{ clusterName(row.cluster_id) }}</template>
           </el-table-column>
           <el-table-column prop="description" label="描述" show-overflow-tooltip />
-          <el-table-column label="优先级" width="80">
+          <el-table-column label="优先级" min-width="80">
             <template #default="{ row }"><span class="mc-num">{{ row.priority }}</span></template>
           </el-table-column>
-          <el-table-column label="最大运行(分钟)" width="130">
+          <el-table-column label="最大运行(分钟)" min-width="130">
             <template #default="{ row }">
               <span v-if="!row.max_runtime_minutes" class="mc-empty-mini">无限</span>
               <span v-else class="mc-num">{{ row.max_runtime_minutes }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="节点数" width="80">
+          <el-table-column label="节点数" min-width="80">
             <template #default="{ row }"><span class="mc-num">{{ row.node_count ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="CPU限制" width="90">
+          <el-table-column label="CPU限制" min-width="90">
             <template #default="{ row }"><span class="mc-num">{{ row.cpu_limit ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="GPU数" width="80">
+          <el-table-column label="GPU数" min-width="80">
             <template #default="{ row }"><span class="mc-num">{{ row.gpu_count ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="GPU厂商" width="100">
+          <el-table-column label="GPU厂商" min-width="100">
             <template #default="{ row }"><el-tag size="small" v-if="row.gpu_vendor">{{ row.gpu_vendor }}</el-tag><span v-else>-</span></template>
           </el-table-column>
-          <el-table-column label="调度器类型" width="120">
+          <el-table-column label="调度器类型" min-width="120">
             <template #default="{ row }">
               <el-tag v-if="schedulerOpt(row.scheduler_type)" type="info" size="small">{{ schedulerOpt(row.scheduler_type) }}</el-tag>
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="100">
+          <el-table-column label="状态" min-width="100">
             <template #default="{ row }">
               <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="允许共享" width="90">
+          <el-table-column label="允许共享" min-width="90">
             <template #default="{ row }">
               <el-tag :type="row.allow_sharing ? 'success' : 'info'" size="small">{{ row.allow_sharing ? '是' : '否' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="default_qos" label="默认QoS" width="100" />
+          <el-table-column prop="default_qos" label="默认QoS" min-width="100" />
           <el-table-column label="操作" width="300" fixed="right">
             <template #default="{ row }">
               <Can :roles="['admin', 'manager']">
@@ -265,19 +265,19 @@
       </el-form>
 
       <el-table :data="permissionsData" size="small" stripe>
-        <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column label="主体类型" width="110">
+        <el-table-column prop="id" label="ID" min-width="70" />
+        <el-table-column label="主体类型" min-width="110">
           <template #default="{ row }">
             <el-tag size="small">{{ row.principal_type === 'user' ? '用户' : '用户组' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="principal_id" label="主体ID" width="100" />
-        <el-table-column label="访问级别" width="110">
+        <el-table-column prop="principal_id" label="主体ID" min-width="100" />
+        <el-table-column label="访问级别" min-width="110">
           <template #default="{ row }">
             <el-tag :type="accessType(row.access_level)" size="small">{{ row.access_level }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="90">
+        <el-table-column label="操作" min-width="90">
           <template #default="{ row }">
             <Can :roles="['admin', 'manager']">
               <el-popconfirm title="移除此权限？" confirm-button-text="确认" cancel-button-text="取消" @confirm="removePermission(row.id)">
@@ -294,6 +294,7 @@
 </template>
 
 <script setup lang="ts">
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -385,53 +386,21 @@ watch(filteredPartitions, () => (currentPage.value = 1))
 
 // ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
 // 复用页面已有主数据 refetch（partitions）；手动/自动刷新均重置倒计时。
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
+// 倒计时 / setInterval / visibilitychange / 生命周期清理统一收口到 useAutoRefresh。
+const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(refreshPartitions)
 
 function refreshPartitions() {
   partitions.refetch()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  resetCountdown()
 }
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
 
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refreshPartitions()
-    }
-  }, 1000)
-}
 
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refreshPartitions()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
 
 onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 // ---------- 表单 ----------
@@ -629,5 +598,5 @@ async function removePermission(id: number) {
 }
 :deep(.el-dialog) { max-width: 92vw; }
 :deep(.el-drawer) { max-width: 92vw; }
-:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }
+:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 44px; }
 </style>

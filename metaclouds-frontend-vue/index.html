@@ -2,9 +2,35 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#0f1826" />
+    <meta name="description" content="Metaclouds 企业级算力调度平台 — 统一管理多集群 GPU 资源，提供从训练到推理的全链路算力服务。" />
     <title>Metaclouds 算力调度平台</title>
+    <!--
+      主题防闪（FOUC）：必须在任何样式表之前同步执行。
+      main.ts 的 initTheme() 会再同步一次 Vue 侧状态并注册系统偏好监听，
+      两者取值口径一致（src/theme/useTheme.ts 是唯一真源）。
+    -->
+    <script>
+      (function () {
+        try {
+          var mode = localStorage.getItem('mc-theme');
+          if (mode !== 'light' && mode !== 'dark' && mode !== 'system') mode = 'system';
+          var dark = mode === 'dark' ||
+            (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var root = document.documentElement;
+          root.setAttribute('data-theme', dark ? 'dark' : 'light');
+          root.classList.toggle('dark', dark);
+          root.style.colorScheme = dark ? 'dark' : 'light';
+          var color = document.querySelector('meta[name="theme-color"]');
+          if (color) color.setAttribute('content', dark ? '#0b111c' : '#0f1826');
+        } catch (e) {
+          /* 存储 / matchMedia 不可用时保持浅色，不阻断渲染 */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

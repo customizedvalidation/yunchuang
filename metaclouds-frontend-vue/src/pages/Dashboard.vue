@@ -36,8 +36,8 @@
           class="kpi-card"
           :aria-label="`${card.title}，点击查看详情`"
         >
-          <div class="kpi-icon" :style="{ background: card.bg }">
-            <el-icon :size="22" color="#fff"><component :is="card.icon" /></el-icon>
+          <div class="kpi-icon" :style="{ background: card.bg, color: card.iconColor }">
+            <el-icon :size="20"><component :is="card.icon" /></el-icon>
           </div>
           <div class="kpi-body">
             <div class="kpi-title">{{ card.title }}</div>
@@ -83,7 +83,7 @@
               </div>
             </template>
             <div v-if="gpuTotal > 0" ref="resourceChartRef" class="chart-box" />
-            <el-empty v-else description="暂无资源数据" :image-size="80" />
+            <McEmpty v-else description="暂无资源数据" :size="80" />
           </el-card>
         </el-col>
         <el-col :xs="24" :sm="24" :md="8">
@@ -98,7 +98,7 @@
               </div>
             </template>
             <div v-if="jobStatusData.length > 0" ref="jobChartRef" class="chart-box" />
-            <el-empty v-else description="还没有作业" :image-size="80" />
+            <McEmpty v-else description="还没有作业" :size="80" />
           </el-card>
         </el-col>
         <el-col :xs="24" :sm="24" :md="8">
@@ -113,7 +113,7 @@
               </div>
             </template>
             <div v-if="gpuVendorData.length > 0" ref="vendorChartRef" class="chart-box" />
-            <el-empty v-else description="暂无 GPU 设备" :image-size="80" />
+            <McEmpty v-else description="暂无 GPU 设备" :size="80" />
           </el-card>
         </el-col>
       </el-row>
@@ -129,9 +129,9 @@
             </span>
           </div>
         </template>
-        <el-empty v-if="alertsData.length === 0" description="暂无告警，系统运行正常" :image-size="80" />
+        <McEmpty v-if="alertsData.length === 0" description="暂无告警，系统运行正常" :size="80" />
         <ul v-else class="alert-list">
-          <li v-for="item in topAlerts" :key="item.id" class="alert-item">
+          <li v-for="item in topAlerts" :key="item.id" class="alert-item" :class="alertLevelClass(item.level)">
             <div class="alert-line">
               <span class="mc-status" :class="alertLevelClass(item.level)">
                 <i class="mc-status-dot" />
@@ -148,22 +148,27 @@
 </template>
 
 <script setup lang="ts">
+import McEmpty from '@/components/McEmpty.vue'
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Refresh, Coin, Cloudy, Timer, Bell, UserFilled, Grid, Operation, ArrowRight } from '@element-plus/icons-vue'
 import PageState from '@/components/PageState.vue'
 import CountUp from '@/components/CountUp.vue'
 // 经 @/theme/echarts 统一入口引入（已按需 use() 注册，勿直接引 'echarts' 全量包）
-import { registerMcLightTheme, palette, echarts } from '@/theme/echarts'
+import {
+  registerMcThemes,
+  chartThemeName,
+  onChartThemeChange,
+  activeColorTokens,
+  activePalette,
+  palette,
+  echarts,
+} from '@/theme/echarts'
 import type { ECharts } from 'echarts/core'
-import { colorTokens } from '@/theme/tokens'
 
-// 注册 MDS 图表主题（幂等）；所有 ECharts 实例统一使用 'mc-light'。
-// 测试环境 echarts 被 mock（仅 init），无 registerTheme，此处静默降级。
-try {
-  registerMcLightTheme()
-} catch {
-  /* noop in test env */
-}
+// 注册 light / dark 两套 MDS 图表主题（幂等）；实例主题名由 chartThemeName 决定。
+// 测试环境 echarts 被 mock 时 registerTheme 可能缺失，模块内已静默降级。
+registerMcThemes()
 import {
   clusterApi,
   resourceApi,
@@ -219,43 +224,15 @@ function refetchAll() {
   schedulersF.refetch()
   tenantsF.refetch()
   // 手动/自动刷新均重置自动刷新倒计时
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  resetCountdown()
 }
 
 // ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
+// 倒计时 / setInterval / visibilitychange / 生命周期清理统一收口到 useAutoRefresh。
+const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(refetchAll)
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
 
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refetchAll()
-    }
-  }, 1000)
-}
 
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refetchAll()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
 
 // ---------- 时间范围 ----------
 const range = ref<'today' | '7d' | '30d'>('7d')
@@ -294,7 +271,8 @@ const kpiCards = computed(() => [
     value: clustersData.value.length,
     suffix: ' 个',
     icon: Coin,
-    bg: 'var(--mc-brand-grad)',
+    bg: 'var(--mc-brand-subtle)',
+    iconColor: 'var(--mc-brand-fg)',
     footer: '统一纳管的计算集群',
     to: '/cluster',
   },
@@ -303,7 +281,8 @@ const kpiCards = computed(() => [
     value: utilization.value,
     suffix: '%',
     icon: Cloudy,
-    bg: 'var(--mc-brand-grad)',
+    bg: 'var(--mc-brand-subtle)',
+    iconColor: 'var(--mc-brand-fg)',
     footer: `已用 ${gpuUsed.value} / 共 ${gpuTotal.value}`,
     to: '/gpus',
     ring: true,
@@ -313,7 +292,8 @@ const kpiCards = computed(() => [
     value: runningJobs.value,
     suffix: ` / ${totalJobs.value}`,
     icon: Timer,
-    bg: 'var(--mc-brand-grad)',
+    bg: 'var(--mc-brand-subtle)',
+    iconColor: 'var(--mc-brand-fg)',
     footer: `排队中 ${pendingJobs.value} 个`,
     to: '/job',
   },
@@ -322,7 +302,8 @@ const kpiCards = computed(() => [
     value: alertCount.value,
     suffix: ' 条',
     icon: Bell,
-    bg: alertCount.value > 0 ? 'var(--mc-danger-fg)' : 'var(--mc-brand-grad)',
+    bg: alertCount.value > 0 ? 'var(--mc-danger-soft)' : 'var(--mc-brand-subtle)',
+    iconColor: alertCount.value > 0 ? 'var(--mc-danger-fg)' : 'var(--mc-brand-fg)',
     footer: alertCount.value > 0 ? '需要关注' : '运行正常',
     footerDanger: alertCount.value > 0,
     to: '/monitoring',
@@ -332,7 +313,8 @@ const kpiCards = computed(() => [
     value: tenants.value.length,
     suffix: ' 个',
     icon: UserFilled,
-    bg: 'var(--mc-brand-grad)',
+    bg: 'var(--mc-brand-subtle)',
+    iconColor: 'var(--mc-brand-fg)',
     footer: '多租户资源隔离与配额',
     to: '/tenant',
   },
@@ -341,7 +323,8 @@ const kpiCards = computed(() => [
     value: partitionStats.value.total,
     suffix: ' 个',
     icon: Grid,
-    bg: 'var(--mc-brand-grad)',
+    bg: 'var(--mc-brand-subtle)',
+    iconColor: 'var(--mc-brand-fg)',
     footer: `活跃 ${partitionStats.value.active} · 维护 ${partitionStats.value.maintenance}`,
     to: '/partitions',
   },
@@ -350,7 +333,8 @@ const kpiCards = computed(() => [
     value: schedulerStats.value.total,
     suffix: ' 个',
     icon: Operation,
-    bg: 'var(--mc-brand-grad)',
+    bg: 'var(--mc-brand-subtle)',
+    iconColor: 'var(--mc-brand-fg)',
     footer: `活跃 ${schedulerStats.value.active}${schedulerStats.value.error > 0 ? ` · 异常 ${schedulerStats.value.error}` : ''}`,
     to: '/schedulers',
   },
@@ -434,15 +418,39 @@ const gpuVendorData = computed(() => {
 function pieOption(data: unknown[], tooltipFmt: string) {
   return {
     tooltip: { trigger: 'item' as const, formatter: tooltipFmt },
-    legend: { bottom: 0, itemWidth: 10, itemHeight: 10 },
+    legend: {
+      bottom: 0,
+      type: 'scroll' as const,
+      itemWidth: 10,
+      itemHeight: 10,
+      itemGap: 12,
+      textStyle: { color: activeColorTokens.value.neutral.text2, fontSize: 11 },
+    },
     series: [
       {
         type: 'pie' as const,
-        radius: ['52%', '74%'],
-        center: ['50%', '44%'],
+        radius: ['54%', '76%'],
+        center: ['50%', '45%'],
         avoidLabelOverlap: true,
-        itemStyle: { borderRadius: 8, borderColor: colorTokens.neutral.surface, borderWidth: 2 },
-        label: { show: true, fontSize: 12, formatter: '{d}%' },
+        itemStyle: { borderRadius: 6, borderColor: activeColorTokens.value.neutral.surface, borderWidth: 2 },
+        // v3：关闭常驻外部百分比标签。GPU 厂商有 9 类，3%~5% 的小占比标签会
+        // 互相重叠糊成一团；改为「图例 + tooltip + hover 时环心显示详情」，
+        // 信息不丢失，画面也干净。
+        label: { show: false },
+        labelLine: { show: false },
+        emphasis: {
+          scale: true,
+          scaleSize: 4,
+          label: {
+            show: true,
+            position: 'center' as const,
+            fontSize: 13,
+            fontWeight: 600,
+            lineHeight: 18,
+            color: activeColorTokens.value.neutral.text1,
+            formatter: '{b}\n{d}%',
+          },
+        },
         data,
       },
     ],
@@ -452,8 +460,8 @@ function pieOption(data: unknown[], tooltipFmt: string) {
 const resourceOption = computed(() =>
   pieOption(
     [
-      { value: gpuUsed.value, name: '已使用', itemStyle: { color: palette[0] } },
-      { value: Math.max(gpuTotal.value - gpuUsed.value, 0), name: '可分配', itemStyle: { color: colorTokens.neutral.line } },
+      { value: gpuUsed.value, name: '已使用', itemStyle: { color: activePalette.value[0] } },
+      { value: Math.max(gpuTotal.value - gpuUsed.value, 0), name: '可分配', itemStyle: { color: activeColorTokens.value.neutral.line } },
     ],
     '{b}: {c} ({d}%)',
   ),
@@ -469,6 +477,7 @@ let jobChart: ECharts | null = null
 let vendorChart: ECharts | null = null
 
 let resizeObserver: ResizeObserver | null = null
+let stopThemeWatch: (() => void) | null = null
 
 function resizeCharts() {
   resourceChart?.resize()
@@ -481,17 +490,17 @@ function resizeCharts() {
 // v-if 容器尚未挂载导致 ref 为空、echarts 永不初始化的时序竞争。
 function syncCharts() {
   if (resourceChartRef.value && !resourceChart) {
-    resourceChart = echarts.init(resourceChartRef.value, 'mc-light')
+    resourceChart = echarts.init(resourceChartRef.value, chartThemeName.value)
   }
   if (resourceChart) resourceChart.setOption(resourceOption.value, true)
 
   if (jobChartRef.value && jobStatusData.value.length > 0 && !jobChart) {
-    jobChart = echarts.init(jobChartRef.value, 'mc-light')
+    jobChart = echarts.init(jobChartRef.value, chartThemeName.value)
   }
   if (jobChart) jobChart.setOption(jobOption.value, true)
 
   if (vendorChartRef.value && gpuVendorData.value.length > 0 && !vendorChart) {
-    vendorChart = echarts.init(vendorChartRef.value, 'mc-light')
+    vendorChart = echarts.init(vendorChartRef.value, chartThemeName.value)
   }
   if (vendorChart) vendorChart.setOption(vendorOption.value, true)
 }
@@ -501,31 +510,56 @@ async function syncChartsAfterTick() {
   syncCharts()
 }
 
+/**
+ * 主题切换时 ECharts 实例不会热更新（init 已把主题色固化），必须整体重建：
+ * dispose → 置 null → 重新走 syncCharts() 用 chartThemeName.value 初始化。
+ * option 里的中性色来自 activeColorTokens（computed），会随之自动重算。
+ */
+function rebuildChartsForTheme() {
+  resourceChart?.dispose()
+  jobChart?.dispose()
+  vendorChart?.dispose()
+  resourceChart = null
+  jobChart = null
+  vendorChart = null
+  void syncChartsAfterTick()
+}
+
 onMounted(async () => {
   await syncChartsAfterTick()
+  stopThemeWatch = onChartThemeChange(rebuildChartsForTheme)
   window.addEventListener('resize', resizeCharts)
   // 主内容区尺寸变化（侧栏折叠 / 响应式断点切换）时自适应重绘
   resizeObserver = new ResizeObserver(() => resizeCharts())
   const content = document.querySelector('.mc-app-content')
   if (content) resizeObserver.observe(content)
-  // 动态呈现：启动自动轮询，页面隐藏时暂停、回到前台立即刷新
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
+  stopThemeWatch?.()
   window.removeEventListener('resize', resizeCharts)
   resizeObserver?.disconnect()
   resourceChart?.dispose()
   jobChart?.dispose()
   vendorChart?.dispose()
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 watch(resourceOption, syncChartsAfterTick, { flush: 'post' })
 watch(jobStatusData, syncChartsAfterTick, { flush: 'post' })
 watch(gpuVendorData, syncChartsAfterTick, { flush: 'post' })
+
+/**
+ * 兜底：图表容器由 v-if 控制，只有数据到位后才挂载。整页直接加载 /dashboard 时，
+ * PageState 仍显示骨架屏，上面的数据 watch 可能早于容器挂载触发，
+ * 于是 syncCharts() 里 ref 为空 → echarts 永不 init，卡片留下空白。
+ * 显式监听容器 ref（flush:'post' 保证 DOM 已更新），挂载后补一次初始化。
+ * 该问题在「先到登录页再由守卫跳转」路径下不会复现，故此前目视核验漏掉了。
+ */
+watch(
+  [resourceChartRef, jobChartRef, vendorChartRef],
+  () => void syncChartsAfterTick(),
+  { flush: 'post' },
+)
 
 // ---------- 告警 ----------
 const topAlerts = computed(() => alertsData.value.slice(0, 6))
@@ -540,91 +574,83 @@ function alertLevelClass(level?: string) {
 </script>
 
 <style scoped>
+/* v3：显式列数保证 7 张卡在任意宽度下都成整齐网格，避免 auto-fit 留下半行空位 */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--mc-gap);
 }
+@media (max-width: 1400px) { .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1023px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px)  { .kpi-grid { grid-template-columns: minmax(0, 1fr); } }
+/* 固定 7 张卡：末张补齐末行剩余列，消除「4+3 右侧空一格」的半行破面。
+   各断点分别对应 4 / 3 / 2 列，列对齐保持不变。 */
+@media (min-width: 1401px) { .kpi-card:nth-child(7):last-child { grid-column: span 2; } }
+@media (min-width: 1024px) and (max-width: 1400px) { .kpi-card:nth-child(7):last-child { grid-column: span 3; } }
+@media (min-width: 641px) and (max-width: 1023px) { .kpi-card:nth-child(7):last-child { grid-column: span 2; } }
+
 .kpi-card {
   position: relative;
   background: var(--mc-surface);
-  border-radius: var(--mc-radius-lg);
-  box-shadow: var(--mc-shadow-raised-sm);
-  padding: var(--mc-gap);
+  border: 1px solid var(--mc-line);
+  border-radius: var(--mc-radius-md);
+  box-shadow: var(--mc-shadow-1);
+  padding: var(--mc-space-4);
   display: flex;
   align-items: center;
-  gap: var(--mc-gap);
-  /* 可点击卡片：默认与品牌色一致的细边框，hover 上浮 + 描边强化 */
-  border: 1px solid transparent;
+  gap: var(--mc-space-3);
   text-decoration: none;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
-  outline-offset: 2px;
+  color: inherit;
+  min-width: 0;
+  transition: border-color var(--mc-t-fast) var(--mc-ease), box-shadow var(--mc-t-fast) var(--mc-ease), transform var(--mc-t-fast) var(--mc-ease);
 }
 .kpi-card:hover,
 .kpi-card:focus-visible {
   border-color: var(--mc-brand);
-  box-shadow: 0 8px 24px var(--mc-brand-15, rgba(47, 107, 255, 0.15));
-  transform: translateY(-2px);
+  box-shadow: var(--mc-shadow-3);
+  transform: translateY(-1px);
 }
-.kpi-card:active {
-  transform: translateY(0);
-}
+.kpi-card:active { transform: none; }
 .kpi-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--mc-radius-md);
+  width: 38px;
+  height: 38px;
+  border-radius: var(--mc-radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 .kpi-body { flex: 1; min-width: 0; }
-.kpi-title { font-size: 13px; color: var(--mc-text-3); margin-bottom: 2px; }
-.kpi-value { font-size: 26px; font-weight: 680; letter-spacing: -0.5px; color: var(--mc-text-1); }
-.kpi-suffix { font-size: 14px; font-weight: 400; color: var(--mc-text-3); }
-.kpi-footer { font-size: 12.5px; color: var(--mc-text-3); margin-top: 4px; }
-.kpi-footer.is-danger { color: var(--mc-danger-fg); font-weight: 500; }
+.kpi-title { font-size: var(--mc-fs-xs); font-weight: var(--mc-fw-medium); color: var(--mc-text-3); margin-bottom: 2px; letter-spacing: 0.01em; }
+.kpi-value { font-size: 28px; font-weight: var(--mc-fw-semibold); letter-spacing: -0.03em; line-height: 1.2; color: var(--mc-text-1); font-variant-numeric: tabular-nums; }
+.kpi-suffix { font-size: var(--mc-fs-sm); font-weight: var(--mc-fw-regular); color: var(--mc-text-3); }
+.kpi-footer { font-size: var(--mc-fs-xs); color: var(--mc-text-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-footer.is-danger { color: var(--mc-danger-fg); font-weight: var(--mc-fw-medium); }
 .kpi-go {
   position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
+  right: 8px;
+  top: 8px;
   color: var(--mc-text-3);
   opacity: 0;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity var(--mc-t-fast) var(--mc-ease), color var(--mc-t-fast) var(--mc-ease);
 }
 .kpi-card:hover .kpi-go,
-.kpi-card:focus-visible .kpi-go {
-  opacity: 1;
-  transform: translateY(-50%) translateX(2px);
-  color: var(--mc-brand);
-}
+.kpi-card:focus-visible .kpi-go { opacity: 1; color: var(--mc-brand-text); }
+
 /* GPU 利用率动态环 */
-.kpi-ring {
-  width: 46px;
-  height: 46px;
-  flex-shrink: 0;
-  transform: rotate(-90deg);
-}
-.kpi-ring-bg {
-  fill: none;
-  stroke: var(--mc-line);
-  stroke-width: 4;
-}
+.kpi-ring { width: 42px; height: 42px; flex-shrink: 0; transform: rotate(-90deg); }
+.kpi-ring-bg { fill: none; stroke: var(--mc-line); stroke-width: 4; }
 .kpi-ring-fg {
   fill: none;
   stroke: var(--mc-brand);
   stroke-width: 4;
   stroke-linecap: round;
-  transition: stroke-dashoffset 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: stroke-dashoffset 0.9s var(--mc-ease);
 }
 .kpi-ring-text {
   fill: var(--mc-text-1);
   font-size: 10px;
-  font-weight: 650;
+  font-weight: var(--mc-fw-semibold);
   transform: rotate(90deg);
   transform-origin: 22px 22px;
   text-anchor: middle;
@@ -654,29 +680,37 @@ function alertLevelClass(level?: string) {
   50% { opacity: 1; transform: scale(1.15); }
 }
 
-.chart-box { height: 280px; }
-.chart-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.chart-card-head-right { display: inline-flex; align-items: center; gap: 12px; }
-.chart-card-title { margin: 0; font-size: var(--mc-fs-h2); font-weight: 650; color: var(--mc-text-1); }
-.chart-card-extra { font-size: 12px; color: var(--mc-text-3); font-weight: 400; }
+.chart-box { height: 260px; }
+.chart-card-head { display: flex; justify-content: space-between; align-items: center; gap: var(--mc-space-3); }
+.chart-card-head-right { display: inline-flex; align-items: center; gap: var(--mc-space-3); }
+.chart-card-title { margin: 0; font-size: var(--mc-fs-md); font-weight: var(--mc-fw-semibold); letter-spacing: -0.01em; color: var(--mc-text-1); }
+.chart-card-extra { font-size: var(--mc-fs-xs); color: var(--mc-text-3); }
 .chart-card-more {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--mc-brand);
+  font-size: var(--mc-fs-xs);
+  font-weight: var(--mc-fw-medium);
+  color: var(--mc-brand-text);
   text-decoration: none;
-  transition: color 0.2s ease;
+  transition: color var(--mc-t-fast) var(--mc-ease);
 }
-.chart-card-more:hover {
-  color: var(--mc-brand-600);
-}
+.chart-card-more:hover { color: var(--mc-brand-700); }
 
 .alert-list { list-style: none; margin: 0; padding: 0; }
-.alert-item { padding: 12px 0; border-bottom: 1px solid var(--mc-line); }
+.alert-item {
+  padding: var(--mc-space-3);
+  border-bottom: 1px solid var(--mc-line-subtle);
+  border-left: 2px solid transparent;
+  border-radius: var(--mc-radius-xs);
+  transition: background var(--mc-t-fast) var(--mc-ease);
+}
 .alert-item:last-child { border-bottom: none; }
-.alert-line { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-.alert-message { font-size: 14px; color: var(--mc-text-1); }
-.alert-detail { font-size: 12.5px; color: var(--mc-text-3); padding-left: 62px; }
+.alert-item:hover { background: var(--mc-surface-2); }
+.alert-item.failed { border-left-color: var(--mc-danger); }
+.alert-item.pending { border-left-color: var(--mc-warning); }
+.alert-item.running { border-left-color: var(--mc-brand); }
+.alert-line { display: flex; align-items: center; gap: var(--mc-space-3); margin-bottom: var(--mc-space-1); }
+.alert-message { font-size: var(--mc-fs-body); color: var(--mc-text-1); }
+.alert-detail { font-size: var(--mc-fs-xs); color: var(--mc-text-3); padding-left: 62px; }
 </style>

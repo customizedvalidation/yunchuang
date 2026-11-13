@@ -56,22 +56,22 @@
         @retry="fetchPolicies"
       >
         <el-table :data="pagedPolicies" row-key="id" border stripe style="width: 100%">
-          <el-table-column prop="id" label="ID" width="70">
+          <el-table-column prop="id" label="ID" min-width="70">
             <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
           </el-table-column>
           <el-table-column prop="name" label="名称" min-width="140" />
           <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
-          <el-table-column label="类型" width="110">
+          <el-table-column label="类型" min-width="110">
             <template #default="{ row }">
               <el-tag class="mc-chip">{{ typeLabel(row.type) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="100">
+          <el-table-column label="状态" min-width="100">
             <template #default="{ row }">
               <el-tag :type="statusTagType(row.status)">{{ row.status || '-' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="启用" width="90">
+          <el-table-column label="启用" min-width="90">
             <template #default="{ row }">
               <Can :roles="['admin']">
                 <el-switch
@@ -191,7 +191,7 @@
             </el-descriptions-item>
           </el-descriptions>
           <pre v-else-if="rulesRawText" class="rules-pre">{{ rulesRawText }}</pre>
-          <el-empty v-else description="该策略尚未配置规则。" :image-size="60" />
+          <McEmpty v-else description="该策略尚未配置规则。" :size="60" />
         </el-card>
       </template>
     </el-drawer>
@@ -199,6 +199,8 @@
 </template>
 
 <script setup lang="ts">
+import McEmpty from '@/components/McEmpty.vue'
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { ref, computed, reactive, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -229,53 +231,21 @@ const page = ref(1)
 const pageSize = ref(10)
 
 // ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
+// 倒计时 / setInterval / visibilitychange / 生命周期清理统一收口到 useAutoRefresh。
+const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(fetchPolicies)
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
 
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') fetchPolicies()
-    }
-  }, 1000)
-}
 
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    fetchPolicies()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
 
 onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 async function fetchPolicies() {
   // 手动 / 自动刷新均重置自动刷新倒计时
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  resetCountdown()
   listLoading.value = true
   listError.value = ''
   try {

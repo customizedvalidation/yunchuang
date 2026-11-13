@@ -26,6 +26,8 @@
               role="button"
               tabindex="0"
               :aria-expanded="openKeys.includes(item.key!)"
+              :title="collapsed ? item.label : undefined"
+              :aria-label="collapsed ? item.label : undefined"
               @click="toggleSubmenu(item.key!)"
               @keydown.enter="toggleSubmenu(item.key!)"
               @keydown.space.prevent="toggleSubmenu(item.key!)"
@@ -34,7 +36,7 @@
               <div class="mc-sidebar-item-content">
                 <div class="mc-sidebar-item-label">
                   <span>{{ item.label }}</span>
-                  <span v-if="badgeMap[item.key!]" class="mc-sidebar-badge" :class="badgeColor(item.key!, badgeMap[item.key!])">{{ badgeMap[item.key!] }}</span>
+                  <span v-if="badgeMap[item.key!]" class="mc-sidebar-badge" :class="badgeColor(item.key!, badgeMap[item.key!])" :aria-label="item.label + ' ' + badgeMap[item.key!] + ' 项'">{{ badgeMap[item.key!] }}</span>
                 </div>
                 <span v-if="item.description" class="mc-sidebar-item-desc">{{ item.description }}</span>
               </div>
@@ -47,11 +49,13 @@
                 :to="child.key!"
                 class="mc-sidebar-item"
                 :class="{ active: route.path === child.key }"
+                :title="collapsed ? child.label : undefined"
+                :aria-current="route.path === child.key ? 'page' : undefined"
               >
                 <div class="mc-sidebar-item-content">
                   <div class="mc-sidebar-item-label">
                     <span>{{ child.label }}</span>
-                    <span v-if="badgeMap[child.key!]" class="mc-sidebar-badge" :class="badgeColor(child.key!, badgeMap[child.key!])">{{ badgeMap[child.key!] }}</span>
+                    <span v-if="badgeMap[child.key!]" class="mc-sidebar-badge" :class="badgeColor(child.key!, badgeMap[child.key!])" :aria-label="child.label + ' ' + badgeMap[child.key!] + ' 项'">{{ badgeMap[child.key!] }}</span>
                   </div>
                 </div>
               </router-link>
@@ -63,12 +67,14 @@
             :to="item.key!"
             class="mc-sidebar-item"
             :class="{ active: route.path === item.key }"
+            :title="collapsed ? item.label : undefined"
+            :aria-current="route.path === item.key ? 'page' : undefined"
           >
             <el-icon class="mc-sidebar-item-icon"><component :is="item.icon" /></el-icon>
             <div class="mc-sidebar-item-content">
               <div class="mc-sidebar-item-label">
                 <span>{{ item.label }}</span>
-                <span v-if="badgeMap[item.key!]" class="mc-sidebar-badge" :class="badgeColor(item.key!, badgeMap[item.key!])">{{ badgeMap[item.key!] }}</span>
+                <span v-if="badgeMap[item.key!]" class="mc-sidebar-badge" :class="badgeColor(item.key!, badgeMap[item.key!])" :aria-label="item.label + ' ' + badgeMap[item.key!] + ' 项'">{{ badgeMap[item.key!] }}</span>
               </div>
               <span v-if="item.description" class="mc-sidebar-item-desc">{{ item.description }}</span>
             </div>
@@ -124,7 +130,10 @@ const visibleMenu = computed<NavGroup[]>(() => {
   const result: NavGroup[] = []
   for (const group of navConfig) {
     const children = group.children.filter((item) => {
-      if (item.roles && role && !isRoleAllowed(role, item.roles)) return false
+      // fail-closed：role 缺失时 isRoleAllowed 返回 false，受限菜单必须隐藏。
+      // 旧写法 `role && !isRoleAllowed(...)` 在 role 为 null 时反而放行，
+      // 与 router 的角色守卫不同口径，会出现「能看见但点进去被弹回」的入口。
+      if (item.roles && !isRoleAllowed(role, item.roles)) return false
       return true
     })
     if (children.length > 0) {

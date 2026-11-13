@@ -48,10 +48,21 @@ describe('Login 页面', () => {
     expect(wrapper.text()).toContain('欢迎回来')
   })
 
-  it('渲染默认账号提示文案', () => {
+  // v3 UI 复盘：登录页不得明文展示默认账号 / 初始密码线索（信息泄露 + 观感业余）。
+  // 该断言替代原「渲染默认账号提示文案」，强度更高：既验证新文案，也锁死回归。
+  it('登录页不泄露默认账号，并提供管理员求助入口', () => {
     const wrapper = mount(Login)
-    expect(wrapper.text()).toContain('admin')
-    expect(wrapper.text()).toContain('初始密码由部署配置决定')
+    const text = wrapper.text()
+    expect(text).not.toContain('默认账号')
+    expect(text).not.toContain('初始密码由部署配置决定')
+    expect(text).not.toContain('admin')
+    expect(text).toContain('登录遇到问题？请联系系统管理员')
+  })
+
+  it('品牌装饰对读屏隐藏，内容区可作为 skip-link 目标', () => {
+    const wrapper = mount(Login)
+    expect(wrapper.find('main#mc-main').exists()).toBe(true)
+    expect(wrapper.find('svg.login-mesh').attributes('aria-hidden')).toBe('true')
   })
 
   it('渲染品牌区三项特性介绍', () => {
@@ -59,6 +70,16 @@ describe('Login 页面', () => {
     expect(wrapper.text()).toContain('多集群统一调度')
     expect(wrapper.text()).toContain('GPU 细粒度分配')
     expect(wrapper.text()).toContain('企业级安全防护')
+  })
+
+  // v3.1：未登录页也必须能切换外观（登录页常是用户对品牌的第一印象）。
+  // 同时锁死「登录按钮必须可语义化定位」，防止再次被新增按钮改变 find('button') 命中顺序。
+  it('登录页提供外观切换入口，且登录按钮有稳定类名', () => {
+    const wrapper = mount(Login)
+    const toggle = wrapper.find('button[aria-haspopup="menu"]')
+    expect(toggle.exists()).toBe(true)
+    expect(toggle.attributes('aria-label')).toContain('外观设置')
+    expect(wrapper.find('button.login-submit').exists()).toBe(true)
   })
 
   it('登录中按钮显示 loading 文案', async () => {
@@ -69,7 +90,7 @@ describe('Login 页面', () => {
     const wrapper = mount(Login)
     await wrapper.find('input[placeholder="请输入用户名"]').setValue('admin')
     await wrapper.find('input[placeholder="请输入密码"]').setValue('password123')
-    await wrapper.find('button').trigger('click')
+    await wrapper.find('button.login-submit').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('登录中')
     resolveLogin({ token: 't', user: { id: 1, username: 'admin', role: 'admin' }, expires_at: 0 })
@@ -86,7 +107,7 @@ describe('Login 页面', () => {
     // 填充表单
     await wrapper.find('input[placeholder="请输入用户名"]').setValue('admin')
     await wrapper.find('input[placeholder="请输入密码"]').setValue('password123')
-    await wrapper.find('button').trigger('click')
+    await wrapper.find('button.login-submit').trigger('click')
     await flushPromises()
     await flushPromises()
 
@@ -103,7 +124,7 @@ describe('Login 页面', () => {
     const wrapper = mount(Login)
     await wrapper.find('input[placeholder="请输入用户名"]').setValue('wrong')
     await wrapper.find('input[placeholder="请输入密码"]').setValue('badpass')
-    await wrapper.find('button').trigger('click')
+    await wrapper.find('button.login-submit').trigger('click')
     await flushPromises()
     await flushPromises()
 

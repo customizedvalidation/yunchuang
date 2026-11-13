@@ -53,29 +53,29 @@
         @retry="refresh"
       >
         <el-table :data="pagedTenants" row-key="id" border stripe style="width: 100%">
-          <el-table-column prop="id" label="ID" width="80">
+          <el-table-column prop="id" label="ID" min-width="80">
             <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
           </el-table-column>
           <el-table-column prop="name" label="名称" min-width="140" />
           <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
-          <el-table-column label="状态" width="100">
+          <el-table-column label="状态" min-width="100">
             <template #default="{ row }">
               <el-tag :type="statusTagType(row.status)">{{ row.status || '-' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="GPU配额" width="110">
+          <el-table-column label="GPU配额" min-width="110">
             <template #default="{ row }"><span class="mc-num">{{ row.gpu_quota ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="CPU配额" width="110">
+          <el-table-column label="CPU配额" min-width="110">
             <template #default="{ row }"><span class="mc-num">{{ row.cpu_quota ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="内存配额(GB)" width="120">
+          <el-table-column label="内存配额(GB)" min-width="120">
             <template #default="{ row }"><span class="mc-num">{{ row.memory_quota ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="存储配额(TB)" width="120">
+          <el-table-column label="存储配额(TB)" min-width="120">
             <template #default="{ row }"><span class="mc-num">{{ row.storage_quota ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="已用GPU" width="150">
+          <el-table-column label="已用GPU" min-width="150">
             <template #default="{ row }">
               <div class="quota-usage">
                 <el-progress
@@ -87,7 +87,7 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="已用CPU" width="150">
+          <el-table-column label="已用CPU" min-width="150">
             <template #default="{ row }">
               <div class="quota-usage">
                 <el-progress
@@ -148,38 +148,38 @@
             class="mc-mb"
           />
           <el-table :data="quotas" row-key="id" border stripe style="width: 100%">
-            <el-table-column prop="id" label="ID" width="70">
+            <el-table-column prop="id" label="ID" min-width="70">
               <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
             </el-table-column>
-            <el-table-column label="维度" width="90">
+            <el-table-column label="维度" min-width="90">
               <template #default="{ row }">{{ scopeLabel(row.scope_type) }}</template>
             </el-table-column>
-            <el-table-column label="资源类型" width="100">
+            <el-table-column label="资源类型" min-width="100">
               <template #default="{ row }">
                 <el-tag size="small" class="mc-chip">{{ resourceTypeLabel(row.resource_type) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="限制" width="90">
+            <el-table-column label="限制" min-width="90">
               <template #default="{ row }"><span class="mc-num">{{ row.limit }}</span></template>
             </el-table-column>
-            <el-table-column label="已用" width="90">
+            <el-table-column label="已用" min-width="90">
               <template #default="{ row }"><span class="mc-num">{{ row.used }}</span></template>
             </el-table-column>
-            <el-table-column label="使用率" width="160">
+            <el-table-column label="使用率" min-width="160">
               <template #default="{ row }">
                 <el-progress :percentage="quotaUsagePct(row)" :status="quotaUsagePct(row) > 80 ? 'exception' : ''" :stroke-width="10" />
               </template>
             </el-table-column>
-            <el-table-column label="GPU分数限制" width="110">
+            <el-table-column label="GPU分数限制" min-width="110">
               <template #default="{ row }">{{ row.gpu_fraction_limit ?? '-' }}</template>
             </el-table-column>
-            <el-table-column label="GPU显存(GB)" width="120">
+            <el-table-column label="GPU显存(GB)" min-width="120">
               <template #default="{ row }">{{ row.gpu_memory_limit_gb ?? '-' }}</template>
             </el-table-column>
-            <el-table-column label="单Pod CPU(min/max)" width="150">
+            <el-table-column label="单Pod CPU(min/max)" min-width="150">
               <template #default="{ row }">{{ row.min_pod_cpu ?? '-' }} / {{ row.max_pod_cpu ?? '-' }}</template>
             </el-table-column>
-            <el-table-column label="单Pod GPU(min/max)" width="150">
+            <el-table-column label="单Pod GPU(min/max)" min-width="150">
               <template #default="{ row }">{{ row.min_pod_gpu ?? '-' }} / {{ row.max_pod_gpu ?? '-' }}</template>
             </el-table-column>
             <el-table-column label="操作" width="140" fixed="right">

@@ -19,8 +19,17 @@ export function useAutoRefresh(refreshFn: () => void, options: UseAutoRefreshOpt
   const autoRefreshCountdown = ref(intervalSeconds)
   let countdownTimer: number | null = null
 
-  function refresh() {
+  /**
+   * 重置倒计时而不触发拉取。供业务页的「手动刷新」包装函数在自身入口调用，
+   * 这样手动刷新与自动周期共用同一套计时语义（原各页内联实现是把
+   * `autoRefreshCountdown.value = 30` 直接写在包装函数里，共复制了 11 份）。
+   */
+  function resetCountdown() {
     autoRefreshCountdown.value = intervalSeconds
+  }
+
+  function refresh() {
+    resetCountdown()
     refreshFn()
   }
 
@@ -64,5 +73,5 @@ export function useAutoRefresh(refreshFn: () => void, options: UseAutoRefreshOpt
     document.removeEventListener('visibilitychange', onVisibilityChange)
   })
 
-  return { autoRefreshCountdown, refresh, startAutoRefresh, stopAutoRefresh }
+  return { autoRefreshCountdown, refresh, resetCountdown, startAutoRefresh, stopAutoRefresh }
 }

@@ -46,14 +46,14 @@
               <el-button type="primary" link @click="nodeName = row.gpuName">{{ row.gpuName }}</el-button>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="110">
+          <el-table-column label="状态" min-width="110">
             <template #default="{ row }">
               <span class="mc-status" :class="statusClass(row.status)">
                 <i class="mc-status-dot" />{{ statusText(row.status) }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="GPU" width="120">
+          <el-table-column label="GPU" min-width="120">
             <template #default="{ row }">
               <span class="mc-num">{{ row.used ?? 0 }} / {{ row.total ?? 0 }}</span>
             </template>
@@ -98,20 +98,20 @@
           <el-table-column label="名称" min-width="180">
             <template #default="{ row }">{{ row.name }}</template>
           </el-table-column>
-          <el-table-column label="状态" width="110">
+          <el-table-column label="状态" min-width="110">
             <template #default="{ row }">
               <span class="mc-status" :class="statusClass(row.status)">
                 <i class="mc-status-dot" />{{ statusText(row.status) }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="CPU" width="90">
+          <el-table-column label="CPU" min-width="90">
             <template #default="{ row }"><span class="mc-num">{{ row.cpus ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="内存(GB)" width="100">
+          <el-table-column label="内存(GB)" min-width="100">
             <template #default="{ row }"><span class="mc-num">{{ row.memory ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="创建时间" width="170">
+          <el-table-column label="创建时间" min-width="170">
             <template #default="{ row }">{{ row.created_at || '-' }}</template>
           </el-table-column>
         </el-table>
@@ -149,12 +149,12 @@
           <el-table-column label="名称" min-width="160">
             <template #default="{ row }">{{ row.name }}</template>
           </el-table-column>
-          <el-table-column label="类型" width="110">
+          <el-table-column label="类型" min-width="110">
             <template #default="{ row }">
               <el-tag>{{ row.type || '-' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="创建时间" width="170">
+          <el-table-column label="创建时间" min-width="170">
             <template #default="{ row }">{{ row.created_at || '-' }}</template>
           </el-table-column>
         </el-table>

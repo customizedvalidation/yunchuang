@@ -36,47 +36,47 @@
         @retry="refreshTopologies"
       >
         <el-table :data="pagedData" stripe border style="width: 100%">
-          <el-table-column label="ID" width="70">
+          <el-table-column label="ID" min-width="70">
             <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
           </el-table-column>
-          <el-table-column label="节点名" width="150">
+          <el-table-column label="节点名" min-width="150">
             <template #default="{ row }">
               <el-button link type="primary" @click="openDetail(row)">{{ row.hostname }}</el-button>
             </template>
           </el-table-column>
-          <el-table-column label="集群" width="120">
+          <el-table-column label="集群" min-width="120">
             <template #default="{ row }">{{ clusterName(row.cluster_id) }}</template>
           </el-table-column>
-          <el-table-column prop="rack_id" label="机架ID" width="100">
+          <el-table-column prop="rack_id" label="机架ID" min-width="100">
             <template #default="{ row }">{{ row.labels?.rack ?? '-' }}</template>
           </el-table-column>
-          <el-table-column prop="switch_id" label="交换机ID" width="110">
+          <el-table-column prop="switch_id" label="交换机ID" min-width="110">
             <template #default="{ row }">{{ row.switch_id ?? '-' }}</template>
           </el-table-column>
-          <el-table-column prop="pod_id" label="Pod ID" width="100">
+          <el-table-column prop="pod_id" label="Pod ID" min-width="100">
             <template #default="{ row }">{{ row.pod_id ?? '-' }}</template>
           </el-table-column>
-          <el-table-column label="NUMA节点" width="160" show-overflow-tooltip>
+          <el-table-column label="NUMA节点" min-width="160" show-overflow-tooltip>
             <template #default="{ row }">{{ row.numa_nodes ?? '-' }}</template>
           </el-table-column>
-          <el-table-column label="GPU拓扑" width="160" show-overflow-tooltip>
+          <el-table-column label="GPU拓扑" min-width="160" show-overflow-tooltip>
             <template #default="{ row }">{{ row.gpu_topology ?? '-' }}</template>
           </el-table-column>
-          <el-table-column label="网络类型" width="110">
+          <el-table-column label="网络类型" min-width="110">
             <template #default="{ row }">
               <el-tag v-if="netLabel(row.network_type)" size="small" class="mc-chip">{{ netLabel(row.network_type) }}</el-tag>
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column label="带宽(Gbps)" width="110">
+          <el-table-column label="带宽(Gbps)" min-width="110">
             <template #default="{ row }"><span class="mc-num">{{ row.network_bandwidth_gbps ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="RDMA" width="80">
+          <el-table-column label="RDMA" min-width="80">
             <template #default="{ row }">
               <el-tag :type="row.rdma_enabled ? 'success' : 'info'" size="small">{{ row.rdma_enabled ? '开启' : '关闭' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="fault_domain" label="故障域" width="110">
+          <el-table-column prop="fault_domain" label="故障域" min-width="110">
             <template #default="{ row }">{{ row.fault_domain ?? '-' }}</template>
           </el-table-column>
           <el-table-column label="操作" width="200" fixed="right">
@@ -211,7 +211,7 @@
           <el-progress :percentage="e.score" :stroke-width="14" :color="scoreColor(e.score)" style="flex: 1" />
         </div>
       </div>
-      <el-empty v-else-if="scored" description="暂无评分结果" :image-size="60" />
+      <McEmpty v-else-if="scored" description="暂无评分结果" :size="60" />
 
       <template #footer>
         <el-button @click="scoreVisible = false; scoreResults = null">关闭</el-button>
@@ -222,6 +222,8 @@
 </template>
 
 <script setup lang="ts">
+import McEmpty from '@/components/McEmpty.vue'
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -261,55 +263,23 @@ const clustersData = computed(() => clusters.data.value ?? [])
 const jobsData = computed(() => jobs.data.value ?? [])
 
 // ---------- 自动轮询（动态呈现：拓扑主表按周期自动刷新） ----------
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
+// 倒计时 / setInterval / visibilitychange / 生命周期清理统一收口到 useAutoRefresh。
+const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(refreshTopologies)
 
 function refreshTopologies() {
   topologies.refetch()
   clusters.refetch()
   // 手动/自动刷新均重置自动刷新倒计时
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  resetCountdown()
 }
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
 
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refreshTopologies()
-    }
-  }, 1000)
-}
 
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refreshTopologies()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
 
 onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 function clusterName(id?: number) {

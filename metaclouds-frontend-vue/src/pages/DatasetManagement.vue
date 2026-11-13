@@ -44,23 +44,23 @@
         @retry="fetchDatasets"
       >
         <el-table :data="pagedDatasets" row-key="id" border stripe style="width: 100%">
-          <el-table-column prop="id" label="ID" width="70">
+          <el-table-column prop="id" label="ID" min-width="70">
             <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
           </el-table-column>
           <el-table-column prop="name" label="名称" min-width="140" />
           <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
-          <el-table-column label="源类型" width="110">
+          <el-table-column label="源类型" min-width="110">
             <template #default="{ row }">
               <el-tag class="mc-chip">{{ sourceTypeLabel(row.source_type) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="source_path" label="源路径" min-width="180" show-overflow-tooltip />
           <el-table-column prop="mount_path" label="挂载路径" min-width="160" show-overflow-tooltip />
-          <el-table-column label="大小(GB)" width="100">
+          <el-table-column label="大小(GB)" min-width="100">
             <template #default="{ row }"><span class="mc-num">{{ row.size_gb ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column prop="access_mode" label="访问模式" width="110" />
-          <el-table-column label="状态" width="100">
+          <el-table-column prop="access_mode" label="访问模式" min-width="110" />
+          <el-table-column label="状态" min-width="100">
             <template #default="{ row }">
               <el-tag :type="statusTagType(row.status)">{{ row.status || '-' }}</el-tag>
             </template>
@@ -186,47 +186,47 @@
         style="width: 100%"
       >
         <template #empty>
-          <el-empty description="暂无缓存，为该数据集新增一个 Fluid 分布式缓存以加速读取。" :image-size="60" />
+          <McEmpty description="暂无缓存，为该数据集新增一个 Fluid 分布式缓存以加速读取。" :size="60" />
         </template>
-        <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column label="运行时类型" width="110">
+        <el-table-column prop="id" label="ID" min-width="70" />
+        <el-table-column label="运行时类型" min-width="110">
           <template #default="{ row }">
             <el-tag type="warning">{{ runtimeTypeLabel(row.runtime_type) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="缓存容量(GB)" width="110">
+        <el-table-column label="缓存容量(GB)" min-width="110">
           <template #default="{ row }"><span class="mc-num">{{ row.cache_capacity_gb ?? '-' }}</span></template>
         </el-table-column>
-        <el-table-column label="副本数" width="80">
+        <el-table-column label="副本数" min-width="80">
           <template #default="{ row }"><span class="mc-num">{{ row.replicas ?? '-' }}</span></template>
         </el-table-column>
-        <el-table-column label="介质类型" width="90">
+        <el-table-column label="介质类型" min-width="90">
           <template #default="{ row }">{{ mediumTypeLabel(row.medium_type) }}</template>
         </el-table-column>
-        <el-table-column label="预取开关" width="90">
+        <el-table-column label="预取开关" min-width="90">
           <template #default="{ row }">
             <el-tag :type="row.prefetch_enabled ? 'success' : 'info'">{{ row.prefetch_enabled ? '开' : '关' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="prefetch_policy" label="预取策略" width="110" show-overflow-tooltip />
-        <el-table-column label="压缩开关" width="90">
+        <el-table-column prop="prefetch_policy" label="预取策略" min-width="110" show-overflow-tooltip />
+        <el-table-column label="压缩开关" min-width="90">
           <template #default="{ row }">
             <el-tag :type="row.compression_enabled ? 'success' : 'info'">{{ row.compression_enabled ? '开' : '关' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="元数据加速" width="100">
+        <el-table-column label="元数据加速" min-width="100">
           <template #default="{ row }">
             <el-tag :type="row.metadata_acceleration_enabled ? 'success' : 'info'">
               {{ row.metadata_acceleration_enabled ? '开' : '关' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="90">
+        <el-table-column label="状态" min-width="90">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)">{{ row.status || '-' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="缓存命中率" width="130">
+        <el-table-column label="缓存命中率" min-width="130">
           <template #default="{ row }">
             <el-progress :percentage="row.cache_hit_rate ?? 0" :stroke-width="10" />
           </template>
@@ -320,6 +320,8 @@
 </template>
 
 <script setup lang="ts">
+import McEmpty from '@/components/McEmpty.vue'
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { ref, computed, reactive, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
@@ -371,48 +373,16 @@ const page = ref(1)
 const pageSize = ref(10)
 
 // ---------- 自动轮询（动态呈现：数据集主表按周期自动刷新） ----------
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
+// 倒计时 / setInterval / visibilitychange / 生命周期清理统一收口到 useAutoRefresh。
+const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(fetchDatasets)
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
 
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') fetchDatasets()
-    }
-  }, 1000)
-}
 
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    fetchDatasets()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
 
 onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 async function fetchDatasets() {
@@ -426,7 +396,7 @@ async function fetchDatasets() {
   } finally {
     listLoading.value = false
     // 手动/自动刷新均重置自动刷新倒计时
-    autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+    resetCountdown()
   }
 }
 fetchDatasets()

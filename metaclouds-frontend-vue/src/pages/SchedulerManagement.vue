@@ -38,34 +38,34 @@
         @retry="refreshSchedulers"
       >
         <el-table :data="pagedData" stripe border style="width: 100%">
-          <el-table-column label="ID" width="70">
+          <el-table-column label="ID" min-width="70">
             <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
           </el-table-column>
-          <el-table-column prop="name" label="名称" width="150" />
-          <el-table-column label="类型" width="120">
+          <el-table-column prop="name" label="名称" min-width="150" />
+          <el-table-column label="类型" min-width="120">
             <template #default="{ row }">
               <el-tag size="small" class="mc-chip">{{ typeLabel(row.type) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="endpoint" label="端点" min-width="180" show-overflow-tooltip />
-          <el-table-column label="认证类型" width="110">
+          <el-table-column label="认证类型" min-width="110">
             <template #default="{ row }">{{ authLabel(row.auth_type) }}</template>
           </el-table-column>
-          <el-table-column prop="version" label="版本" width="90" />
-          <el-table-column label="状态" width="100">
+          <el-table-column prop="version" label="版本" min-width="90" />
+          <el-table-column label="状态" min-width="100">
             <template #default="{ row }">
               <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="default_partition" label="默认分区" width="110" />
-          <el-table-column prop="default_qos" label="默认QoS" width="100" />
-          <el-table-column label="最大节点" width="90">
+          <el-table-column prop="default_partition" label="默认分区" min-width="110" />
+          <el-table-column prop="default_qos" label="默认QoS" min-width="100" />
+          <el-table-column label="最大节点" min-width="90">
             <template #default="{ row }"><span class="mc-num">{{ row.max_nodes ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="最大作业" width="90">
+          <el-table-column label="最大作业" min-width="90">
             <template #default="{ row }"><span class="mc-num">{{ row.max_jobs ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column prop="last_sync_at" label="最后同步时间" width="170" />
+          <el-table-column prop="last_sync_at" label="最后同步时间" min-width="170" />
           <el-table-column label="操作" width="320" fixed="right">
             <template #default="{ row }">
               <Can :roles="['admin', 'manager']">
@@ -186,34 +186,34 @@
     <!-- 队列 Drawer -->
     <el-drawer v-model="queueVisible" :title="`队列信息 - ${queueTarget?.name ?? ''}`" size="760px">
       <el-table :data="queuesData" size="small" stripe>
-        <el-table-column prop="name" label="队列名" width="140" />
-        <el-table-column label="状态" width="110">
+        <el-table-column prop="name" label="队列名" min-width="140" />
+        <el-table-column label="状态" min-width="110">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="total_nodes" label="总节点" width="90" />
-        <el-table-column prop="allocated_nodes" label="已分配节点" width="120" />
-        <el-table-column prop="total_gpus" label="总GPU" width="90" />
-        <el-table-column prop="allocated_gpus" label="已分配GPU" width="110" />
-        <el-table-column prop="pending_jobs" label="等待作业" width="100" />
-        <el-table-column prop="running_jobs" label="运行作业" width="100" />
+        <el-table-column prop="total_nodes" label="总节点" min-width="90" />
+        <el-table-column prop="allocated_nodes" label="已分配节点" min-width="120" />
+        <el-table-column prop="total_gpus" label="总GPU" min-width="90" />
+        <el-table-column prop="allocated_gpus" label="已分配GPU" min-width="110" />
+        <el-table-column prop="pending_jobs" label="等待作业" min-width="100" />
+        <el-table-column prop="running_jobs" label="运行作业" min-width="100" />
       </el-table>
     </el-drawer>
 
     <!-- 节点 Drawer -->
     <el-drawer v-model="nodeVisible" :title="`节点信息 - ${nodeTarget?.name ?? ''}`" size="760px">
       <el-table :data="nodesData" size="small" stripe>
-        <el-table-column prop="name" label="节点名" width="150" />
-        <el-table-column label="状态" width="110">
+        <el-table-column prop="name" label="节点名" min-width="150" />
+        <el-table-column label="状态" min-width="110">
           <template #default="{ row }">
             <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="partition" label="分区" width="120" />
-        <el-table-column prop="cpu" label="CPU" width="80" />
-        <el-table-column prop="gpu" label="GPU" width="80" />
-        <el-table-column prop="memory" label="内存" width="100" />
+        <el-table-column prop="partition" label="分区" min-width="120" />
+        <el-table-column prop="cpu" label="CPU" min-width="80" />
+        <el-table-column prop="gpu" label="GPU" min-width="80" />
+        <el-table-column prop="memory" label="内存" min-width="100" />
         <el-table-column prop="gres" label="GRES" min-width="150" show-overflow-tooltip />
       </el-table>
     </el-drawer>
@@ -221,6 +221,7 @@
 </template>
 
 <script setup lang="ts">
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -303,53 +304,21 @@ const pagedData = computed(() =>
 
 // ---------- 自动轮询（动态呈现：数据按周期自动刷新） ----------
 // 复用页面已有主数据 refetch（schedulers）；手动/自动刷新均重置倒计时。
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
+// 倒计时 / setInterval / visibilitychange / 生命周期清理统一收口到 useAutoRefresh。
+const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(refreshSchedulers)
 
 function refreshSchedulers() {
   schedulers.refetch()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  resetCountdown()
 }
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
 
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refreshSchedulers()
-    }
-  }, 1000)
-}
 
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refreshSchedulers()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
 
 onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 // ---------- 表单 ----------

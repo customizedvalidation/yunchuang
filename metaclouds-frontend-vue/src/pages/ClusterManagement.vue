@@ -35,6 +35,10 @@
           <el-option label="非活跃" value="inactive" />
           <el-option label="维护" value="maintenance" />
         </el-select>
+        <!-- 紧凑视口默认隐藏次要列以避免固定操作列遮挡；可随时恢复，信息不丢失 -->
+        <el-button v-if="isCompact" link class="toolbar-columns-toggle" @click="showAllColumns = !showAllColumns">
+          {{ showAllColumns ? '收起次要列' : '显示全部列' }}
+        </el-button>
       </div>
 
       <PageState
@@ -46,7 +50,7 @@
         @retry="refreshClusters"
       >
         <el-table :data="pagedClusters" row-key="id" stripe style="width: 100%">
-          <el-table-column prop="id" label="ID" width="80">
+          <el-table-column prop="id" label="ID" min-width="80">
             <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
           </el-table-column>
           <el-table-column label="名称" min-width="150">
@@ -55,18 +59,18 @@
             </template>
           </el-table-column>
           <el-table-column prop="description" label="描述" min-width="180" show-overflow-tooltip />
-          <el-table-column label="状态" width="110">
+          <el-table-column label="状态" min-width="110">
             <template #default="{ row }">
               <el-tag :type="statusTagType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="nodes" label="节点数" width="90" align="right">
+          <el-table-column prop="nodes" label="节点数" min-width="90" align="right">
             <template #default="{ row }"><span class="mc-num">{{ row.nodes ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column prop="gpus" label="GPU数" width="90" align="right">
+          <el-table-column prop="gpus" label="GPU数" min-width="90" align="right">
             <template #default="{ row }"><span class="mc-num">{{ row.gpus ?? '-' }}</span></template>
           </el-table-column>
-          <el-table-column label="GPU厂商" width="150">
+          <el-table-column v-if="showSecondaryColumns" label="GPU厂商" min-width="150">
             <template #default="{ row }">
               <template v-if="row.gpu_vendors">
                 <el-tag
@@ -80,7 +84,7 @@
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column label="调度器类型" width="150">
+          <el-table-column label="调度器类型" min-width="150">
             <template #default="{ row }">
               <template v-if="row.scheduler_types">
                 <el-tag
@@ -94,19 +98,19 @@
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column label="多集群" width="90">
+          <el-table-column label="多集群" min-width="90">
             <template #default="{ row }">
               <el-tag v-if="row.multi_cluster_enabled" type="success" size="small">联邦</el-tag>
               <el-tag v-else size="small">未启用</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="高可用" width="100">
+          <el-table-column v-if="showSecondaryColumns" label="高可用" min-width="100">
             <template #default="{ row }">
               <el-tag v-if="row.ha_enabled || row.scheduler_ha_enabled" type="success" size="small">HA</el-tag>
               <el-tag v-else size="small">未启用</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="访问方式" width="150">
+          <el-table-column v-if="showSecondaryColumns" label="访问方式" min-width="150">
             <template #default="{ row }">
               <template v-if="row.access_methods">
                 <el-tag
@@ -304,10 +308,10 @@
         <el-table :data="clusterPartitions(detailCluster.id)" row-key="id" size="small" style="width: 100%">
           <el-table-column prop="name" label="名称" />
           <el-table-column prop="description" label="描述" show-overflow-tooltip />
-          <el-table-column prop="priority" label="优先级" width="80" align="right" />
-          <el-table-column prop="node_count" label="节点数" width="80" align="right" />
-          <el-table-column prop="gpu_count" label="GPU数" width="80" align="right" />
-          <el-table-column label="状态" width="100">
+          <el-table-column prop="priority" label="优先级" min-width="80" align="right" />
+          <el-table-column prop="node_count" label="节点数" min-width="80" align="right" />
+          <el-table-column prop="gpu_count" label="GPU数" min-width="80" align="right" />
+          <el-table-column label="状态" min-width="100">
             <template #default="{ row }">
               <el-tag :type="statusTagType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
             </template>
@@ -319,6 +323,8 @@
 </template>
 
 <script setup lang="ts">
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { useViewport } from '@/composables/useViewport'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -329,6 +335,14 @@ import CountUp from '@/components/CountUp.vue'
 import { clusterApi, partitionApi } from '@/api'
 import { useFetch } from '@/utils/useFetch'
 import type { Cluster, Partition } from '@/types'
+
+// 列优先级（v3.1）：本表 12 列、列宽合计 1560px，1600px 窗口的内容区仅约
+// 1312px，Element Plus 的 fixed="right" 操作列会浮层盖住倒数第二列，
+// 表头「多集群」被压成「多集」、数据不可见。紧凑视口默认隐藏 3 个
+// 低优先级列（合计 400px，剩 1160px 可一屏完整铺开），用户可一键展开。
+const { isCompact } = useViewport()
+const showAllColumns = ref(false)
+const showSecondaryColumns = computed(() => showAllColumns.value || !isCompact.value)
 
 type ClusterRecord = Cluster & {
   ha_enabled?: boolean
@@ -345,54 +359,22 @@ const clustersData = computed(() => data.value ?? [])
 const partitionsData = computed(() => partitionsF.data.value ?? [])
 
 // ---------- 自动轮询（动态呈现：集群列表按周期自动刷新） ----------
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
+// 倒计时 / setInterval / visibilitychange / 生命周期清理统一收口到 useAutoRefresh。
+const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(refreshClusters)
 
 function refreshClusters() {
   refetch()
   // 手动/自动刷新均重置自动刷新倒计时
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  resetCountdown()
 }
 
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
 
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refreshClusters()
-    }
-  }, 1000)
-}
 
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refreshClusters()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
 
 onMounted(() => {
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 // ---------- 搜索 / 筛选 ----------
@@ -603,14 +585,15 @@ function statusTagType(status?: string): 'success' | 'warning' | 'danger' | 'inf
 <style scoped>
 .toolbar { display: flex; gap: var(--mc-gap); margin-bottom: var(--mc-gap); flex-wrap: wrap; }
 .toolbar-search { flex: 1; min-width: 240px; max-width: 420px; }
+.toolbar-columns-toggle { margin-left: auto; white-space: nowrap; }
 .pager { display: flex; justify-content: flex-end; margin-top: var(--mc-gap); }
 .scale-tip { color: var(--mc-text-3); font-size: 12.5px; margin: 0 0 var(--mc-gap); }
-.detail-h { margin: 18px 0 8px; font-size: var(--mc-fs-h2); font-weight: 650; color: var(--mc-text-1); }
+.detail-h { margin: 18px 0 8px; font-size: var(--mc-fs-h2); font-weight: var(--mc-fw-semibold); color: var(--mc-text-1); }
 .detail-tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .detail-desc { margin-top: var(--mc-gap); }
 .detail-desc :deep(p) { margin: 0 0 8px; }
 :deep(.el-dialog) { max-width: 92vw; }
-:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 32px; }
+:deep(.el-table .el-button.is-link) { padding: 8px 4px; min-height: 44px; }
 .auto-refresh-hint {
   display: inline-flex;
   align-items: center;

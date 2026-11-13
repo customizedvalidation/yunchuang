@@ -105,31 +105,31 @@
         @retry="alertsRefetch"
       >
         <el-table :data="pagedAlerts" stripe>
-          <el-table-column prop="id" label="ID" width="70">
+          <el-table-column prop="id" label="ID" min-width="70">
             <template #default="{ row }"><span class="mc-mono">{{ row.id }}</span></template>
           </el-table-column>
-          <el-table-column label="级别" width="90">
+          <el-table-column label="级别" min-width="90">
             <template #default="{ row }">
               <el-tag :type="levelTagType(row.level)">{{ levelText(row.level) }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="类型" width="100">
+          <el-table-column label="类型" min-width="100">
             <template #default="{ row }">{{ row.type || '-' }}</template>
           </el-table-column>
           <el-table-column prop="message" label="消息" min-width="220" show-overflow-tooltip />
-          <el-table-column label="状态" width="100">
+          <el-table-column label="状态" min-width="100">
             <template #default="{ row }">
               <span class="mc-status" :class="statusClass(effectiveStatus(row))">
                 <i class="mc-status-dot" />{{ statusText(effectiveStatus(row)) }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="集群" width="90">
+          <el-table-column label="集群" min-width="90">
             <template #default="{ row }">
               <span class="mc-mono">{{ row.cluster_id ?? '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="created_at" label="时间" width="170">
+          <el-table-column prop="created_at" label="时间" min-width="170">
             <template #default="{ row }">{{ row.created_at || '-' }}</template>
           </el-table-column>
           <el-table-column label="操作" width="220" fixed="right">
@@ -182,33 +182,45 @@
 </template>
 
 <script setup lang="ts">
+import { useAutoRefresh } from '@/composables/useAutoRefresh'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import {
   OfficeBuilding, Monitor, Cpu, Bell, Refresh, ArrowRight,
 } from '@element-plus/icons-vue'
 // 经 @/theme/echarts 统一入口引入（已按需 use() 注册，勿直接引 'echarts' 全量包）
-import { echarts } from '@/theme/echarts'
+import {
+  echarts,
+  registerMcThemes,
+  chartThemeName,
+  onChartThemeChange,
+  activeColorTokens,
+} from '@/theme/echarts'
 import type { ECharts } from 'echarts/core'
 import CountUp from '@/components/CountUp.vue'
 import { monitoringApi } from '@/api'
 import { toUserMessage } from '@/utils/error'
 import type { Alert, AlertLevel, AlertStatus, MetricsOverview } from '@/types'
 import { useFetch } from '@/utils/useFetch'
-import { colorTokens } from '@/theme/tokens'
+
+registerMcThemes()
 import PageState from '@/components/PageState.vue'
 import Can from '@/components/Can.vue'
 
 const TIME_POINTS = ['00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00']
 
-/* 折线取色：用 MDS 深色语义版（-fg / brand-base），保证白线白底 ≥3:1 图形对比。 */
-const CHART_LINE_COLORS = [
-  colorTokens.brand.base,
-  colorTokens.semantic.successFg,
-  colorTokens.brand['400'],
-  colorTokens.semantic.warningFg,
-  colorTokens.semantic.dangerFg,
-]
+/* 折线取色：始终取「当前主题」的语义版，浅底用深 fg、深底用亮 fg，
+   两种主题下都保证 ≥3:1 图形对比；不用模块级常量，否则主题切换后不重算。 */
+const chartLineColors = computed(() => {
+  const c = activeColorTokens.value
+  return [
+    c.brand.base,
+    c.semantic.successFg,
+    c.brand['400'],
+    c.semantic.warningFg,
+    c.semantic.dangerFg,
+  ]
+})
 
 const LEVEL_OPTIONS: { label: string; value: AlertLevel }[] = [
   { label: '严重', value: 'critical' },
@@ -350,12 +362,12 @@ function renderTrend() {
   if (!trendChart) return
   const gpu = kpi.value.gpuUtil
   trendChart.setOption({
-    color: CHART_LINE_COLORS,
+    color: chartLineColors.value,
     tooltip: { trigger: 'axis' },
     legend: { data: ['CPU', '内存', '磁盘', '网络', 'GPU'], top: 0 },
     grid: { top: 40, left: 44, right: 16, bottom: 28 },
-    xAxis: { type: 'category', data: TIME_POINTS, axisLabel: { color: colorTokens.neutral.text3 } },
-    yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%', color: colorTokens.neutral.text3 } },
+    xAxis: { type: 'category', data: TIME_POINTS, axisLabel: { color: activeColorTokens.value.neutral.text3 } },
+    yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%', color: activeColorTokens.value.neutral.text3 } },
     series: [
       { name: 'CPU', type: 'line', smooth: true, data: buildTrend(45, 12, 1) },
       { name: '内存', type: 'line', smooth: true, data: buildTrend(58, 8, 3) },
@@ -373,11 +385,11 @@ function renderThroughput() {
     Math.max(4, Math.round(20 + Math.sin(i / 1.8) * 12 + (i % 3) * 3)),
   )
   throughputChart.setOption({
-    color: [colorTokens.brand.base],
+    color: [activeColorTokens.value.brand.base],
     tooltip: { trigger: 'axis' },
     grid: { top: 24, left: 44, right: 16, bottom: 28 },
-    xAxis: { type: 'category', data: TIME_POINTS, axisLabel: { color: colorTokens.neutral.text3 } },
-    yAxis: { type: 'value', name: '作业/小时', axisLabel: { color: colorTokens.neutral.text3 } },
+    xAxis: { type: 'category', data: TIME_POINTS, axisLabel: { color: activeColorTokens.value.neutral.text3 } },
+    yAxis: { type: 'value', name: '作业/小时', axisLabel: { color: activeColorTokens.value.neutral.text3 } },
     series: [{ name: '作业吞吐量', type: 'bar', data, itemStyle: { borderRadius: [4, 4, 0, 0] } }],
   })
 }
@@ -387,57 +399,46 @@ function resizeCharts() {
   throughputChart?.resize()
 }
 
-// ---------- 自动轮询（动态呈现：指标与告警列表按周期自动刷新） ----------
-const AUTO_REFRESH_SECONDS = 30
-const autoRefreshCountdown = ref(AUTO_REFRESH_SECONDS)
-let countdownTimer: number | null = null
-
-function stopAutoRefresh() {
-  if (countdownTimer !== null) {
-    window.clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
-
-function startAutoRefresh() {
-  stopAutoRefresh()
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-  countdownTimer = window.setInterval(() => {
-    autoRefreshCountdown.value -= 1
-    if (autoRefreshCountdown.value <= 0) {
-      autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
-      // 页面不可见时暂停拉取，回到前台后立即补一次刷新
-      if (document.visibilityState === 'visible') refreshAll()
-    }
-  }, 1000)
-}
-
-function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    // 回到前台：立即刷新一次并重启周期
-    refreshAll()
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
-
-onMounted(() => {
-  if (trendChartRef.value) trendChart = echarts.init(trendChartRef.value)
-  if (throughputChartRef.value) throughputChart = echarts.init(throughputChartRef.value)
+/**
+ * 主题切换时 ECharts 不会热更新已注册的主题色，必须 dispose 后重建实例。
+ * option 内的中性色与折线色取自 activeColorTokens / chartLineColors（computed），
+ * 重建时会自动按新主题重算。
+ */
+function rebuildChartsForTheme() {
+  trendChart?.dispose()
+  throughputChart?.dispose()
+  trendChart = null
+  throughputChart = null
+  if (trendChartRef.value) trendChart = echarts.init(trendChartRef.value, chartThemeName.value)
+  if (throughputChartRef.value) throughputChart = echarts.init(throughputChartRef.value, chartThemeName.value)
   renderTrend()
   renderThroughput()
+}
+
+// ---------- 自动轮询（动态呈现：指标与告警列表按周期自动刷新） ----------
+// 倒计时 / setInterval / visibilitychange / 生命周期清理统一收口到 useAutoRefresh。
+const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(refreshAll)
+
+
+
+
+let stopThemeWatch: (() => void) | null = null
+
+onMounted(() => {
+  // 与 Dashboard 使用同一套 MDS 图表主题（light/dark 由 chartThemeName 决定），
+  // 保证全站图表字体/轴/图例一致；注册在模块顶层已完成。
+  if (trendChartRef.value) trendChart = echarts.init(trendChartRef.value, chartThemeName.value)
+  if (throughputChartRef.value) throughputChart = echarts.init(throughputChartRef.value, chartThemeName.value)
+  renderTrend()
+  renderThroughput()
+  stopThemeWatch = onChartThemeChange(rebuildChartsForTheme)
   window.addEventListener('resize', resizeCharts)
-  // 动态呈现：启动自动轮询，页面隐藏时暂停、回到前台立即刷新
-  document.addEventListener('visibilitychange', onVisibilityChange)
-  startAutoRefresh()
 })
 onBeforeUnmount(() => {
+  stopThemeWatch?.()
   window.removeEventListener('resize', resizeCharts)
   trendChart?.dispose()
   throughputChart?.dispose()
-  stopAutoRefresh()
-  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 watch(kpi, () => renderTrend())
 
@@ -445,7 +446,7 @@ function refreshAll() {
   reloadMetrics()
   alertsRefetch()
   // 手动/自动刷新均重置自动刷新倒计时
-  autoRefreshCountdown.value = AUTO_REFRESH_SECONDS
+  resetCountdown()
 }
 
 // ---------- 详情 ----------
@@ -541,7 +542,7 @@ void metricsLoading
   flex-shrink: 0;
 }
 .kpi-label { font-size: 12.5px; color: var(--mc-text-3); }
-.kpi-value { font-size: 22px; font-weight: 680; color: var(--mc-text-1); }
+.kpi-value { font-size: 22px; font-weight: var(--mc-fw-semibold); color: var(--mc-text-1); }
 .chart-box { width: 100%; height: 300px; }
 /* 表格内 link 按钮触控目标不小于 44px */
 :deep(.el-table .el-button.is-link) {
