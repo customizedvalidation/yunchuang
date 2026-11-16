@@ -192,7 +192,7 @@ docker run --rm ghcr.io/customizedvalidation/yunchuang/backend-rust:<sha> --vers
 - `SERVER_ENV=production`（禁用 SQLite/内存模式/公开注册）
 - `TRUSTED_PROXIES` 填 Nginx/Ingress 网段
 
-**监控就绪**：Prometheus 抓取 `/metrics`（ServiceMonitor 15s）、Grafana 面板导入（13 业务 + 3 HTTP 指标，前缀 `metaclouds_` 与 Go 一致可套用）、16 告警规则生效、JSON 日志含 `trace_id/span_id/request_id`。
+**监控就绪**：Prometheus 抓取 `/metrics`（ServiceMonitor 15s）、Grafana 面板导入（16 业务 + 3 HTTP + 20 调度指标，共 39 个指标族，前缀 `metaclouds_` 与 Go 一致可套用）、16 告警规则生效、JSON 日志含 `trace_id/span_id/request_id`。
 
 **回滚预案**：按 Runbook v2 完成至少一次回滚演练；回滚时间：应用层 < 1 分钟（Nginx 改权重）、K8s 层 < 5 分钟（Ingress 改后端）。
 
@@ -270,7 +270,7 @@ powershell -ExecutionPolicy Bypass -File metaclouds-backend-rust/scripts/cutover
 2. `GET /api/v1/auth/csrf` 取 token，写操作带 `X-CSRF-Token` 正常
 3. 核心 CRUD：`/users` `/tenants` `/clusters` `/resources` `/jobs` `/gpus` 带 token → 200
 4. `GET /api/v1/monitoring/dashboard` 数据正常
-5. `GET /metrics` → 200，含 13 业务指标 + 3 HTTP 指标
+5. `GET /metrics` → 200，含 16 业务 + 3 HTTP + 20 调度指标（39 指标族）
 6. `GET /swagger-ui`、`GET /api-docs/openapi.json` 可访问
 7. 未鉴权 `GET /api/v1/users` → 401 信封正确
 8. 响应头含 `X-Trace-Id`，日志可按 trace_id 串联

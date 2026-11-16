@@ -211,7 +211,11 @@ pub async fn update_job(
     };
 
     let now = Utc::now();
-    crate::with_db!(pool, "UPDATE jobs SET \
+    // 状态 CAS：仅当读取时的 status 仍未变化才允许覆盖。此前只按 id 更新，
+    // 两个并发请求（或管理员与调度器）会互相覆盖状态，甚至把已 completed 的
+    // 作业回退成 running。`? IS NULL OR status = ?` 让非状态更新不受影响。
+    let status_guard = input.status.as_ref().map(|_| existing.status.as_str());
+    let hit: u64 = crate::with_db!(pool, "UPDATE jobs SET \
             name = COALESCE(?, name), \
             description = COALESCE(?, description), \
             status = COALESCE(?, status), \
@@ -223,7 +227,7 @@ pub async fn update_job(
             start_time = CASE WHEN ? = 'running' AND start_time IS NULL THEN ? ELSE start_time END, \
             end_time = CASE WHEN ? IN ('completed','failed','cancelled') AND end_time IS NULL THEN ? ELSE end_time END, \
             updated_at = ? \
-         WHERE id = ? AND deleted_at IS NULL", |db_s, db_e| { sqlx::query(db_s)
+         WHERE id = ? AND deleted_at IS NULL AND (? IS NULL OR status = ?)", |db_s, db_e| { sqlx::query(db_s)
     .bind(&input.name)
     .bind(&input.description)
     .bind(&input.status)
@@ -238,7 +242,39 @@ pub async fn update_job(
     .bind(now)
     .bind(now)
     .bind(id)
+    .bind(status_guard)
+    .bind(status_guard)
     .execute(db_e).await?.rows_affected() });
+    if hit == 0 {
+        return Err(AppError::bad_request(
+            "job state changed before update; retry with fresh status",
+        ));
+    }
+
+    // 管理员经通用更新把 running 作业推到终态时，同样要回收已预留的 GPU/配额。
+    // （生产更推荐走 cancel_job / 调度器终态路径；此处为管理 API 兜底。）
+    if existing.status == job_status::RUNNING {
+        if let Some(new_status) = input.status.as_deref() {
+            if matches!(
+                new_status,
+                job_status::COMPLETED | job_status::FAILED | job_status::CANCELLED
+            ) {
+                if let Err(e) =
+                    crate::services::dispatch::release_resources_for_job(pool, &existing).await
+                {
+                    tracing::error!(
+                        job_id = id,
+                        error = %e,
+                        "status transition to terminal failed to release reserved GPU/quota"
+                    );
+                    crate::metrics::scheduler_metrics()
+                        .job_aborted_total
+                        .with_label_values(&["update_release_failed"])
+                        .inc();
+                }
+            }
+        }
+    }
 
     let updated = job::get_by_id(pool, id, false)
         .await?
@@ -269,17 +305,20 @@ pub async fn cancel_job(pool: &DatabasePool, id: i64, actor: Actor) -> AppResult
     if !actor.is_admin && existing.tenant_id != actor.tenant_id {
         return Err(AppError::not_found("job not found"));
     }
-    if existing.status != job_status::PENDING && existing.status != job_status::RUNNING {
+    let was_running = existing.status == job_status::RUNNING;
+    if !was_running && existing.status != job_status::PENDING {
         return Err(AppError::bad_request(
             "only running or pending jobs can be cancelled",
         ));
     }
 
+    // 状态 CAS：只有真正抢到 pending/running → cancelled 的调用方才负责回收资源。
+    // 此前仅按 id 更新，两个并发取消都会"成功"，若各自回收一次配额/GPU 就会重复释放。
     let now = Utc::now();
-    crate::with_db!(
+    let hit: u64 = crate::with_db!(
         pool,
         "UPDATE jobs SET status = 'cancelled', end_time = COALESCE(end_time, ?), updated_at = ? \
-         WHERE id = ? AND deleted_at IS NULL",
+         WHERE id = ? AND status IN ('pending','running') AND deleted_at IS NULL",
         |db_s, db_e| {
             sqlx::query(db_s)
                 .bind(now)
@@ -290,6 +329,30 @@ pub async fn cancel_job(pool: &DatabasePool, id: i64, actor: Actor) -> AppResult
                 .rows_affected()
         }
     );
+    if hit == 0 {
+        return Err(AppError::bad_request(
+            "job state changed before cancel; retry with fresh status",
+        ));
+    }
+
+    // running 作业已预留 GPU 与租户配额，取消必须等量释放：dispatch 的完成/失败路径
+    // 因状态已非 running 会跳过，不会兜底回收，否则该作业永久占用资源。
+    if was_running {
+        if let Err(e) = crate::services::dispatch::release_resources_for_job(pool, &existing).await
+        {
+            tracing::error!(
+                job_id = id,
+                error = %e,
+                "cancel: failed to release reserved GPU/quota; manual cleanup required"
+            );
+            crate::metrics::scheduler_metrics()
+                .job_aborted_total
+                .with_label_values(&["cancel_release_failed"])
+                .inc();
+        } else {
+            crate::metrics::scheduler_metrics().cancelled_total.inc();
+        }
+    }
 
     let updated = job::get_by_id(pool, id, false)
         .await?

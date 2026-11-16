@@ -20,6 +20,26 @@ async fn main() -> anyhow::Result<()> {
     // 级别由 RUST_LOG 或 LOG_LEVEL 控制；OTel 默认关闭。
     init_tracing(&config)?;
 
+    // SLOW_REQUEST_THRESHOLD_MS 此前只在 config 定义/加载、从未被消费；现已接入
+    // request_logger 的慢请求 warn 日志（未注入时用保守默认 2000ms）。
+    metaclouds_backend_rust::middleware::request_logger::configure_slow_request_threshold(
+        config.slow_request_threshold_ms.max(0) as u64,
+    );
+    // 诚实提示：以下配置项当前仅加载、尚未接线生效。生产若显式设置了它们，
+    // 必须知道不会生效——避免"配了就以为有"的可观测性假象。
+    if config.slow_query_threshold_ms != 500
+        || config.log_output != "console"
+        || config.log_path != "/var/log/metaclouds/backend.log"
+    {
+        tracing::warn!(
+            slow_query_threshold_ms = config.slow_query_threshold_ms,
+            log_output = %config.log_output,
+            log_path = %config.log_path,
+            "SLOW_QUERY_THRESHOLD_MS / LOG_OUTPUT / LOG_PATH are loaded but not wired; \
+             request-level slow logging is active via SLOW_REQUEST_THRESHOLD_MS"
+        );
+    }
+
     tracing::info!(
         port = config.server_port,
         "starting metaclouds-backend-rust"

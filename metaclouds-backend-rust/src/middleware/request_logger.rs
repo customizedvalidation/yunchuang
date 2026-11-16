@@ -8,6 +8,7 @@
 //! 它运行在路由级 `jwt_auth` 之外，因此 user_id 通常为空（仅在把本中间件
 //! 挂在认证层内侧时才会有值），按“如果有则记录”处理。
 
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use axum::extract::Request;
@@ -25,6 +26,16 @@ use crate::middleware::request_id::RequestId;
 /// 详见 [`crate::middleware::client_ip`]。
 fn client_ip(request: &Request) -> String {
     crate::middleware::client_ip::resolve(request, crate::middleware::client_ip::trusted_from_env())
+}
+
+/// 慢请求告警阈值（毫秒）。此前 `SLOW_REQUEST_THRESHOLD_MS` 只在 config 中定义/
+/// 加载、从未被消费，生产无法通过它发现长尾请求。启动时由 `main` 注入；未注入时
+/// 使用保守默认 2000ms，测试/库调用方无需任何改动。
+static SLOW_REQUEST_THRESHOLD_MS: OnceLock<u64> = OnceLock::new();
+
+/// 注入慢请求阈值（进程级，仅首次生效）。
+pub fn configure_slow_request_threshold(ms: u64) {
+    let _ = SLOW_REQUEST_THRESHOLD_MS.set(ms);
 }
 
 /// 中间件：计时并在响应后输出结构化访问日志。
@@ -55,6 +66,21 @@ pub async fn request_logger(request: Request, next: Next) -> Response {
         request_id = request_id.as_deref().unwrap_or("-"),
         "request completed"
     );
+
+    // 超过阈值额外打 warn，便于生产告警规则直接按 "slow request" + threshold_ms 匹配。
+    // 与上面 info 日志共用同一请求上下文，不新增依赖。
+    let threshold_ms = *SLOW_REQUEST_THRESHOLD_MS.get().unwrap_or(&2000);
+    if duration_ms > threshold_ms as f64 {
+        tracing::warn!(
+            method = %method,
+            path = %path,
+            status_code = status_code,
+            duration_ms = duration_ms,
+            threshold_ms = threshold_ms,
+            request_id = request_id.as_deref().unwrap_or("-"),
+            "slow request"
+        );
+    }
 
     response
 }

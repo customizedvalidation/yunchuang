@@ -98,6 +98,9 @@ data:
   DISPATCH_ENABLED: "true"
   DISPATCH_SIMULATED_RUN_MS: "2000"
   DISPATCH_SIMULATED_UTILIZATION: "0.75"
+  # 本轮新增：仅用于在真实执行器接入前验证 failed 终态与资源回收，默认 0。
+  # ⚠️ 生产接入真实执行器后必须保持 0，否则会人为制造失败作业。
+  DISPATCH_SIMULATED_FAILURE_RATE: "0"
 
   # ---- 限流 / 熔断 ----
   RATE_LIMIT_ENABLED: "true"

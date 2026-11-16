@@ -123,6 +123,10 @@ pub struct Config {
     pub dispatch_gpu_timeslice_max: f64,
     /// P2-4 实耗采样：模拟利用率，actual = 申请量 × 该值（0 < u ≤ 1）。
     pub dispatch_simulated_utilization: f64,
+    /// 模拟失败率（0.0~1.0）：仅用于在真实执行器接入前验证 `failed` 终态与资源回收
+    /// 路径。默认 0 = 模拟执行恒成功（与历史行为完全一致）；**生产接入真实执行器后
+    /// 必须为 0**，否则会人为制造失败作业。该值不伪装为真实执行结果。
+    pub dispatch_simulated_failure_rate: f64,
 
     // ---- 链路追踪 ----
     pub tracing_enabled: bool,
@@ -257,6 +261,7 @@ impl Default for Config {
             dispatch_topology_enabled: true,
             dispatch_gpu_timeslice_max: 1.0,
             dispatch_simulated_utilization: 0.75,
+            dispatch_simulated_failure_rate: 0.0,
             // 链路追踪
             tracing_enabled: false,
             tracing_service_name: "metaclouds-backend".to_string(),
@@ -395,6 +400,8 @@ impl Config {
         cfg.dispatch_topology_enabled = env_bool("DISPATCH_TOPOLOGY_ENABLED", true);
         cfg.dispatch_gpu_timeslice_max = env_float("DISPATCH_GPU_TIMESLICE_MAX", 1.0);
         cfg.dispatch_simulated_utilization = env_float("DISPATCH_SIMULATED_UTILIZATION", 0.75);
+        cfg.dispatch_simulated_failure_rate =
+            env_float("DISPATCH_SIMULATED_FAILURE_RATE", 0.0).clamp(0.0, 1.0);
 
         // 链路追踪
         cfg.tracing_enabled = env_bool("TRACING_ENABLED", false);

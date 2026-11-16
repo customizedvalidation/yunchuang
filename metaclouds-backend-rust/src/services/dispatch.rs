@@ -82,6 +82,9 @@ pub struct DispatchConfig {
     pub gpu_timeslice_max: f64,
     /// P2-4 实耗采样：模拟利用率，actual = 申请量 × 该值。
     pub simulated_utilization: f64,
+    /// 模拟失败率（0.0~1.0）：真实执行器接入前用于验证 `failed` 终态与资源回收路径。
+    /// 默认 0 = 模拟执行恒成功；生产接入真实执行器后必须为 0。
+    pub simulated_failure_rate: f64,
 }
 
 impl DispatchConfig {
@@ -106,6 +109,7 @@ impl DispatchConfig {
             topology_enabled: cfg.dispatch_topology_enabled,
             gpu_timeslice_max: cfg.dispatch_gpu_timeslice_max.max(1.0),
             simulated_utilization: cfg.dispatch_simulated_utilization.clamp(0.0, 1.0),
+            simulated_failure_rate: cfg.dispatch_simulated_failure_rate.clamp(0.0, 1.0),
         }
     }
 }
@@ -599,10 +603,25 @@ async fn try_dispatch_one(
     let pool2 = pool.clone();
     let job_id = job.id;
     let sim_ms = config.simulated_run_ms;
+    let failure_rate = config.simulated_failure_rate;
     spawn_tracked(async move {
         tokio::time::sleep(Duration::from_millis(sim_ms)).await;
-        if let Err(e) = complete_running_job(&pool2, job_id).await {
-            tracing::warn!(job_id, error = %e, "complete_running_job failed");
+        // 真实执行器接入前的失败路径验证：failure_rate > 0 时按比例走 failed 终态，
+        // 释放已预留的 GPU/配额并写 error_msg。默认 0 时行为与既有完全一致
+        // （模拟执行恒成功），绝不伪装为真实执行结果。
+        let simulated_failure = failure_rate > 0.0 && rand::random::<f64>() < failure_rate;
+        let finalized = if simulated_failure {
+            fail_running_job(
+                &pool2,
+                job_id,
+                "simulated failure (DISPATCH_SIMULATED_FAILURE_RATE)",
+            )
+            .await
+        } else {
+            complete_running_job(&pool2, job_id).await
+        };
+        if let Err(e) = finalized {
+            tracing::warn!(job_id, error = %e, "job finalization failed");
         }
     });
 
@@ -951,7 +970,7 @@ fn release_unit(job: &Job) -> i64 {
 ///
 /// 由完成路径（complete_running_job）与 reconcile 孤儿回退路径共用，确保释放逻辑
 /// 单一来源、释放量与预留量一致。
-async fn release_quota_for_job(pool: &DatabasePool, job: &Job) -> AppResult<()> {
+pub(crate) async fn release_quota_for_job(pool: &DatabasePool, job: &Job) -> AppResult<()> {
     let partition = if job.partition_id > 0 {
         Some(job.partition_id)
     } else {
@@ -971,7 +990,7 @@ async fn release_quota_for_job(pool: &DatabasePool, job: &Job) -> AppResult<()> 
 }
 
 /// 释放某作业的全部 active GPU 分配。
-async fn release_gpu_for_job(pool: &DatabasePool, job_id: i64) -> AppResult<()> {
+pub(crate) async fn release_gpu_for_job(pool: &DatabasePool, job_id: i64) -> AppResult<()> {
     let alloc_ids: Vec<i64> = crate::with_db!(
         pool,
         "SELECT id FROM gpu_allocations WHERE job_id = ? AND status = 'active' AND deleted_at IS NULL",
@@ -985,6 +1004,16 @@ async fn release_gpu_for_job(pool: &DatabasePool, job_id: i64) -> AppResult<()> 
             tracing::warn!(allocation_id = aid, error = %e, "failed to release gpu allocation");
         }
     }
+    Ok(())
+}
+
+/// 释放某作业持有的全部已预留资源（配额 + GPU）。
+///
+/// 供作业取消（`services::job::cancel_job`）、调度完成/失败路径共用，确保回收逻辑
+/// 单一来源。取消 running 作业若不经过这里，会永久占用 GPU 与租户配额。
+pub(crate) async fn release_resources_for_job(pool: &DatabasePool, job: &Job) -> AppResult<()> {
+    release_quota_for_job(pool, job).await?;
+    release_gpu_for_job(pool, job.id).await?;
     Ok(())
 }
 
@@ -1009,11 +1038,8 @@ async fn complete_running_job(pool: &DatabasePool, job_id: i64) -> AppResult<()>
         return Ok(());
     }
 
-    // 释放配额（若租户有 active 配额；释放量按 release_unit 与预留量等量）。
-    release_quota_for_job(pool, &job).await?;
-
-    // 释放 GPU。
-    release_gpu_for_job(pool, job_id).await?;
+    // 释放配额 + GPU（单一回收入口，取消/失败/完成路径共用）。
+    release_resources_for_job(pool, &job).await?;
 
     // 置 completed。
     let now = Utc::now();
@@ -1039,6 +1065,57 @@ async fn complete_running_job(pool: &DatabasePool, job_id: i64) -> AppResult<()>
         return Ok(());
     }
     crate::metrics::scheduler_metrics().completed_total.inc();
+    Ok(())
+}
+
+/// 失败 running 作业：释放 GPU + 配额 → 置 `failed`（写 error_msg）。
+///
+/// 与 [`complete_running_job`] 对称的第二条终态路径。由模拟失败率（真实执行器接入前）
+/// 与未来的真实执行器错误回传共用，确保失败作业不再永久占用资源、也不被误记为完成。
+/// 末尾 `rows_affected` 校验与完成路径一致，防止并发重复回收/重复计数。
+pub(crate) async fn fail_running_job(
+    pool: &DatabasePool,
+    job_id: i64,
+    reason: &str,
+) -> AppResult<()> {
+    let job = job::get_by_id(pool, job_id, false).await?.ok_or_else(|| {
+        crate::error::AppError::internal("job disappeared during failure handling")
+    })?;
+    if job.status != "running" {
+        tracing::warn!(
+            job_id,
+            status = %job.status,
+            "failure skipped: job is no longer running"
+        );
+        return Ok(());
+    }
+
+    release_resources_for_job(pool, &job).await?;
+
+    let now = Utc::now();
+    let updated = crate::with_db!(
+        pool,
+        "UPDATE jobs SET status = 'failed', error_msg = ?, end_time = ?, updated_at = ? \
+         WHERE id = ? AND status = 'running' AND deleted_at IS NULL",
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(reason)
+                .bind(now)
+                .bind(now)
+                .bind(job_id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    if updated == 0 {
+        tracing::warn!(
+            job_id,
+            "failure skipped: another worker finalized the job first"
+        );
+        return Ok(());
+    }
+    crate::metrics::scheduler_metrics().failed_total.inc();
     Ok(())
 }
 
@@ -1133,6 +1210,7 @@ mod tests {
             topology_enabled: true,
             gpu_timeslice_max: 1.0,
             simulated_utilization: 0.75,
+            simulated_failure_rate: 0.0,
         }
     }
 
@@ -2647,5 +2725,236 @@ mod tests {
             "orphan gang job must revert to pending"
         );
         assert_eq!(j.gang_fulfilled, 0, "revert must clear gang_fulfilled");
+    }
+
+    // ---- 终态与资源回收回归（生产落地 P0）----
+
+    async fn seed_gpu_and_quota(pool: &DatabasePool) {
+        gpu::create_gpu_device(
+            pool,
+            gpu::CreateGpuDeviceInput {
+                cluster_id: 1,
+                node_name: "node-1".into(),
+                vendor: "nvidia".into(),
+                model: "A100".into(),
+                index: 0,
+                total_memory_gb: 80,
+                allocatable_memory_gb: 80,
+                used_memory_gb: 0,
+                mig_enabled: false,
+                mig_profiles: "[]".into(),
+                driver_version: "".into(),
+                cuda_version: "".into(),
+                status: Some("available".into()),
+                utilization: 0.0,
+                temperature: 0,
+                power_draw: 0,
+                details: "".into(),
+            },
+        )
+        .await
+        .expect("create gpu device");
+        quota::create_quota(
+            pool,
+            quota::CreateQuotaInput {
+                name: "tenant-q".into(),
+                description: "".into(),
+                tenant_id: 1,
+                partition_id: None,
+                gpu_limit: 4,
+                cpu_limit: 100.0,
+                memory_limit_gb: 100.0,
+                storage_limit_gb: 100.0,
+                status: Some("active".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("create quota");
+    }
+
+    async fn create_pending_job(pool: &DatabasePool) -> i64 {
+        let created = crate::services::job::create_job(
+            pool,
+            crate::services::job::CreateJobInput {
+                name: "train-terminal".into(),
+                description: "".into(),
+                kind: "training".into(),
+                priority: 1,
+                gpus: 1,
+                cpus: 0,
+                memory: 0,
+                duration: 0,
+                cluster_id: 1,
+                gang_replicas: 1,
+                gang_min_available: 1,
+                topology_affinity: String::new(),
+            },
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("create job");
+        created.id
+    }
+
+    async fn active_gpu_count(pool: &DatabasePool, job_id: i64) -> i64 {
+        crate::with_db!(
+            pool,
+            "SELECT COUNT(*) FROM gpu_allocations WHERE job_id = ? AND status = 'active' AND deleted_at IS NULL",
+            |db_s, db_e| crate::db::query_scalar_db(db_e, db_s)
+                .bind(job_id)
+                .fetch_one(db_e)
+                .await
+        )
+        .expect("count active allocations")
+    }
+
+    /// 取消 running 作业必须等量释放 GPU 与配额。
+    /// 修复前 cancel_job 只改 status，dispatch 完成/失败路径因状态已非 running 跳过回收，
+    /// 被取消作业将永久占用 GPU 与租户配额。
+    #[tokio::test]
+    async fn test_cancel_running_job_releases_gpu_and_quota() {
+        let pool = setup_pool().await;
+        seed_gpu_and_quota(&pool).await;
+        let job_id = create_pending_job(&pool).await;
+
+        // 长模拟时长：作业被认领后保持 running，直到我们显式取消。
+        let mut cfg = dispatch_config();
+        cfg.simulated_run_ms = 60_000;
+        dispatch_tick(&pool, &cfg).await.expect("dispatch tick");
+
+        let j = crate::services::job::get_job_unscoped(&pool, job_id)
+            .await
+            .expect("get job");
+        assert_eq!(
+            j.status,
+            job::status::RUNNING,
+            "job must be running before cancel"
+        );
+        assert_eq!(
+            active_gpu_count(&pool, job_id).await,
+            1,
+            "running job holds 1 GPU"
+        );
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 1, "running job holds 1 quota GPU");
+
+        crate::services::job::cancel_job(
+            &pool,
+            job_id,
+            crate::services::job::Actor {
+                tenant_id: 1,
+                user_id: 1,
+                is_admin: true,
+            },
+        )
+        .await
+        .expect("cancel job");
+
+        let j = crate::services::job::get_job_unscoped(&pool, job_id)
+            .await
+            .expect("get job");
+        assert_eq!(j.status, job::status::CANCELLED, "job must be cancelled");
+        assert_eq!(
+            active_gpu_count(&pool, job_id).await,
+            0,
+            "cancel must release GPU allocation"
+        );
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 0, "cancel must release quota GPU");
+    }
+
+    /// 失败终态必须持久化 failed、记录原因、释放资源。
+    /// 修复前 dispatch 只有 completed 一条终态路径，失败作业无处可去。
+    #[tokio::test]
+    async fn test_fail_running_job_releases_resources_and_marks_failed() {
+        let pool = setup_pool().await;
+        seed_gpu_and_quota(&pool).await;
+        let job_id = create_pending_job(&pool).await;
+
+        let mut cfg = dispatch_config();
+        cfg.simulated_run_ms = 60_000;
+        dispatch_tick(&pool, &cfg).await.expect("dispatch tick");
+        assert_eq!(active_gpu_count(&pool, job_id).await, 1);
+
+        fail_running_job(&pool, job_id, "test executor error")
+            .await
+            .expect("fail job");
+
+        let j = crate::services::job::get_job_unscoped(&pool, job_id)
+            .await
+            .expect("get job");
+        assert_eq!(
+            j.status,
+            job::status::FAILED,
+            "failed terminal state must persist"
+        );
+        assert!(
+            j.error_msg.contains("test executor error"),
+            "failure reason must be recorded, got: {}",
+            j.error_msg
+        );
+        assert!(j.end_time.is_some(), "failed job must have end_time");
+        assert_eq!(
+            active_gpu_count(&pool, job_id).await,
+            0,
+            "failure must release GPU"
+        );
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("some quota");
+        assert_eq!(q.gpu_used, 0, "failure must release quota");
+    }
+
+    /// 两个并发状态更新只允许一个通过 CAS，防止互相覆盖/状态回退。
+    #[tokio::test]
+    async fn test_update_job_status_cas_prevents_concurrent_overwrite() {
+        let pool = setup_pool().await;
+        let job_id = create_pending_job(&pool).await;
+        let actor = crate::services::job::Actor {
+            tenant_id: 1,
+            user_id: 1,
+            is_admin: true,
+        };
+
+        let p1 = pool.clone();
+        let p2 = pool.clone();
+        let (a, b) = tokio::join!(
+            crate::services::job::update_job(
+                &p1,
+                job_id,
+                crate::services::job::UpdateJobInput {
+                    status: Some(job::status::COMPLETED.to_string()),
+                    ..Default::default()
+                },
+                actor,
+            ),
+            crate::services::job::update_job(
+                &p2,
+                job_id,
+                crate::services::job::UpdateJobInput {
+                    status: Some(job::status::FAILED.to_string()),
+                    ..Default::default()
+                },
+                actor,
+            ),
+        );
+        assert!(
+            a.is_ok() ^ b.is_ok(),
+            "exactly one concurrent status update must win CAS (a_err={:?}, b_err={:?})",
+            a.as_ref().err().map(|e| e.to_string()),
+            b.as_ref().err().map(|e| e.to_string())
+        );
     }
 }

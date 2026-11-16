@@ -320,7 +320,7 @@ Sidebar 菜单、Topbar 面包屑、router 守卫全部从该文件派生。
 | acceleration | `/acceleration`、`/{id}/{start,stop}` | `acceleration:write` |
 | alerts | `/alerts`、`/{id}/{acknowledge,resolve}` | `alert:write`（仅 admin） |
 | security | `/security/policies`、`/{id}/{enable,disable}` | `security:write` |
-| monitoring | `/monitoring/dashboard`（13 指标）、`/metrics`（16 规则）、`/alert-rules/evaluate` | `monitoring:write` |
+| monitoring | `/monitoring/dashboard`（39 指标族）、`/metrics`（16 规则）、`/alert-rules/evaluate` | `monitoring:write` |
 | 可观测 | `/health`（公开）、`/metrics`（公开）、`/swagger-ui/`（公开） | — |
 
 > 部分后端能力前端无菜单入口（如 `/users` CRUD、改密、告警规则），属产品决策，非 bug。
@@ -409,7 +409,7 @@ Trivy 镜像扫描、K8s 清单校验、cargo audit、gitleaks、checkov、部�
 ## 10. 可观测性
 
 - **`/health`**：根级存活探针（公开），返回 `{status, version, uptime}`，K8s 三探针均走它。
-- **`/metrics`**（公开）：13 个业务 Gauge（`metaclouds_*`）+ 3 个 HTTP 指标
+- **`/metrics`**（公开）：39 个指标族，均为 `metaclouds_*` 前缀——16 个业务指标 + 3 个 HTTP 指标 + 20 个调度指标（以源码 `register_*!` 宏调用数为准）
   （`http_requests_total` / `http_request_duration_seconds` / `http_requests_in_flight`），
   动态路径段归一化为模板，避免标签基数爆炸。
 - **日志**：JSON 结构化，含 `timestamp/level/target/message/trace_id/span_id/request_id`；
