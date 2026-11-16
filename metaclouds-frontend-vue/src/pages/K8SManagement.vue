@@ -14,6 +14,18 @@
       </div>
     </div>
 
+    <!-- 数据来源诚实标注：后端 /k8s/* 端点为 MockK8sClient，且前端三个 Tab 目前
+         借用 GPU 资源 / 运行中作业 / 资源池数据，并非真实 K8s API 对象。
+         明确告知用户，避免把语义借用误读为已完成真实容器编排接入。 -->
+    <el-alert
+      class="mc-k8s-source-note"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="演示视图：本页数据非真实 Kubernetes 对象"
+      description="节点页为平台 GPU 资源池、Pod 页为运行中作业派生、服务页为资源池定义。后端 K8s 接口当前由 mock 提供，真实 kube-rs 客户端尚未接入；请勿据此评估容器编排能力。"
+    />
+
     <!-- Tab 由 route.path 决定 -->
     <el-tabs :model-value="activeTab" @tab-change="onTabChange">
       <el-tab-pane label="节点管理" name="nodes" />
@@ -301,6 +313,8 @@ function showNodeDetail(row: GPUResource) {
 </script>
 
 <style scoped>
+.mc-k8s-source-note { margin-bottom: var(--mc-space-4); }
+:deep(.mc-k8s-source-note .el-alert__description) { font-size: var(--mc-fs-sm); line-height: 1.6; }
 :deep(.el-dialog) { max-width: 92vw; }
 .auto-refresh-hint {
   display: inline-flex;

@@ -84,4 +84,33 @@ describe('MonitoringAlert 页面', () => {
 
     expect(wrapper.text()).toContain('自动刷新')
   })
+
+  it('告警写操作仅 admin 可见；无后端 reopen 接口时显示禁用态而非可点假操作', async () => {
+    mockBase()
+    // 默认无 role：fail-closed，manager/user 不得看到 resolve/acknowledge 按钮
+    // （后端 routes.rs 把这两个端点挂在 ALERT_WRITE，权限矩阵仅 admin 持有，其余角色必 403）
+    const noRole = mountPage()
+    await flushPromises()
+    await flushPromises()
+    // 状态列文案含「已解决」，因此只精确断言「操作按钮」而非整页文本
+    expect(noRole.findAll('button').some((b) => b.text().trim() === '解决')).toBe(false)
+    expect(noRole.findAll('button').some((b) => b.text().trim() === '忽略')).toBe(false)
+    expect(noRole.findAll('button').some((b) => b.text().trim() === '重新打开')).toBe(false)
+    expect(noRole.find('.mc-disabled-action').exists()).toBe(false)
+
+    // admin 角色：可见解决/忽略；已解决告警的「重新打开」为禁用文案（span），不是按钮
+    localStorage.setItem('user', JSON.stringify({
+      id: 1, username: 'admin', role: 'admin', email: 'a@b.c', tenant_id: 1,
+    }))
+    const admin = mountPage()
+    await flushPromises()
+    await flushPromises()
+    expect(admin.text()).toContain('解决')
+    expect(admin.text()).toContain('忽略')
+    const reopen = admin.find('.mc-disabled-action')
+    expect(reopen.exists()).toBe(true)
+    expect(reopen.text()).toContain('重新打开')
+    expect(reopen.element.tagName.toLowerCase()).toBe('span')
+    expect(admin.findAll('button').some((b) => b.text().includes('重新打开'))).toBe(false)
+  })
 })

@@ -3,18 +3,15 @@
     <div class="mc-page-head">
       <div class="mc-page-head-main">
         <h1 class="mc-page-title">算力总览</h1>
-        <p class="mc-page-desc">{{ rangeLabel }} · 实时掌握全平台算力水位、作业吞吐与风险告警</p>
+        <p class="mc-page-desc">实时快照 · 掌握全平台算力水位、作业吞吐与风险告警</p>
       </div>
       <div class="mc-page-head-extra">
         <span class="auto-refresh-hint" :class="{ 'is-counting': autoRefreshCountdown < 10 }">
           <i class="auto-refresh-dot" />
           自动刷新 · 下次 {{ autoRefreshCountdown }}s
         </span>
-        <el-radio-group v-model="range" size="small">
-          <el-radio-button value="today">今日</el-radio-button>
-          <el-radio-button value="7d">近 7 天</el-radio-button>
-          <el-radio-button value="30d">近 30 天</el-radio-button>
-        </el-radio-group>
+        <!-- 原「今日/近 7 天/近 30 天」切换只改标题文案、不影响任何查询参数或数据，
+             属伪装控件，已移除。后端 GET /monitoring/dashboard 无时间范围参数。 -->
         <el-button :icon="Refresh" @click="refetchAll">刷新</el-button>
       </div>
     </div>
@@ -29,12 +26,14 @@
     >
       <!-- KPI 卡片行（可点击跳转 + 数值滚动 + GPU 利用率动态环） -->
       <div class="kpi-grid">
-        <RouterLink
+        <component
           v-for="card in kpiCards"
           :key="card.title"
-          :to="card.to"
+          :is="card.to ? RouterLink : 'div'"
+          :to="card.to || undefined"
           class="kpi-card"
-          :aria-label="`${card.title}，点击查看详情`"
+          :class="{ 'kpi-card--static': !card.to }"
+          :aria-label="card.to ? `${card.title}，点击查看详情` : undefined"
         >
           <div class="kpi-icon" :style="{ background: card.bg, color: card.iconColor }">
             <el-icon :size="20"><component :is="card.icon" /></el-icon>
@@ -65,8 +64,8 @@
             />
             <text x="22" y="26" class="kpi-ring-text">{{ card.value }}%</text>
           </svg>
-          <el-icon class="kpi-go" :size="14"><ArrowRight /></el-icon>
-        </RouterLink>
+          <el-icon v-if="card.to" class="kpi-go" :size="14"><ArrowRight /></el-icon>
+        </component>
       </div>
 
       <!-- 三个饼图 -->
@@ -150,6 +149,10 @@
 <script setup lang="ts">
 import McEmpty from '@/components/McEmpty.vue'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
+import { useAuthStore } from '@/stores/auth'
+import { isRoleAllowed } from '@/utils/auth'
+import { getNavRoles } from '@/nav'
+import { RouterLink } from 'vue-router'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Refresh, Coin, Cloudy, Timer, Bell, UserFilled, Grid, Operation, ArrowRight } from '@element-plus/icons-vue'
 import PageState from '@/components/PageState.vue'
@@ -234,12 +237,6 @@ const { autoRefreshCountdown, resetCountdown } = useAutoRefresh(refetchAll)
 
 
 
-// ---------- 时间范围 ----------
-const range = ref<'today' | '7d' | '30d'>('7d')
-const rangeLabel = computed(
-  () => ({ today: '今日', '7d': '近 7 天', '30d': '近 30 天' })[range.value],
-)
-
 // ---------- KPI 计算 ----------
 // GPU 利用率以 monitoring/dashboard 聚合结果为准：
 // total_gpus = gpu_devices 总数，allocated_gpus = gpu_allocations 占用数。
@@ -264,6 +261,12 @@ const schedulerStats = computed(() => ({
   active: schedulers.value.filter((s) => s.status === 'active').length,
   error: schedulers.value.filter((s) => s.status === 'error').length,
 }))
+
+// 租户 KPI 卡可跳转性：与导航/守卫共用 navConfig 的角色声明，role 变化时响应式更新。
+const auth = useAuthStore()
+const canViewTenant = computed(() =>
+  isRoleAllowed(auth.role, getNavRoles('/tenant') ?? []),
+)
 
 const kpiCards = computed(() => [
   {
@@ -316,7 +319,9 @@ const kpiCards = computed(() => [
     bg: 'var(--mc-brand-subtle)',
     iconColor: 'var(--mc-brand-fg)',
     footer: '多租户资源隔离与配额',
-    to: '/tenant',
+    // 与 navConfig / 路由守卫同源：user 角色无 /tenant 权限，展示数字但不给可点入口，
+    // 避免点击后被守卫重定向回仪表盘（可见但点不进的伪装链接）。
+    to: canViewTenant.value ? '/tenant' : undefined,
   },
   {
     title: '分区状态',
@@ -611,6 +616,14 @@ function alertLevelClass(level?: string) {
   transform: translateY(-1px);
 }
 .kpi-card:active { transform: none; }
+/* 无权限查看的 KPI（如 user 的租户卡）：保留信息展示，但去除「可点击」 affordance */
+.kpi-card--static { cursor: default; }
+.kpi-card--static:hover,
+.kpi-card--static:focus-visible {
+  border-color: var(--mc-line);
+  box-shadow: var(--mc-shadow-1);
+  transform: none;
+}
 .kpi-icon {
   width: 38px;
   height: 38px;

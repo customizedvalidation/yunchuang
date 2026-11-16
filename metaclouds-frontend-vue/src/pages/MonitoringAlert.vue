@@ -135,14 +135,17 @@
           <el-table-column label="操作" width="220" fixed="right">
             <template #default="{ row }">
               <el-button type="primary" link size="small" @click="openDetail(row)">详情</el-button>
-              <Can :roles="['admin', 'manager']">
+              <!-- 后端 routes.rs 将 resolve/acknowledge 挂在 ALERT_WRITE，权限矩阵仅 admin 持有，
+                   manager/user 点击必 403。前端收窄到 admin，与后端最终防线同口径。 -->
+              <Can :roles="['admin']">
                 <template v-if="effectiveStatus(row) === 'active'">
                   <el-button type="primary" link size="small" @click="setStatusOverride(row.id, 'resolved', '解决')">解决</el-button>
                   <el-button type="warning" link size="small" @click="setStatusOverride(row.id, 'ignored', '忽略')">忽略</el-button>
                 </template>
-                <el-button v-else type="primary" link size="small" @click="setStatusOverride(row.id, 'active', '重新打开')">
-                  重新打开
-                </el-button>
+                <!-- 后端未提供 reopen 端点：禁用并说明，不再保留「点了只弹提示」的假操作。 -->
+                <el-tooltip v-else content="后端暂未提供重新打开接口，暂不支持此操作" placement="top">
+                  <span class="mc-disabled-action">重新打开</span>
+                </el-tooltip>
               </Can>
             </template>
           </el-table-column>
@@ -547,5 +550,15 @@ void metricsLoading
 /* 表格内 link 按钮触控目标不小于 44px */
 :deep(.el-table .el-button.is-link) {
   min-height: 44px;
+}
+/* 后端无 reopen 接口：以禁用态文案代替可点击假操作，保持行高与按钮一致 */
+.mc-disabled-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--mc-text-4);
+  font-size: var(--mc-fs-sm);
+  cursor: not-allowed;
 }
 </style>

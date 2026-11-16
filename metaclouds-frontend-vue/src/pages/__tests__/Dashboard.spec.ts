@@ -119,21 +119,55 @@ describe('Dashboard 页面', () => {
     await flushPromises()
 
     const links = wrapper.findAllComponents(RouterLinkStub)
-    // 7 张 KPI 卡片 + 3 个图表头"查看详情" + 1 个告警"查看全部" = 11 个 RouterLink
-    expect(links.length).toBe(11)
+    // 6 张无角色限制的 KPI 卡 + 3 个图表头"查看详情" + 1 个告警"查看全部" = 10。
+    // 第 7 张租户卡在无 role（未登录/未知角色）时为静态 div，不给可点入口。
+    expect(links.length).toBe(10)
     const cardLinks = links.filter((l) => l.classes().includes('kpi-card'))
-    expect(cardLinks.length).toBe(7)
+    expect(cardLinks.length).toBe(6)
     const tos = cardLinks.map((l) => (l.props('to') as string) || '')
-    // KPI 跳转目标
     expect(tos).toContain('/cluster')
     expect(tos).toContain('/gpus')
     expect(tos).toContain('/job')
     expect(tos).toContain('/monitoring')
-    expect(tos).toContain('/tenant')
     expect(tos).toContain('/partitions')
     expect(tos).toContain('/schedulers')
+    // 无权限角色不得出现 /tenant 可点入口（否则点击被守卫弹回，属伪装链接）
+    expect(tos).not.toContain('/tenant')
+    const staticTenantCard = wrapper.find('.kpi-card--static')
+    expect(staticTenantCard.exists()).toBe(true)
+    expect(staticTenantCard.text()).toContain('租户数量')
     // KPI 卡片带 aria-label（键盘/读屏可访问）
     expect(cardLinks[0].attributes('aria-label')).toContain('点击查看详情')
+  })
+
+  it('admin 角色可见可点的租户 KPI 卡，且不渲染伪装的今日/近 7 天时间切换', async () => {
+    vi.mocked(clusterApi.list).mockResolvedValue([])
+    vi.mocked(resourceApi.list).mockResolvedValue([])
+    vi.mocked(jobApi.list).mockResolvedValue([])
+    vi.mocked(monitoringApi.alerts).mockResolvedValue([])
+    vi.mocked(gpuApi.devices).mockResolvedValue([])
+    vi.mocked(partitionApi.list).mockResolvedValue([])
+    vi.mocked(schedulerApi.list).mockResolvedValue([])
+    vi.mocked(tenantApi.list).mockResolvedValue([])
+    vi.mocked(monitoringApi.dashboard).mockResolvedValue({})
+
+    // 在挂载前写入 localStorage，让 auth store 初始化即读到 admin 角色
+    // （与真实登录态一致的来源，避免直接改 store 内部 ref）
+    localStorage.setItem('user', JSON.stringify({
+      id: 1, username: 'admin', role: 'admin', email: 'a@b.c', tenant_id: 1,
+    }))
+    const wrapper = mountDashboard()
+    await flushPromises()
+
+    const cardLinks = wrapper.findAllComponents(RouterLinkStub).filter((l) => l.classes().includes('kpi-card'))
+    const tos = cardLinks.map((l) => (l.props('to') as string) || '')
+    expect(tos).toContain('/tenant')
+    expect(wrapper.find('.kpi-card--static').exists()).toBe(false)
+
+    // 后端 GET /monitoring/dashboard 无时间参数，原三态切换只改文案 → 必须已移除
+    expect(wrapper.text()).not.toContain('近 7 天')
+    expect(wrapper.text()).not.toContain('近 30 天')
+    expect(wrapper.text()).toContain('实时快照')
   })
 
   it('图表与告警卡片头部提供"查看详情/查看全部"链接', async () => {
