@@ -84,6 +84,9 @@ pub struct Config {
     // ---- 调度闭环（P0 真实调度器）----
     /// 是否启动真实调度闭环（消费 pending 作业并派发执行）。默认开启。
     pub dispatch_enabled: bool,
+    /// 执行器后端：`simulated`（当前唯一可用）或 `kube`（真实 K8s，**尚未接入**）。
+    /// 生产禁止选择 kube——KubeExecutorStub 会显式失败，不能伪装成可用后端。
+    pub executor_backend: String,
     /// 调度轮询间隔（毫秒）。
     pub dispatch_interval_ms: u64,
     /// 模拟执行时长（毫秒）：P0 阶段 K8s 真实提交未接入，用短时睡眠模拟一次运行。
@@ -94,6 +97,13 @@ pub struct Config {
     pub dispatch_max_concurrent: usize,
     /// 崩溃恢复宽限（秒）：running 且无 GPU 分配的孤儿作业超过该时长才回退 pending。
     pub dispatch_reconcile_grace_seconds: i64,
+    /// 周期性崩溃恢复扫描间隔（秒）：leader 每隔该时长扫描孤儿作业并幂等收尾。
+    /// 此前 reconcile 仅在启动期执行一次，leader 长时存活期间崩溃的作业无人恢复。
+    pub dispatch_reconcile_interval_seconds: i64,
+    /// 抢占开关（P2-3，默认关闭）：并发/配额不足时，是否允许高优先级作业抢占
+    /// 同 cluster / partition / tenant 的低优先级 running 作业。
+    /// ⚠️ 在模拟执行体上抢占仅验证排队语义；生产启用前须在真实执行器上回归。
+    pub dispatch_preemption_enabled: bool,
 
     // ---- 调度闭环 · 利用率与公平（P1）----
     /// P1-1 Backfill 回填：在优先级主路径之外，利用空闲容量派发能塞进剩余资源的小作业。
@@ -242,11 +252,14 @@ impl Default for Config {
             scheduler_interval_seconds: 10,
             // 调度闭环（P0）
             dispatch_enabled: true,
+            executor_backend: "simulated".to_string(),
             dispatch_interval_ms: 2000,
             dispatch_simulated_run_ms: 2000,
             dispatch_batch_size: 50,
             dispatch_max_concurrent: 10,
             dispatch_reconcile_grace_seconds: 300,
+            dispatch_reconcile_interval_seconds: 60,
+            dispatch_preemption_enabled: false,
             // P1 利用率与公平
             dispatch_backfill_enabled: true,
             dispatch_backfill_window: 50,
@@ -379,11 +392,15 @@ impl Config {
 
         // 调度闭环（P0）
         cfg.dispatch_enabled = env_bool("DISPATCH_ENABLED", true);
+        cfg.executor_backend = env_or("EXECUTOR_BACKEND", "simulated").to_ascii_lowercase();
         cfg.dispatch_interval_ms = env_int("DISPATCH_INTERVAL_MS", 2000) as u64;
         cfg.dispatch_simulated_run_ms = env_int("DISPATCH_SIMULATED_RUN_MS", 2000) as u64;
         cfg.dispatch_batch_size = env_int("DISPATCH_BATCH_SIZE", 50) as usize;
         cfg.dispatch_max_concurrent = env_int("DISPATCH_MAX_CONCURRENT", 10) as usize;
         cfg.dispatch_reconcile_grace_seconds = env_int("DISPATCH_RECONCILE_GRACE_SECONDS", 300);
+        cfg.dispatch_reconcile_interval_seconds =
+            env_int("DISPATCH_RECONCILE_INTERVAL_SECONDS", 60);
+        cfg.dispatch_preemption_enabled = env_bool("DISPATCH_PREEMPTION_ENABLED", false);
 
         // 调度闭环 · 利用率与公平（P1）
         cfg.dispatch_backfill_enabled = env_bool("DISPATCH_BACKFILL_ENABLED", true);
@@ -568,6 +585,21 @@ impl Config {
                      or K8S_SIMULATION_MODE=false to fail closed on K8s read endpoints",
                 ));
             }
+        }
+
+        // 执行器后端守卫（契约灰度①）：kube 后端尚未接入，KubeExecutorStub 会
+        // 显式失败。生产选择它必须拒绝启动，不能让 stub 被误认为生产后端。
+        if !matches!(self.executor_backend.as_str(), "simulated" | "kube") {
+            return Err(AppError::bad_request(
+                "EXECUTOR_BACKEND must be either 'simulated' or 'kube'",
+            ));
+        }
+        if is_prod && self.executor_backend == "kube" {
+            return Err(AppError::bad_request(
+                "EXECUTOR_BACKEND=kube is not wired yet (KubeExecutorStub); \
+                 keep 'simulated' with ALLOW_SIMULATED_EXECUTION for demo mode, \
+                 or wait for the real KubeExecutor before going to production",
+            ));
         }
 
         // 生产环境 CORS 与可信代理必须显式声明。

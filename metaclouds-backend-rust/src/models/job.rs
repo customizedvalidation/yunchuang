@@ -97,6 +97,11 @@ pub struct Job {
     pub cpu_actual: Option<f64>,
     pub memory_gb_actual: Option<f64>,
     pub usage_sampled_at: Option<DateTime<Utc>>,
+    // P2-3 抢占契约（默认关闭）：豁免窗口截止（RFC3339，NULL = 无豁免），
+    // 以及触发本次重排队的抢占者 job_id（NULL = 未被抢占）。
+    // 两列均为可空元数据，迁移 017 提供存储，不代表抢占已启用。
+    pub preempt_exempt_until: Option<DateTime<Utc>>,
+    pub preempted_by: Option<i64>,
 }
 
 impl HasTimestamps for Job {
@@ -389,7 +394,8 @@ pub async fn list(
         checkpoint_enabled, checkpoint_interval_minutes, max_retries, retry_count, \
         fault_tolerance_level, topology_affinity, topology_anti_affinity, network_requirement, \
         gang_replicas, gang_min_available, gang_fulfilled, \
-        gpu_fraction_actual, cpu_actual, memory_gb_actual, usage_sampled_at";
+        gpu_fraction_actual, cpu_actual, memory_gb_actual, usage_sampled_at, \
+        preempt_exempt_until, preempted_by";
     let list_sql = format!(
         "SELECT {JOB_COLUMNS} FROM jobs WHERE {where_clause} ORDER BY id ASC LIMIT ? OFFSET ?"
     );

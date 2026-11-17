@@ -1,8 +1,9 @@
-# 真实执行器接入契约（设计稿 · 尚未实现）
+# 真实执行器接入契约（设计稿 · 灰度①部分落地，真实 KubeExecutor 尚未实现）
 
 - 日期：2026-11-09（第三轮，把「未做」细化为「契约已定、待环境实施」）
-- 状态：**设计文档，不是已落地代码**。当前生产执行体仍是 `tokio::time::sleep` 后置 `completed`，实耗是 `申请 × 0.75` 合成值并标记 `usage_source='simulated'`。
-- 关联：`docs/system-fixes-2026-11-09.md` 第五节、`src/services/dispatch.rs`、`migrations/014_dispatch_lease.sql`
+- 状态：**设计文档 + 灰度①部分落地（2026-11-16）**。当前生产执行体仍是 `tokio::time::sleep` 后置 `completed`，实耗是 `申请 × 0.75` 合成值并标记 `usage_source='simulated'`。
+- 2026-11-16 灰度①落地范围：`migrations/016_exec_tasks.sql`（双驱动）、`src/services/executor/mod.rs`（`Executor` trait + `SimulatedExecutor` + `KubeExecutorStub`）、`EXECUTOR_BACKEND` 配置与生产 fail-closed 守卫、对应离线测试均已通过。**尚未落地**：dispatch 切到 trait 抽象、真实 `KubeExecutor`（kube-rs）、DCGM 实耗采集。
+- 关联：`docs/system-fixes-2026-11-09.md` 第五节、`src/services/dispatch.rs`、`migrations/014_dispatch_lease.sql`、`docs/PRODUCTION-READINESS-2026-11-16.md`
 
 ---
 

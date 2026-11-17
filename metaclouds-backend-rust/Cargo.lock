@@ -1448,6 +1448,7 @@ version = "2.0.1"
 dependencies = [
  "anyhow",
  "argon2",
+ "async-trait",
  "axum 0.8.9",
  "bcrypt",
  "chrono",

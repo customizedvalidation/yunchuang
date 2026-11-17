@@ -344,3 +344,50 @@ fn development_mode_allows_simulated_execution() {
     };
     assert!(c.validate().is_ok());
 }
+
+// ── 执行器后端守卫（契约灰度①，2026-11-16）────────────────────────────────
+
+#[test]
+fn executor_backend_rejects_unknown_value() {
+    let mut c = valid_prod();
+    c.executor_backend = "bogus".to_string();
+    let err = c.validate().unwrap_err();
+    assert!(
+        err.to_string().contains("EXECUTOR_BACKEND must be either"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn prod_rejects_unwired_kube_executor() {
+    let mut c = valid_prod();
+    c.executor_backend = "kube".to_string();
+    let err = c.validate().unwrap_err();
+    assert!(
+        err.to_string().contains("KubeExecutorStub") || err.to_string().contains("not wired"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn preemption_is_disabled_by_default() {
+    let c = Config::default();
+    assert!(
+        !c.dispatch_preemption_enabled,
+        "preemption must be opt-in (default off)"
+    );
+    // 生产夹具同样保持关闭，避免默认在生产启用未回归的抢占语义。
+    assert!(!valid_prod().dispatch_preemption_enabled);
+}
+
+#[test]
+fn development_allows_kube_backend_value_but_stub_fails_at_runtime() {
+    // 开发态允许选择 kube 值以暴露 KubeExecutorStub 的显式失败，
+    // 配置层不拦；真正的"不可用"由执行器在运行期 fail-closed 表达。
+    let c = Config {
+        executor_backend: "kube".to_string(),
+        jwt_secret: "s".repeat(32),
+        ..Config::default()
+    };
+    assert!(c.validate().is_ok());
+}

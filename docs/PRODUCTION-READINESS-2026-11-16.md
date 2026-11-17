@@ -60,18 +60,18 @@
 | GPU fraction / 时间片 | ✅ 已具备（模拟口径） | `gpu_timeslice_max`，fraction 折算准入 |
 | 租户配额借用 / 回收 | ✅ 已具备 | `quota::allocate_resources_with_borrow` / `release_resources` |
 | 原子认领 + 全局并发上限 | ✅ 已具备 | `UPDATE ... WHERE status='pending' AND (SELECT COUNT(*)) < max`，跨副本一致 |
-| 崩溃恢复（reconcile） | ✅ 已具备 | 启动期扫描 running，按 active GPU 重挂完成或宽限回退 |
-| 租约选主 | 🟡 部分 | `dispatch_lease` 启动期 CAS；**无心跳续期**，leader 长时崩溃无二次抢占 |
+| 崩溃恢复（reconcile） | ✅ 已具备 | 启动期 + 周期性扫描 running，按 active GPU 重挂完成或宽限回退 |
+| 租约选主 | ✅ 本轮补齐 | `dispatch_lease` CAS 选主 + 每 `ttl/3` 心跳续期 + 非 leader 接管 + leader 周期 reconcile |
 | 失败 / 取消终态与资源回收 | ✅ 本轮具备 | `fail_running_job` / `cancel_job` + 单一回收口（§3） |
 | 状态并发安全 | ✅ 本轮具备 | 状态 CAS（§3） |
 | **真实执行器（kube-rs Job/CRD）** | ❌ 未实现 | 执行体为 `tokio::time::sleep(sim_ms)`；契约见 `docs/real-executor-contract.md` |
-| **作业级抢占 / 驱逐** | ❌ 未实现 | 见 `docs/p2-3-preemption-backlog.md` |
+| **作业级抢占 / 驱逐** | 🟡 契约落地，默认关闭 | 017 迁移 + SQL 候选集（同 cluster/partition/tenant）+ 复用单一回收口，`DISPATCH_PREEMPTION_ENABLED=false`；真实 grace-stop/GPU 让出未验证，见 `docs/p2-3-preemption-backlog.md` |
 | **DRF / 队列层级** | ❌ 未实现 | 无队列数据结构，仅扁平优先级 |
 | **未来时隙 reservation** | ❌ 未实现 | 无预留表/时间片模型 |
 | **DCGM 实耗采集** | ❌ 未实现 | `usage_source='simulated'`，`actual = 申请 × 模拟利用率` |
 | 优雅关闭排水 | ✅ 已具备 | `spawn_tracked` + SIGTERM 等待在途任务 |
 
-> 结论：调度**决策层**已相当完整（评分/Gang/拓扑/Backfill/配额/原子性），**执行层与公平性高阶特性**仍是主要差距。"国际一流"至少需要补齐真实执行器、抢占、DRF/队列与实耗采集。
+> 结论：调度**决策层**已相当完整（评分/Gang/拓扑/Backfill/配额/原子性），**执行层与公平性高阶特性**仍是主要差距。租约心跳与抢占契约（默认关闭）本轮补齐，但"国际一流"仍至少需要补齐真实执行器、抢占的真实启用、DRF/队列与实耗采集。
 
 ---
 
@@ -123,12 +123,12 @@
 - [ ] 备份纳入 CronJob/定时调度，恢复流程在预发演练一次（用 `restore-postgres.sh --confirm`）
 - [ ] 慢请求告警规则接入告警通道（匹配日志 `slow request` + `threshold_ms`）
 - [ ] 租约心跳续期 + 周期性 reconcile（当前仅启动期一次性）
-- [ ] migrations 增加 down/回滚脚本与演练
+- [x] migrations down/回滚脚本与离线回放测试（本轮；真实环境回滚仍待演练）
 - [ ] 真实执行失败/取消的资源回收做一次故障注入演练（本轮已有测试与指标基础）
 
 ### C. 国际一流调度进阶
 
-- [ ] 作业级抢占与驱逐（参考 `p2-3-preemption-backlog.md`）
+- [ ] 作业级抢占与驱逐**真实启用**：契约已落地且默认关闭，需在真实执行器上验证 grace-stop / GPU 让出（参考 `p2-3-preemption-backlog.md`）
 - [ ] DRF / 队列层级 / 未来时隙 reservation
 - [ ] DCGM 实耗采集替换 `usage_source='simulated'`
 
@@ -139,7 +139,7 @@
 | 阶段 | 目标 | 外部依赖 |
 | --- | --- | --- |
 | P0 | 真实执行器 + 生产 ConfigMap 去模拟 + PG HA + 备份验证 | 真实 K8s 集群、托管 PG、三环境凭据 |
-| P1 | 租约心跳、migrations 回滚、抢占、故障注入演练 | 无（可离线开发，需集成环境验证） |
+| P1 | 租约心跳、migrations 回滚（本轮已落地）；抢占契约（本轮已落地，真实启用待执行器）、故障注入演练 | 契约可离线；真实启用需 K8s + 执行器 |
 | P2 | DRF / 队列层级 / reservation / DCGM 实耗 | 真实 GPU 与计量基础设施 |
 
 ---

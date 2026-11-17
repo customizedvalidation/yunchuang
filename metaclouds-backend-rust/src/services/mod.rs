@@ -12,6 +12,9 @@ pub mod cluster;
 pub mod dataset;
 pub mod dispatch;
 pub mod distributed_training;
+/// 执行器抽象（契约灰度①）。注意：真实 KubeExecutor 尚未接入，
+/// `KubeExecutorStub` 会显式失败，不伪装为可用后端。
+pub mod executor;
 pub mod fluid_cache;
 pub mod gpu;
 pub mod inference;

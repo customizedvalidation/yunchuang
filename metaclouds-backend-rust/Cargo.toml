@@ -13,6 +13,7 @@ default = []
 legacy-scheduler = []
 
 [dependencies]
+async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", features = [

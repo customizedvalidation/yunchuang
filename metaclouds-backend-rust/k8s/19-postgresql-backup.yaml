@@ -1,0 +1,121 @@
+# ==============================================================================
+# 19-postgresql-backup.yaml — PostgreSQL 定时逻辑备份（PVC + CronJob）
+# ==============================================================================
+# ⚠️ 边界：本清单提供「备份能力」，不提供「数据层高可用」。
+#   - 17-postgresql.yaml 仍是单副本 StatefulSet，PG 故障即全站不可用；
+#     真正的 HA 需托管 PG / CloudNativePG / Zalando operator，见该文件头注释。
+#   - 备份只有在「定期演练过恢复」时才算数；见 docs/BACKUP-RESTORE-DRILL.md。
+#   - 离线开发沙箱无 kubectl/psql，本清单未实测，需先在预发环境 apply 并演练。
+#
+# 每日 02:00 UTC 全库 custom-format 备份，pg_restore -l 校验归档可读，保留 14 天。
+# 备份文件落在独立 PVC，生产应按合规要求改为对象存储/异地复制。
+# ==============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresql-backups
+  namespace: metaclouds
+  labels:
+    app: postgresql-backup
+    app.kubernetes.io/component: database-backup
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgresql-backup
+  namespace: metaclouds
+  labels:
+    app: postgresql-backup
+    app.kubernetes.io/component: database-backup
+  annotations:
+    metaclouds.io/restore-drill-required: "true"
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  suspend: false
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: postgresql-backup
+            app.kubernetes.io/component: database-backup
+        spec:
+          restartPolicy: OnFailure
+          # 备份任务无需访问 K8s API，不自动挂载 SA token（CKV_K8S_38）
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: pg-dump
+              image: postgres:16.4-alpine
+              imagePullPolicy: Always
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  OUT="/backups/metaclouds-${TS}.dump"
+                  pg_dump -Fc -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -f "$OUT"
+                  # 归档可读性校验：能列出内容才算备份成功
+                  pg_restore -l "$OUT" >/dev/null
+                  # 仅清理本 CronJob 生成的归档，不碰其他文件
+                  find /backups -maxdepth 1 -type f -name 'metaclouds-*.dump' -mtime +14 -delete
+                  echo "backup verified: $OUT"
+              env:
+                - name: PGHOST
+                  value: postgresql.metaclouds.svc.cluster.local
+                - name: PGUSER
+                  valueFrom:
+                    configMapKeyRef:
+                      name: metaclouds-backend-config
+                      key: DATABASE_USER
+                - name: PGDATABASE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: metaclouds-backend-config
+                      key: DATABASE_NAME
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: metaclouds-secrets
+                      key: postgres-password
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "1Gi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: postgresql-backups
+            - name: tmp
+              emptyDir: {}

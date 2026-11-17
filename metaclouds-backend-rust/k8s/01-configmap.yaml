@@ -96,11 +96,18 @@ data:
   #    置 completed，实耗 = 申请量 × DISPATCH_SIMULATED_UTILIZATION，均为模拟数据。
   #    接入真实执行器前，作业状态 / 利用率 / 双账本回收不得作为对外服务依据。
   DISPATCH_ENABLED: "true"
+  # 执行器后端：当前仅 simulated 可用；kube 尚未接入（KubeExecutorStub 会显式失败）。
+  # ⚠️ 生产禁止改为 kube，除非已按 real-executor-contract.md 完成真实执行器接入。
+  EXECUTOR_BACKEND: "simulated"
   DISPATCH_SIMULATED_RUN_MS: "2000"
   DISPATCH_SIMULATED_UTILIZATION: "0.75"
   # 本轮新增：仅用于在真实执行器接入前验证 failed 终态与资源回收，默认 0。
   # ⚠️ 生产接入真实执行器后必须保持 0，否则会人为制造失败作业。
   DISPATCH_SIMULATED_FAILURE_RATE: "0"
+  # P2-3 抢占：默认关闭。抢占契约（017 迁移 + SQL 候选集 + 幂等回收）已落地，
+  # 但只有在真实执行器上验证 grace-stop / GPU 让出后才可启用；
+  # 在 SimulatedExecutor 上开启仅验证排队语义，详见 p2-3-preemption-backlog.md。
+  DISPATCH_PREEMPTION_ENABLED: "false"
 
   # ---- 限流 / 熔断 ----
   RATE_LIMIT_ENABLED: "true"

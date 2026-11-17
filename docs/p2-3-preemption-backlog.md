@@ -1,8 +1,23 @@
-# P2-3 抢占分支回归清单（待执行）
+# P2-3 抢占分支回归清单（部分落地，旧分支仍未合并）
 
-- 日期：2026-11-09（第三轮台账化）
+- 日期：2026-11-09（第三轮台账化）/ 2026-11-16（契约落地更新）
 - 分支：`park/p2-3-preemption` @ `d3ea543`，约 832 行改动
-- 状态：**未回归、未合并**。QA 深验曾通过，但第二轮修复大幅改动了 `dispatch.rs`，且已知 2 处 major，直接 merge 会引入冲突与语义回退。
+- 状态：旧分支 **未回归、未合并**（直接 merge 会引入冲突与语义回退）；但其两个 major 缺陷已在本轮以**独立契约实现**修复，不复用旧分支代码。
+
+## 2026-11-16 契约落地（默认关闭）
+
+本轮没有合并旧分支，而是在 `main` 上按「与真实执行器共用同一套租约/回收语义」重新实现了抢占的**存储契约 + SQL 候选集 + 幂等回收路径**：
+
+| 项 | 落地位置 | 状态 |
+|---|---|---|
+| 开关 | `DISPATCH_PREEMPTION_ENABLED`（`Config::dispatch_preemption_enabled`），默认 `false` | ✅ 默认关闭；生产未启用 |
+| 存储 | `migrations/017_preemption.sql`（双驱动）：`jobs.preempt_exempt_until`、`jobs.preempted_by`、复合索引 `idx_jobs_preemption_victim` | ✅ 已落地 |
+| M1 修复 | `services::dispatch::find_preemption_victims`：候选集在 **SQL WHERE** 按 `cluster_id` / `partition_id` / `tenant_id` / `priority` / 豁免窗口收窄 | ✅ 正反两向离线用例通过 |
+| M2 修复 | `services::dispatch::preempt_victim`：复用 `revert_to_pending` + `release_resources_for_job` 单一回收入口，CAS 失败即跳过，**不再引入第二套 run_token** | ✅ 幂等用例通过 |
+| 接入点 | `dispatch_tick`：仅在开关启用时，为派发失败的高优先级作业抢占并重排；开关关闭时行为与之前**完全一致** | ✅ 已落地 |
+| 指标 | `metaclouds_scheduler_preempted_total`（仅在成功抢占时递增） | ✅ 已落地 |
+
+**诚实边界**：以上只证明「SQL 候选集 + 排队/回收语义」在离线 SQLite 内存库上成立。它**不**证明真实 K8s 作业能被安全 grace-stop、GPU 能真正让出、跨租户抢占符合策略。在 `SimulatedExecutor` 上开启抢占仍属于演示语义；生产启用前必须在真实执行器上完成下方第七节测试。
 
 ---
 
@@ -10,8 +25,8 @@
 
 | # | 级别 | 问题 | 修复方向 |
 |---|---|---|---|
-| M1 | major | victim 选择未按 `cluster` / `partition` 过滤，可能抢占别的分区/集群的作业 | 候选集在 SQL 层按 `partition_id` / `cluster_id` 收窄；补「跨分区不得成为 victim」反向用例 |
-| M2 | major | `run_token` 契约与 `complete_running_job` 不一致 | 第二轮给 `complete_running_job` 加了 `status=='running'` 前置 + `rows_affected` 双重幂等；分支的 run_token 需与之对齐或移除重复机制，避免两套幂等互相绕过 |
+| M1 | major | victim 选择未按 `cluster` / `partition` 过滤，可能抢占别的分区/集群的作业 | ✅ **本轮已修**：`find_preemption_victims` 在 SQL WHERE 收窄，并额外按 `tenant_id` 过滤；「跨集群/跨分区/跨租户/非更低优先级/豁免窗口内均不得成为 victim」由 `test_preemption_victim_scope_and_exemption` 正反两向断言覆盖 |
+| M2 | major | `run_token` 契约与 `complete_running_job` 不一致 | ✅ **本轮已修**：新实现彻底不引入 run_token；抢占复用 `revert_to_pending` + `release_resources_for_job`，与完成/失败/reconcile 共用幂等回收口；`test_preemption_requeues_and_is_idempotent` 覆盖 |
 
 ---
 
@@ -64,10 +79,12 @@ cargo test --features legacy-scheduler --quiet
 | 编译 | fmt / clippy `-D warnings` / `cargo test` / `--all-features` 全绿 |
 | 行为 | 上述 7 组用例全绿；现有 72+ lib 用例零回归 |
 | 文档 | `docs/metaclouds-optimization-roadmap.md` 的 P2-3 条目改为「已合并」并写明合并 commit |
-| 开关 | 抢占默认关闭（`DISPATCH_PREEMPTION_ENABLED=false`），需显式启用；生产启用前须在真实集群验证 |
+| 开关 | ✅ 抢占默认关闭（`DISPATCH_PREEMPTION_ENABLED=false`），需显式启用；生产启用前须在真实集群验证。本轮已完成离线契约与 M1/M2 用例，其余 5 组仍待真实执行器 |
 
 ---
 
 ## 六、阻塞原因
 
-系统定位（演示平台 vs 生产算力平台）尚未拍板；且真实执行器 / `exec_tasks` lease 契约（`docs/real-executor-contract.md`）未实施。在内存态模拟执行体上做抢占回归，验证的是「模拟作业互抢」，对生产价值有限。**建议与真实执行器一并立项**，避免第二次返工。
+系统定位（演示平台 vs 生产算力平台）尚未拍板；且真实执行器 / `exec_tasks` lease 契约（`docs/real-executor-contract.md`）尚未完整实施。在内存态模拟执行体上做抢占回归，验证的是「模拟作业互抢」，对生产价值有限。
+
+2026-11-16 更新：M1 / M2 两个 major 已以独立契约实现修复，默认关闭；但**生产启用仍被阻塞**——原因不再是「数据结构缺失」，而是「缺少真实执行器来验证 grace-stop / GPU 让出 / 跨租户策略」。因此维持与原判断一致的结论：**抢占的真实启用必须与真实执行器一并立项**，避免第二次返工。本轮交付的是可复用的契约与离线回归，而不是"已可在生产使用"的抢占。

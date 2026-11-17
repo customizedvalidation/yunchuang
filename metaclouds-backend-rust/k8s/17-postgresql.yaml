@@ -15,6 +15,11 @@
 # 单副本限制：本 StatefulSet 只有 1 副本，未做流复制/高可用。生产如需 HA，
 # 请换 CloudNativePG / Zalando operator 或云厂商托管实例，并同步改
 # DATABASE_URL。
+#
+# ⚠️ 不要通过简单调大 replicas 来获得 HA：volumeClaimTemplates 生成的是
+#    ReadWriteOnce 单卷，多副本会同时写同一份 PGDATA 导致数据损坏。
+#    定时备份见 19-postgresql-backup.yaml；备份不等于 HA，恢复演练见
+#    docs/BACKUP-RESTORE-DRILL.md。
 # ==============================================================================
 apiVersion: v1
 kind: Service

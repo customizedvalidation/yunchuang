@@ -38,6 +38,8 @@ pub struct SchedulerMetrics {
     pub gpu_allocation_failed_total: IntCounterVec,
     /// Backfill 回填派发的作业数（在不阻塞高优先级作业的前提下，利用空闲容量派发的小作业）。
     pub backfilled_total: IntCounter,
+    /// 抢占成功重排队的低优先级作业数（P2-3，默认关闭；仅在开关启用时递增）。
+    pub preempted_total: IntCounter,
     /// 因配额不足但成功从集群空闲容量借用的分配次数（P1-3 弹性配额）。
     pub borrowed_quota_total: IntCounter,
     /// Gang 作业成功通过 all-or-nothing 最小副本准入的次数（P2-1 Gang 调度）。
@@ -127,6 +129,12 @@ impl SchedulerMetrics {
         )
         .expect("register metaclouds_scheduler_backfilled_total");
 
+        let preempted_total = register_int_counter!(
+            "metaclouds_scheduler_preempted_total",
+            "Total number of lower-priority jobs requeued by preemption (P2-3, disabled by default)."
+        )
+        .expect("register metaclouds_scheduler_preempted_total");
+
         let borrowed_quota_total = register_int_counter!(
             "metaclouds_quota_borrowed_total",
             "Total number of allocations that borrowed cluster idle capacity beyond tenant nominal quota."
@@ -193,6 +201,7 @@ impl SchedulerMetrics {
             quota_rejected_total,
             gpu_allocation_failed_total,
             backfilled_total,
+            preempted_total,
             borrowed_quota_total,
             gang_admitted_total,
             gang_blocked_total,
