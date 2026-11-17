@@ -11,9 +11,41 @@
 
 use async_trait::async_trait;
 use chrono::{Duration as ChronoDuration, Utc};
+use std::sync::{Arc, OnceLock};
 
 use crate::db::DatabasePool;
 use crate::error::AppResult;
+
+// ---------------------------------------------------------------------------
+// 全局执行器注册表（灰度②）：进程启动时按 EXECUTOR_BACKEND 配置注入一次，
+// dispatch 路径经 [`global_executor`] 消费，与 metrics 的 OnceLock 模式一致。
+// 未注入时默认 SimulatedExecutor（保持既有行为，不伪装为真实后端）。
+// ---------------------------------------------------------------------------
+static GLOBAL_EXECUTOR: OnceLock<Arc<dyn Executor>> = OnceLock::new();
+
+/// 注入进程级执行器；重复注入返回 `Err(已注入值)`，以首次配置为准。
+pub fn configure_executor(exec: Arc<dyn Executor>) -> Result<(), Arc<dyn Executor>> {
+    GLOBAL_EXECUTOR.set(exec)
+}
+
+/// 取当前执行器。未注入时惰性初始化为 [`SimulatedExecutor`]。
+pub fn global_executor() -> Arc<dyn Executor> {
+    GLOBAL_EXECUTOR
+        .get_or_init(|| Arc::new(SimulatedExecutor))
+        .clone()
+}
+
+/// 按配置名构造执行器：`"simulated"` → [`SimulatedExecutor`]，
+/// `"kube"` → [`KubeExecutorStub`]（submit 时显式失败，绝不伪装可用）。
+/// 其他值由 config.validate() 拒绝，此处兜底同样回退模拟并告警。
+pub fn executor_for_backend(backend: &str) -> Arc<dyn Executor> {
+    match backend {
+        "kube" => Arc::new(KubeExecutorStub),
+        // "simulated" 与未知值均回退模拟：未知值理论上到不了这里
+        // （validate() 已 fail-closed），兜底不 panic 只 warn。
+        _ => Arc::new(SimulatedExecutor),
+    }
+}
 
 /// 提交一次执行请求所需的最小上下文。
 #[derive(Debug, Clone)]

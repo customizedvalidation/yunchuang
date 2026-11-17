@@ -37,8 +37,8 @@ use crate::config::Config;
 use crate::db::DatabasePool;
 use crate::error::AppResult;
 use crate::models::job::{self, Job};
-use crate::services::gpu;
 use crate::services::quota::{self, QuotaRequest};
+use crate::services::{executor, gpu};
 
 /// 调度闭环运行配置。
 #[derive(Debug, Clone)]
@@ -89,6 +89,8 @@ pub struct DispatchConfig {
     /// 模拟失败率（0.0~1.0）：真实执行器接入前用于验证 `failed` 终态与资源回收路径。
     /// 默认 0 = 模拟执行恒成功；生产接入真实执行器后必须为 0。
     pub simulated_failure_rate: f64,
+    /// 执行器后端（灰度②）：`simulated` | `kube`（kube 当前为 stub，submit 显式失败）。
+    pub executor_backend: String,
 }
 
 impl DispatchConfig {
@@ -116,6 +118,7 @@ impl DispatchConfig {
             gpu_timeslice_max: cfg.dispatch_gpu_timeslice_max.max(1.0),
             simulated_utilization: cfg.dispatch_simulated_utilization.clamp(0.0, 1.0),
             simulated_failure_rate: cfg.dispatch_simulated_failure_rate.clamp(0.0, 1.0),
+            executor_backend: cfg.executor_backend.clone(),
         }
     }
 }
@@ -582,6 +585,16 @@ async fn try_dispatch_one(
     job: &Job,
     config: &DispatchConfig,
 ) -> AppResult<bool> {
+    try_dispatch_one_with_executor(pool, job, config, executor::global_executor().as_ref()).await
+}
+
+/// 灰度②：执行器经参数注入（可测）；生产路径走全局注册表。
+async fn try_dispatch_one_with_executor(
+    pool: &DatabasePool,
+    job: &Job,
+    config: &DispatchConfig,
+    exec: &dyn executor::Executor,
+) -> AppResult<bool> {
     // P2-1 Gang：准入副本数（非 Gang 或开关关闭时为 1，行为与既有路径完全一致）。
     let unit = gang_unit(job, config);
     let is_gang = unit > 1;
@@ -716,6 +729,58 @@ async fn try_dispatch_one(
         crate::metrics::scheduler_metrics()
             .gang_admitted_total
             .inc();
+    }
+
+    // 灰度②：资源预留成功后经 Executor 契约提交工作负载，并落 jobs.exec_attempt /
+    // jobs.executor_backend 与 exec_tasks 租约记录（submit 幂等）。submit 失败
+    // （如 EXECUTOR_BACKEND=kube 的 stub 显式 Unsupported）时释放已预留的 GPU/配额
+    // 并回退 pending —— 绝不把「提交失败」伪装成「已派发」。
+    let backend = config.executor_backend.clone();
+    let attempt = 1i64; // 首派发 attempt=1；重试/重派语义随真实执行器（灰度③）引入
+    let _: u64 = crate::with_db!(
+        pool,
+        "UPDATE jobs SET exec_attempt = ?, executor_backend = ?, updated_at = ? \
+         WHERE id = ? AND deleted_at IS NULL",
+        |db_s, db_e| {
+            sqlx::query(db_s)
+                .bind(attempt)
+                .bind(&backend)
+                .bind(Utc::now())
+                .bind(job.id)
+                .execute(db_e)
+                .await?
+                .rows_affected()
+        }
+    );
+    let req = executor::SubmitRequest {
+        job_id: job.id,
+        attempt,
+        backend: backend.clone(),
+        owner_instance: format!(
+            "pid{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_millis()
+        ),
+        lease_ttl_seconds: config.reconcile_grace_seconds.max(30),
+        simulated_run_ms: config.simulated_run_ms,
+        simulated_failure_rate: config.simulated_failure_rate,
+    };
+    if let Err(e) = exec.submit(pool, req).await {
+        tracing::warn!(
+            job_id = job.id,
+            backend = %backend,
+            error = %e,
+            "executor submit failed; releasing resources and reverting to pending"
+        );
+        let _ = release_gpu_for_job(pool, job.id).await;
+        if let Some(qid) = quota_id {
+            let _ = quota::release_resources(pool, qid, quota_req).await;
+        }
+        if is_gang {
+            crate::metrics::scheduler_metrics().gang_blocked_total.inc();
+        }
+        revert_to_pending(pool, job.id).await?;
+        return Ok(false);
     }
 
     // 全部预留成功 → 挂接模拟执行任务 + 实耗采样任务（P2-4 双账本）。
@@ -1443,6 +1508,7 @@ mod tests {
             gpu_timeslice_max: 1.0,
             simulated_utilization: 0.75,
             simulated_failure_rate: 0.0,
+            executor_backend: "simulated".to_string(),
         }
     }
 
@@ -3393,5 +3459,140 @@ mod tests {
             .await
             .expect("preempt again");
         assert_eq!(again, 0);
+    }
+
+    // ---- 灰度②：dispatch 接线 Executor 契约（2026-11-17） ----
+
+    /// 录制型 mock：记录 submit 参数；不写 exec_tasks（该行为由
+    /// `SimulatedExecutor` 自身测试覆盖，本测试只验证 dispatch 的接线）。
+    struct RecordingExecutor {
+        submitted: std::sync::Mutex<Vec<(i64, i64, String)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl executor::Executor for RecordingExecutor {
+        async fn submit(
+            &self,
+            _pool: &DatabasePool,
+            req: executor::SubmitRequest,
+        ) -> AppResult<String> {
+            self.submitted
+                .lock()
+                .unwrap()
+                .push((req.job_id, req.attempt, req.backend.clone()));
+            Ok(format!("mock://{}", req.job_id))
+        }
+
+        async fn poll(
+            &self,
+            _pool: &DatabasePool,
+            _job_id: i64,
+            _attempt: i64,
+        ) -> AppResult<executor::ExecStatus> {
+            Ok(executor::ExecStatus::Lost)
+        }
+
+        async fn abort(
+            &self,
+            _pool: &DatabasePool,
+            _job_id: i64,
+            _attempt: i64,
+            _reason: &str,
+        ) -> AppResult<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_routes_through_injected_executor() {
+        let pool = setup_pool().await;
+        seed_gpu_and_quota(&pool).await;
+        let job_id = seed_job(&pool, "exec-mock", 1, 1, 1, false).await;
+        let job_row = job::get_by_id(&pool, job_id, false).await.unwrap().unwrap();
+        let cfg = dispatch_config();
+        let exec = RecordingExecutor {
+            submitted: std::sync::Mutex::new(Vec::new()),
+        };
+
+        let ok = try_dispatch_one_with_executor(&pool, &job_row, &cfg, &exec)
+            .await
+            .expect("dispatch via mock executor");
+        assert!(ok, "dispatch should succeed via mock executor");
+
+        {
+            // 守卫必须在此块内释放，避免跨 await 持锁（clippy::await_holding_lock）。
+            let calls = exec.submitted.lock().unwrap();
+            assert_eq!(calls.len(), 1, "submit must be called exactly once");
+            let (jid, attempt, backend) = &calls[0];
+            assert_eq!(*jid, job_id);
+            assert_eq!(*attempt, 1, "first dispatch must use attempt=1");
+            assert_eq!(backend, "simulated");
+        }
+
+        // 作业已置 running，且 exec_attempt / executor_backend 落库。
+        let j = job::get_by_id(&pool, job_id, false).await.unwrap().unwrap();
+        assert_eq!(j.status, job::status::RUNNING);
+        let row: (i64, Option<String>) = crate::with_db!(
+            &pool,
+            "SELECT exec_attempt, executor_backend FROM jobs WHERE id = ?",
+            |db_s, db_e| {
+                use sqlx::Row;
+                let r = sqlx::query(db_s)
+                    .bind(job_id)
+                    .fetch_one(db_e)
+                    .await
+                    .unwrap();
+                (r.try_get(0).unwrap(), r.try_get(1).ok())
+            }
+        );
+        assert_eq!(row.0, 1, "jobs.exec_attempt must be set on dispatch");
+        assert_eq!(row.1.as_deref(), Some("simulated"));
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_with_kube_stub_reverts_to_pending_and_releases() {
+        let pool = setup_pool().await;
+        seed_gpu_and_quota(&pool).await;
+        let job_id = seed_job(&pool, "exec-stub", 1, 1, 1, false).await;
+        let job_row = job::get_by_id(&pool, job_id, false).await.unwrap().unwrap();
+        let mut cfg = dispatch_config();
+        cfg.executor_backend = "kube".to_string();
+
+        // KubeExecutorStub.submit 显式失败：dispatch 不报错，而是释放资源回退 pending
+        //（诚实边界：绝不把提交失败伪装成已派发）。
+        let ok = try_dispatch_one_with_executor(&pool, &job_row, &cfg, &executor::KubeExecutorStub)
+            .await
+            .expect("dispatch must not error; it reverts instead");
+        assert!(!ok, "stub submit failure must fail the dispatch");
+
+        let j = job::get_by_id(&pool, job_id, false).await.unwrap().unwrap();
+        assert_eq!(
+            j.status,
+            job::status::PENDING,
+            "job must revert to pending after stub submit failure"
+        );
+
+        // GPU 分配无残留。
+        let active: i64 = crate::with_db!(
+            &pool,
+            "SELECT COUNT(*) FROM gpu_allocations \
+             WHERE job_id = ? AND status = 'active' AND deleted_at IS NULL",
+            |db_s, db_e| crate::db::query_scalar_db(db_e, db_s)
+                .bind(job_id)
+                .fetch_one(db_e)
+                .await
+        )
+        .expect("count active allocations");
+        assert_eq!(
+            active, 0,
+            "gpu allocation must be released on submit failure"
+        );
+
+        // 配额释放：gpu_used 回 0。
+        let q = quota::find_quota_for_scope(&pool, 1, None)
+            .await
+            .expect("find quota")
+            .expect("quota exists");
+        assert_eq!(q.gpu_used, 0, "quota must be released after submit failure");
     }
 }

@@ -137,6 +137,16 @@ async fn main() -> anyhow::Result<()> {
 
     // ── 真实调度闭环（P0）：消费 pending 作业，配额+GPU 预留后派发执行 ─────────
     let dispatch_handle = if config.dispatch_enabled {
+        // 灰度②：按 EXECUTOR_BACKEND 注入进程级执行器。
+        // simulated → SimulatedExecutor（行为与灰度①之前一致）；
+        // kube → KubeExecutorStub（submit 显式失败、作业回退 pending，绝不伪装可用）。
+        let exec = metaclouds_backend_rust::services::executor::executor_for_backend(
+            &config.executor_backend,
+        );
+        if metaclouds_backend_rust::services::executor::configure_executor(exec).is_err() {
+            tracing::warn!("global executor already configured; keeping the first instance");
+        }
+        tracing::info!(backend = %config.executor_backend, "executor backend configured");
         // 状态机与资源预留是真实的，但执行体仍是模拟：sleep 后直接置 completed，
         // 实耗按「申请 × simulated_utilization」写入，K8S_SIMULATION_MODE 不参与
         // 执行路径选择。显式告警，避免把模拟完成态与模拟利用率误读为真实算力交付。

@@ -148,15 +148,19 @@ CREATE INDEX IF NOT EXISTS idx_exec_tasks_lease ON exec_tasks(lease_until);
 > 拆解与顺序约束，**抢占（`DISPATCH_PREEMPTION_ENABLED=true`）只允许在灰度⑤完成后开启**，
 > 避免在模拟执行体上验证「模拟互抢」造成第二次返工（`p2-3-preemption-backlog.md` 原结论）。
 
-### 灰度②：dispatch 接线 Executor trait（无需真实集群）
+### 灰度②：dispatch 接线 Executor trait（无需真实集群）✅ 已落地（2026-11-17）
 
-- `try_dispatch_one()` 认领作业后不再直接置 `running` + 模拟 `sleep`，改为调用
-  `executor.submit()`（`SimulatedExecutor` 行为保持现状）；
-- 新增 `EXECUTOR_BACKEND` 注入点（`AppState`），`KubeExecutorStub` 路径保持显式
-  `ExecError::Unsupported`；
-- `exec_tasks` 写入 submit/lease 记录（attempt 从 0 → 1）；
-- 单测：mock `Executor` trait 验证 submit/poll/abort 三条路径 + `exec_tasks` 记录一致性。
-- **验收**：现有 378 测试全绿；`/api/v1/system/mode` 语义不变。
+- `try_dispatch_one()` 认领 + 资源预留后改为调用 `executor.submit()`（`try_dispatch_one_with_executor`
+  注入执行器，生产路径走 `global_executor()`，main.rs 按 `EXECUTOR_BACKEND` 启动时注入）；
+- `jobs.exec_attempt = 1` / `jobs.executor_backend` / `exec_tasks` 租约记录随派发落库
+  （016 迁移的列首次被真实消费）；
+- submit 失败（`KubeExecutorStub` 显式 Unsupported）时释放 GPU/配额并回退 pending，
+  **绝不把提交失败伪装成已派发**；
+- 完成路径保持 SimulatedExecutor 语义不变（sleep + simulated_failure_rate 走 failed 终态）；
+- 单测：`RecordingExecutor` mock 验证接线与 attempt/backend 落库、stub 失败回退 pending
+  且 GPU/配额无残留。全量 380 tests passed，clippy -D warnings 0 告警。
+- **状态**：✅ 完成（`EXECUTOR_BACKEND=kube` 在 dev 环境行为：作业持续回退 pending + 显式 warn 日志；
+  生产仍被 validate() 拒绝）。
 
 ### 灰度③：真实 KubeExecutor（需真实集群 + RBAC）
 
