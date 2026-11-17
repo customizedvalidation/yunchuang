@@ -138,3 +138,61 @@ CREATE INDEX IF NOT EXISTS idx_exec_tasks_lease ON exec_tasks(lease_until);
 | **系统定位拍板**：演示平台 vs 生产算力平台 | 未定 —— 这决定是保留 SimulatedExecutor 长期共存，还是彻底移除模拟路径 |
 
 在这些条件具备前，本文件只作为设计与验收基线，不改变运行时行为。
+
+---
+
+## 八、实施计划（2026-11-17 立项，抢占启用与灰度⑤绑定）
+
+> 前情：灰度①（2026-11-17）已落地 `Executor` trait / `SimulatedExecutor` / `KubeExecutorStub` /
+> `exec_tasks` 表（迁移 016 双驱动）/ `EXECUTOR_BACKEND` 生产 fail-closed。以下为后续灰度的
+> 拆解与顺序约束，**抢占（`DISPATCH_PREEMPTION_ENABLED=true`）只允许在灰度⑤完成后开启**，
+> 避免在模拟执行体上验证「模拟互抢」造成第二次返工（`p2-3-preemption-backlog.md` 原结论）。
+
+### 灰度②：dispatch 接线 Executor trait（无需真实集群）
+
+- `try_dispatch_one()` 认领作业后不再直接置 `running` + 模拟 `sleep`，改为调用
+  `executor.submit()`（`SimulatedExecutor` 行为保持现状）；
+- 新增 `EXECUTOR_BACKEND` 注入点（`AppState`），`KubeExecutorStub` 路径保持显式
+  `ExecError::Unsupported`；
+- `exec_tasks` 写入 submit/lease 记录（attempt 从 0 → 1）；
+- 单测：mock `Executor` trait 验证 submit/poll/abort 三条路径 + `exec_tasks` 记录一致性。
+- **验收**：现有 378 测试全绿；`/api/v1/system/mode` 语义不变。
+
+### 灰度③：真实 KubeExecutor（需真实集群 + RBAC）
+
+- 依赖：`kube-rs`（workspace 特性 gate，非默认依赖）；ServiceAccount / Role / RoleBinding
+  （仅 Job 子资源 create/get/delete/list + pods/log read）；命名空间配额；
+- 实现：submit → K8s `Job`（env 注入任务参数，`sha-<commit>` 镜像）+ exec_tasks handle 记录；
+  poll → Job status（`succeeded/failed` + pod phase）；abort → delete Job（级联 pod）；
+- 崩溃恢复：leader reconcile 周期用 `exec_tasks.lease_until` 认领孤儿 handle，
+  与 014 `dispatch_lease` 选主共用语义；
+- **验收**：契约第六节全部用例 + 真实集群冒烟清单（submit → succeeded / abort → deleted /
+  API Server 断连重试 / RBAC 越权 403 显式失败）。
+
+### 灰度④：DCGM 实耗（替换 usage_source='simulated'）
+
+- 数据源：dcgm-exporter（优先，走 kube-rs read pods/log 或 ServiceMonitor 拉取）；
+  fallback：NVML 直接绑定（进程内）；
+- 写入 `gpu_fraction_actual / cpu_actual / memory_gb_actual / usage_sampled_at`，
+  `usage_source='dcgm'`；采样缺失时回收口径保持保守（按申请量）；
+- **验收**：`/system/mode` 报 `usage_source=dcgm`；模拟路径保持 `simulated` 可区分。
+
+### 灰度⑤：抢占启用（绑定前置条件）
+
+- 启用前提（config `validate()` 硬校验，缺一拒绝启动）：
+  `EXECUTOR_BACKEND=kube` **且** 真实 KubeExecutor 已接线（灰度③）
+  **且** `usage_source=dcgm`（灰度④，victim 资源回收需要真实执行体 abort）；
+- `preempt_for_job()` 已具备：同 cluster/partition/tenant 候选收窄（M1 修复）、
+  `preempt_exempt_until` 保护、`preempted_total` 指标、复用单一资源回收口（M2 修复）；
+- 需补：preempt 路径调用 `executor.abort()`（而非直接置终态）；
+- **验收**：`p2-3-preemption-backlog.md` 第五节的 7 组回归 + 真实集群抢占冒烟
+  （高优先级作业触发 victim abort → K8s Job 删除 → 资源释放 → 作业重新入队）。
+
+### 任务拆解
+
+| # | 任务 | 依赖 |
+|---|---|---|
+| 76 | 灰度② dispatch 接线 Executor trait + mock 单测 | 无 |
+| 77 | KubeExecutor 实现（kube-rs + RBAC 清单 + exec_tasks lease 对接） | 76 + 真实集群 |
+| 78 | DCGM 实耗采集（dcgm-exporter / NVML） | 77 |
+| 79 | 抢占启用绑定 + executor.abort() 接入 + 回归 | 77/78 |

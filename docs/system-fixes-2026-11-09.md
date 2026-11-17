@@ -182,7 +182,7 @@ bash scripts/pre-push-check.sh --strict
 推送 eeb7fcf / 58afa33 ──> 新 CI run ──> R7 ✅ 已闭环（run 42769493670 全绿）──> 按需打开 DEPLOY_ENABLED（按 deployment-prerequisites 配齐）
 第九轮（rustc 1.96 + rsproxy 可达）──> R11 zip ×4 已解除 ✅（8.13）──> 剩余 4 条豁免按各自解除条件
 运维提供真实凭据 ──> R8 ──> K8s 部署链路可用（R5 仍为单点告警）
-联网环境 resolve digest ──> R6（设 BASE_IMAGE_DIGESTS）
+联网环境 resolve digest ──> R6（或直接在 GitHub Actions 手动运行 `Resolve Base Image Digests` workflow，runner 代为解析并写 Variable）
 ```
 
 > 第四轮把「R7 结论待观察」推进为「已观察到 failure 且 4 个失败 job 的根因 3 个已实测修复、1 个（cargo audit）双管齐下处理」。第五至七轮持续收敛并最终闭环：**R7 已达成——run 42769493670 全绿（8.10）**。**没有任何一项被伪装成已完成**：执行体依旧是 `sleep(2s)`，实耗依旧是合成值，K8s 页面依旧是 mock。

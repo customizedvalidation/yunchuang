@@ -460,7 +460,7 @@ Trivy 镜像扫描、K8s 清单校验、cargo audit、gitleaks、checkov、部�
 | R3 | reconcile owner 运行期幂等 | ⚪ | 启动期已用租约选主，运行期未做 |
 | R4 | P2-3 抢占分支回归与合并 | 🟡 | 回归清单已成文，建议与 R1 同批 |
 | R5 | PostgreSQL HA | 🔴 | 单点已标注；需托管 PG / CloudNativePG |
-| R6 | 基础镜像 digest 钉死 | 🟡 | 沙箱无 Docker/crane 无法 resolve；联网环境跑 `pin-base-images.sh --resolve` |
+| R6 | 基础镜像 digest 钉死 | 🟡 | 本地沙箱 registry 仍被阻断；**已收敛为一键**：Actions 页手动运行 `Resolve Base Image Digests` workflow（`.github/workflows/resolve-base-digests.yml`，workflow_dispatch），runner 上 `pin-base-images.sh --resolve` 后自动写入 Variable `BASE_IMAGE_DIGESTS` 并回读校验；此后 CI build 自动钉 digest |
 | R7 | CI 首个完整 run 全绿 | 🟢 | run `42769493670` 闭环 |
 | R8 | 真实凭据注入 + K8s 部署可用 | 🔴 | 缺真实主机/SSH/kubeconfig；`DEPLOY_ENABLED` 仍关闭 |
 | R9 | K8s 客户端仍是 MockK8sClient | 🔴 | `K8S_SIMULATION_MODE=false` 时读端点已 fail-closed；待真实 kube-rs |

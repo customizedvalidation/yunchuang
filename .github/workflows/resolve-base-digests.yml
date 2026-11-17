@@ -1,0 +1,107 @@
+# ==============================================================================
+# Resolve Base Image Digests (R6 #16 收敛为「一键」)
+# ==============================================================================
+# 背景：Docker Hub / GHCR 在本地离线沙箱被阻断（auth.docker.io 等 000），
+# `pin-base-images.sh --resolve` 无法在本地执行。而 GitHub ubuntu runner
+# 具备完整外网与开箱即用的 docker buildx —— 由本 workflow 代为解析。
+#
+# 行为（仅 workflow_dispatch 手动触发，push/PR 流水线完全不受影响）：
+#   1. runner 上运行 scripts/pin-base-images.sh --resolve（docker buildx imagetools）
+#   2. 将解析结果写入仓库 Actions Variable `BASE_IMAGE_DIGESTS`
+#      （REST API PUT 为 upsert：不存在则创建，存在则更新）
+#   3. 结果同时输出到 job summary，便于审计与留档
+#
+# 写 Variable 的权限依据：仓库 Variables API（PUT
+# /repos/{owner}/{repo}/actions/variables/{name}）接受 GITHUB_TOKEN，
+# 需要仓库权限 "Actions: write" —— 由 job 级 permissions 显式授予，
+# 不提升全局 permissions。
+#
+# 运行后：ci-cd.yml 的两个 build job 在 `vars.BASE_IMAGE_DIGESTS != ''` 时
+# 自动执行 pin-base-images.sh --apply 把 FROM 钉到不可变 digest（工作副本，
+# 不提交）。脚本按设计绝不伪造 digest：任一镜像解析失败即 exit 3，job 变红。
+# ==============================================================================
+name: Resolve Base Image Digests
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  resolve:
+    name: Resolve & set BASE_IMAGE_DIGESTS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve base image digests (docker buildx imagetools)
+        id: resolve
+        run: |
+          set -euo pipefail
+          output="$(bash scripts/pin-base-images.sh --resolve)"
+          digests="$(printf '%s\n' "$output" | grep -m1 '^BASE_IMAGE_DIGESTS=' | cut -d= -f2-)"
+          if [ -z "$digests" ]; then
+            echo "::error::resolver produced no BASE_IMAGE_DIGESTS line" >&2
+            exit 3
+          fi
+          # 计数校验：4 个基础镜像（rust / alpine / node / nginx）必须全部解析成功
+          count="$(printf '%s' "$digests" | tr ';' '\n' | grep -c '=sha256:')"
+          if [ "$count" -ne 4 ]; then
+            echo "::error::expected 4 digests, got $count" >&2
+            exit 3
+          fi
+          printf 'digests=%s\n' "$digests" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Resolved base image digests"
+            echo ""
+            echo '```'
+            printf '%s\n' "$digests" | tr ';' '\n'
+            echo '```'
+            echo "Written to repo Actions Variable \`BASE_IMAGE_DIGESTS\`."
+            echo "Next CI push: build jobs pin FROM to immutable digests automatically."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write BASE_IMAGE_DIGESTS repo variable (upsert)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIGESTS: ${{ steps.resolve.outputs.digests }}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${{ github.repository }}/actions/variables/BASE_IMAGE_DIGESTS"
+          http="$(curl -sS -o /tmp/var-resp.json -w '%{http_code}' \
+            -X PUT "$api" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d "{\"name\":\"BASE_IMAGE_DIGESTS\",\"value\":\"$DIGESTS\"}")"
+          # PUT 变量成功返回 204（创建或更新）
+          if [ "$http" != "204" ]; then
+            echo "::error::variable PUT failed: HTTP $http" >&2
+            cat /tmp/var-resp.json >&2 || true
+            exit 1
+          fi
+          echo "Variable BASE_IMAGE_DIGESTS written (HTTP 204)."
+
+      - name: Verify variable content (read back, name only)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          http="$(curl -sS -o /tmp/var-get.json -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/variables/BASE_IMAGE_DIGESTS")"
+          if [ "$http" != "200" ]; then
+            echo "::error::variable read-back failed: HTTP $http" >&2
+            exit 1
+          fi
+          # 只校验存在性与值长度指纹，不在日志回显完整值之外做多余暴露
+          value="$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/var-get.json','utf8')).value)")"
+          if [ "$value" != "${{ steps.resolve.outputs.digests }}" ]; then
+            echo "::error::variable read-back mismatch" >&2
+            exit 1
+          fi
+          echo "Read-back verified: BASE_IMAGE_DIGESTS = $(printf '%s' "$value" | tr ';' '\n' | wc -l) entries."

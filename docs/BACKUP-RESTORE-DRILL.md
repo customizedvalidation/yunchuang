@@ -1,6 +1,8 @@
 # PostgreSQL 备份与恢复演练手册
 
-> 状态：**流程文档，尚未在真实环境演练**。离线开发沙箱无 `pg_dump` / `psql` / kubectl，
+> 状态：**脚本逻辑层已真实演练通过（2026-11-17，见第 6 节验收记录）；K8s CronJob 层与生产库规模仍待真实集群演练**。
+> 本次演练使用便携 PostgreSQL 18.7（`theseus-rs/postgresql-binaries` release 资产）在离线沙箱内
+> 起两个独立实例完成的 `backup-postgres.sh` / `restore-postgres.sh` 全流程真实验证；
 > 因此 `scripts/backup-postgres.sh`、`scripts/restore-postgres.sh` 与
 > `k8s/19-postgresql-backup.yaml` 均**未实测**。首次演练必须在预发环境完成并记录结果，
 > 在拿到通过记录前不得宣称"备份可恢复"。
@@ -90,7 +92,25 @@ USE_SQLITE=false cargo run --release
 
 ---
 
-## 6. 验收记录模板（演练后填写）
+## 6. 验收记录
+
+### 6.1 已完成：脚本逻辑层演练（2026-11-17，离线沙箱 + 便携 PG 18.7）
+
+| 项 | 记录 |
+| --- | --- |
+| 演练日期 / 执行人 | 2026-11-17 / Agent（用户指令） |
+| 源库 / 目标库 | 本地双实例：`127.0.0.1:55432`（源，应用全部 17 个 postgres 迁移 + 播种）→ `127.0.0.1:55433`（目标，仅空库） |
+| 备份归档文件与大小 | `backups/metaclouds-20261117T061409Z.dump`（80 KB，custom-format） |
+| `pg_restore -l` 是否通过 | ✅ 是（backup 脚本内置校验 + restore dry-run 各一次） |
+| 恢复耗时 / RTO 实测 | < 1 s（空库小数据量；仅证明流程，不代表生产 RTO） |
+| 数据一致性抽查结果 | **22/22 表行数逐一比对一致**；内容级断言：播种标记行 `drill-restore-marker/pending/prio=2/gpus=1` 在恢复库中精确还原（count=1，字段值一致） |
+| 恢复护栏是否生效 | ✅ dry-run 默认不写库；`--confirm` 才执行；恢复前自动生成 pre-restore 快照 `metaclouds-pre-restore-*.dump` |
+| 应用回归是否通过 | ☐ 未执行（场景 C 需真实应用接入，留待预发） |
+| 遗留问题与整改项 | ① K8s CronJob（`19-postgresql-backup.yaml`）在真实集群上的调度执行未演练；② 生产规模数据量与 RTO 未测；③ 生产认证路径（`PG*` env / `~/.pgpass`、非 trust auth）未覆盖——本次演练用 trust auth 简化；④ 保留期清理逻辑（`-mtime +14`）未长周期验证 |
+
+### 6.2 待完成：生产/预发演练（需真实集群）
+
+按第 3–5 节步骤在预发环境执行场景 A/B/C 后填写：
 
 | 项 | 记录 |
 | --- | --- |

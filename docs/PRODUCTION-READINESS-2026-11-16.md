@@ -120,7 +120,9 @@
 
 ### B. 强烈建议
 
-- [ ] 备份纳入 CronJob/定时调度，恢复流程在预发演练一次（用 `restore-postgres.sh --confirm`）
+- [ ] 备份纳入 CronJob/定时调度，恢复流程在预发演练一次（用 `restore-postgres.sh --confirm`）；
+  **2026-11-17 脚本逻辑层已真实演练通过**（便携 PG 18.7 双实例：22/22 表行数一致 + 内容级断言，
+  记录见 `BACKUP-RESTORE-DRILL.md` §6.1）；剩余：K8s CronJob 层与生产规模 RTO
 - [ ] 慢请求告警规则接入告警通道（匹配日志 `slow request` + `threshold_ms`）
 - [ ] 租约心跳续期 + 周期性 reconcile（当前仅启动期一次性）
 - [x] migrations down/回滚脚本与离线回放测试（本轮；真实环境回滚仍待演练）
